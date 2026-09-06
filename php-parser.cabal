@@ -1,18 +1,20 @@
 cabal-version:      3.0
 name:               php-parser
 version:            0.1.0.0
-synopsis:           PHP parsing library in idiomatic, functional-pearl Haskell
+synopsis:           PHP parsing library in idiomatic Haskell
 description:
     A purely functional, idiomatic Haskell library for parsing modern PHP source code
-    (PHP 8.2, 8.3, 8.4, and 8.5), designed in the spirit of a functional pearl.
+    (PHP 8.2, 8.3, 8.4, and 8.5).
 homepage:           https://github.com/jonbaldie/php-parser
-license:            BSD-3-Clause
+license:            MIT
+license-file:       LICENSE
 author:             Jonathan Baldie
 maintainer:         jonathan@jonbaldie.com
 category:           Language, Parsing
 build-type:         Simple
 extra-doc-files:    README.md
                     CHANGELOG.md
+                    LICENSE
 
 common warnings
     ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints

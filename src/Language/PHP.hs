@@ -1,14 +1,14 @@
 -- |
 -- Module      : Language.PHP
--- Description : Idiomatic, functional-pearl parser for PHP 8.2 through 8.5
+-- Description : Idiomatic parser for PHP 8.2 through 8.5
 -- Copyright   : (c) Jonathan Baldie, 2026
--- License     : BSD-3-Clause
+-- License     : MIT
 -- Maintainer  : jonathan@jonbaldie.com
 -- Stability   : experimental
 -- Portability : POSIX / Windows
 --
 -- A purely functional Haskell library for parsing modern PHP source code
--- (covering PHP 8.2, 8.3, 8.4, and 8.5), designed in the spirit of a functional pearl.
+-- (covering PHP 8.2, 8.3, 8.4, and 8.5).
 --
 -- Features supported include:
 --

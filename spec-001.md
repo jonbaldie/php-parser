@@ -1,14 +1,14 @@
-# Specification: PHP Parsing Library in Idiomatic, Functional-Pearl Haskell
+# Specification: Modern PHP Parsing Library in Idiomatic Haskell
 
 ## Problem Statement
 
-Haskell developers building developer tooling, static analysis engines, linters, refactoring tools, and code formatters for PHP have no modern, idiomatic, functional-pearl style parser library available. Existing Haskell PHP parsing libraries are abandoned, target legacy PHP 5.x or 7.x syntax, or rely on imperative parser-generator machinery that yields partial, opaque, or untyped syntax representations. 
+Haskell developers building developer tooling, static analysis engines, linters, refactoring tools, and code formatters for PHP have no modern, idiomatic parser library available. Existing Haskell PHP parsing libraries are abandoned, target legacy PHP 5.x or 7.x syntax, or rely on imperative parser-generator machinery that yields partial, opaque, or untyped syntax representations. 
 
 Over recent years, the PHP language has evolved dramatically. Active and security-supported PHP releases—specifically PHP 8.2, 8.3, 8.4, and 8.5—introduce syntax constructs such as property hooks, asymmetric visibility, Disjunctive Normal Form (DNF) types, the pipe operator (`|>`), clone-with syntax, direct class dereferencing on instantiation, dynamic class constant fetch, typed class constants, standalone null/false/true types, and attributes. Tool authors currently cannot parse, analyze, or transform modern PHP code in Haskell without encountering parse failures on contemporary, standard PHP syntax.
 
 ## Solution
 
-A purely functional, idiomatic Haskell library for parsing modern PHP source code, designed in the spirit of a "functional pearl": mathematically principled, declarative, elegant, and composed of algebraic building blocks. 
+A purely functional, idiomatic Haskell library for parsing modern PHP source code: mathematically principled, declarative, elegant, and composed of algebraic building blocks. 
 
 The library exposes an expressive, parameterized Abstract Syntax Tree (AST) that represents the complete grammar of all currently supported released versions of PHP (PHP 8.2, 8.3, 8.4, and 8.5). It provides a clean, total public API that accepts PHP source text and returns either precise diagnostic parse errors with source positions or fully annotated syntax trees. The library is accompanied by an algebraic pretty-printer supporting round-trip invariants and recursion schemes for seamless traversal and transformation.
 
@@ -59,8 +59,8 @@ The library exposes an expressive, parameterized Abstract Syntax Tree (AST) that
 
 ## Implementation Decisions
 
-- **Functional Pearl Architecture**: The parser will be designed around purely functional, composable parser combinators built on top of standard Haskell algebraic abstractions (`Functor`, `Applicative`, `Monad`, `Alternative`). The implementation emphasizes mathematical clarity, total functions, and compositional elegance rather than imperative parser-generator state machines.
-- **Parametric AST Representation**: Core AST structures will be parameterized over an annotation type (e.g., node location metadata). This functional-pearl pattern decouples syntactic structure from metadata, allowing consumers to strip annotations, attach source spans, or attach semantic analysis results without duplicating AST definitions.
+- **Composability and Functional Architecture**: The parser will be designed around purely functional, composable parser combinators built on top of standard Haskell algebraic abstractions (`Functor`, `Applicative`, `Monad`, `Alternative`). The implementation emphasizes mathematical clarity, total functions, and compositional elegance rather than imperative parser-generator state machines.
+- **Parametric AST Representation**: Core AST structures will be parameterized over an annotation type (e.g., node location metadata). This pattern decouples syntactic structure from metadata, allowing consumers to strip annotations, attach source spans, or attach semantic analysis results without duplicating AST definitions.
 - **Strict, Idiomatic Algebraic Data Types**: AST nodes will be implemented using strict data fields with precise Sum and Product types that make syntactically invalid states unrepresentable. Common idioms such as non-empty sequences (e.g., for match arms or parameter lists where required by grammar) will be utilized to encode language invariants into types.
 - **Unified Modern PHP Grammar**: Rather than maintaining separate diverging parsers for minor PHP versions, the library will provide a unified parser covering PHP 8.2 through PHP 8.5 with optional configuration flags for version-specific dialect restrictions where applicable.
 - **Single Public API Seam**: The library exposes its functionality through a single cohesive public interface module that provides high-level pure functions for parsing programs, statements, and expressions from strict text or lazy text into either structured parse error values or annotated syntax trees.
@@ -84,7 +84,7 @@ The library exposes an expressive, parameterized Abstract Syntax Tree (AST) that
 - **Property-Based Testing**:
   - Round-trip property testing (`parse . prettyPrint . parse == parse`) using Hedgehog or QuickCheck over generated syntax trees to guarantee parser-printer isomorphism.
   - Negative property tests ensuring invalid syntax fails gracefully with structured errors and never causes runtime crashes or non-termination.
-- **Prior Art**: Greenfield implementation adhering to the repository's `CODING_STANDARDS.md` requiring idiomatic Haskell and functional pearl style.
+- **Prior Art**: Greenfield implementation adhering to the repository's `CODING_STANDARDS.md`.
 
 ## Out of Scope
 
@@ -97,5 +97,5 @@ The library exposes an expressive, parameterized Abstract Syntax Tree (AST) that
 ## Further Notes
 
 - **PHP Release Lifecycle**: As of September 2026, PHP 8.2 and PHP 8.3 are in their security-fix support lifecycle, while PHP 8.4 and PHP 8.5 are in active support. Targeting PHP 8.2 through PHP 8.5 comprehensively covers all currently supported released versions of the language.
-- **Functional Pearl References**: The design draws inspiration from foundational functional pearls, including Graham Hutton and Erik Meijer's monadic parser combinators, Philip Wadler's pretty-printer algebra, and modern recursion scheme formulations for abstract syntax trees.
+- **Foundational References**: The design draws inspiration from foundational works, including Graham Hutton and Erik Meijer's monadic parser combinators, Philip Wadler's pretty-printer algebra, and modern recursion scheme formulations for abstract syntax trees.
 - **Extensibility**: Parameterizing AST nodes over an annotation functor allows future extensions, such as sourcemap generation, comments-as-nodes, or static analysis tags, without altering the core grammar definition.

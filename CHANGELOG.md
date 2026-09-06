@@ -2,4 +2,4 @@
 
 ## 0.1.0.0
 
-* Initial release of `php-parser`: Idiomatic, functional-pearl parser for PHP 8.2 through 8.5.
+* Initial release of `php-parser`: Idiomatic parser for PHP 8.2 through 8.5.
