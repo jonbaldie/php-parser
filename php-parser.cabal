@@ -1,0 +1,79 @@
+cabal-version:      3.0
+name:               php-parser
+version:            0.1.0.0
+synopsis:           PHP parsing library in idiomatic, functional-pearl Haskell
+description:
+    A purely functional, idiomatic Haskell library for parsing modern PHP source code
+    (PHP 8.2, 8.3, 8.4, and 8.5), designed in the spirit of a functional pearl.
+homepage:           https://github.com/jonbaldie/php-parser
+license:            BSD-3-Clause
+author:             Jonathan Baldie
+maintainer:         jonathan@jonbaldie.com
+category:           Language, Parsing
+build-type:         Simple
+extra-doc-files:    README.md
+                    CHANGELOG.md
+
+common warnings
+    ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
+
+library
+    import:           warnings
+    exposed-modules:  Language.PHP
+                    , Language.PHP.AST
+                    , Language.PHP.Span
+                    , Language.PHP.Fold
+                    , Language.PHP.Parser
+                    , Language.PHP.Parser.Error
+                    , Language.PHP.Parser.Lexer
+                    , Language.PHP.Parser.Type
+                    , Language.PHP.Parser.Expression
+                    , Language.PHP.Parser.Statement
+                    , Language.PHP.Pretty
+    build-depends:    base >= 4.18 && < 5
+                    , text >= 2.0 && < 2.2
+                    , bytestring >= 0.11 && < 0.13
+                    , containers >= 0.6 && < 0.9
+                    , mtl >= 2.3 && < 2.4
+                    , transformers >= 0.6 && < 0.7
+                    , megaparsec >= 9.6 && < 10
+                    , parser-combinators >= 1.3 && < 1.4
+                    , scientific >= 0.3.7 && < 0.4
+                    , prettyprinter >= 1.7 && < 1.8
+    hs-source-dirs:   src
+    default-language: GHC2021
+    default-extensions:
+        OverloadedStrings
+        LambdaCase
+        DeriveTraversable
+        DeriveGeneric
+        RecordWildCards
+        GADTs
+        TypeFamilies
+
+test-suite php-parser-test
+    import:           warnings
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    other-modules:    Test.PHP82Spec
+                    , Test.PHP83Spec
+                    , Test.PHP84Spec
+                    , Test.PHP85Spec
+                    , Test.ExpressionSpec
+                    , Test.StatementSpec
+                    , Test.PrettySpec
+                    , Test.RoundTripSpec
+                    , Test.RecursionSchemesSpec
+    build-depends:    base >= 4.18 && < 5
+                    , php-parser
+                    , text
+                    , containers
+                    , tasty >= 1.4 && < 1.6
+                    , tasty-hunit >= 0.10 && < 0.11
+                    , tasty-quickcheck >= 0.10 && < 0.12
+                    , QuickCheck >= 2.14 && < 2.19
+    default-extensions:
+        OverloadedStrings
+        LambdaCase

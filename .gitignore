@@ -1,0 +1,9 @@
+dist-newstyle/
+.ghc.environment.*
+*.o
+*.hi
+*.dyn_o
+*.dyn_hi
+.DS_Store
+*~
+*.swp
