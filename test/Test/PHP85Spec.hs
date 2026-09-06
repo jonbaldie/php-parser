@@ -18,7 +18,7 @@ php85Tests = testGroup "PHP 8.5 Specifications"
           other -> assertFailure ("Expected pipe binary expression, got: " ++ show other)
 
   , testCase "Pipe operator with arrow functions" $ do
-      let src = "$val |> fn($x) => $x * 2 |> fn($y) => $y + 1"
+      let src = "$val |> (fn($x) => $x * 2) |> (fn($y) => $y + 1)"
       case parseExpression "test.php" src of
         Left err -> assertFailure (show (formatParseError err))
         Right expr -> case expr of

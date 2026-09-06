@@ -58,7 +58,7 @@ parseExprWith pStmt pMember = parseExprRec
           <|> (Just OpBitXor <$ symbol "^=")
           <|> (Just OpShiftLeft <$ symbol "<<=")
           <|> (Just OpShiftRight <$ symbol ">>=")
-          <|> (Just OpPipe <$ symbol "??=")
+          <|> (Just OpCoalesce <$ symbol "??=")
 
     parseYield = withSpan $ do
       _ <- keyword "yield"
@@ -108,7 +108,7 @@ parseExprWith pStmt pMember = parseExprRec
       parseCoalesceRest lhs <|> pure lhs
       where
         parseCoalesceRest lhs = do
-          _ <- symbol "??"
+          _ <- lexeme (M.try (C.string "??" <* M.notFollowedBy (C.char '=')))
           rhs <- parseCoalesce <|> parseThrow
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprNullCoalesce sp lhs rhs)
@@ -364,17 +364,8 @@ parseExprWith pStmt pMember = parseExprRec
       params <- parens (parseParamDummy parseExprRec `M.sepEndBy` comma)
       retType <- parseReturnType
       _ <- symbol "=>"
-      body <- parseArrowBody
+      body <- parseAssignment
       pure (\sp -> ExprArrowFunction sp [] byRef isStatic params retType body)
-      where
-        parseArrowBody = parseBinaryLeft parseShift
-          [ (void (symbol "<=>"), OpSpaceship)
-          , (void (symbol "<="), OpLte)
-          , (void (symbol ">="), OpGte)
-          , (void (lexeme (C.char '<' <* M.notFollowedBy (C.char '<' <|> C.char '=' <|> C.char '>'))), OpLt)
-          , (void (lexeme (C.char '>' <* M.notFollowedBy (C.char '>' <|> C.char '='))), OpGt)
-          , (void (keyword "instanceof"), OpInstanceof)
-          ]
 
     parseClosure = withSpan $ M.try $ do
       isStatic <- (True <$ keyword "static") <|> pure False

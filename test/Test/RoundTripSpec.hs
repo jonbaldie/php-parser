@@ -39,6 +39,15 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
              Right reParsed ->
                counterexample ("Printed: " ++ T.unpack printed)
                  (stripAnnotations origExpr == stripAnnotations reParsed)
+
+  , testProperty "Arbitrary generated statements round-trip cleanly" $
+      forAll genSimpleStmt $ \origStmt ->
+        let printed = prettyPrintStmt origStmt
+        in case parseStatement "gen.php" printed of
+             Left err -> counterexample ("Failed to parse printed stmt: " ++ T.unpack printed ++ "\nError: " ++ show err) False
+             Right reParsed ->
+               counterexample ("Printed stmt: " ++ T.unpack printed)
+                 (stripAnnotations origStmt == stripAnnotations reParsed)
   ]
 
 assertRoundTrips :: Text -> Assertion
@@ -61,20 +70,84 @@ genExprSized :: Int -> Gen (Expr ())
 genExprSized n
   | n <= 0 = oneof
       [ pure (ExprLit () (LitInt () 42 "42"))
+      , pure (ExprLit () (LitFloat () 3.14 "3.14"))
       , pure (ExprLit () (LitString () "hello" "'hello'"))
       , pure (ExprLit () (LitBool () True))
       , pure (ExprLit () (LitNull ()))
       , pure (ExprVar () (SimpleVar () (VarName () "x")))
+      , pure (ExprVar () (SimpleVar () (VarName () "item")))
       ]
   | otherwise = oneof
       [ pure (ExprLit () (LitInt () 42 "42"))
+      , pure (ExprLit () (LitFloat () 3.14 "3.14"))
       , pure (ExprVar () (SimpleVar () (VarName () "item")))
       , do
           e1 <- genExprSized (n `div` 2)
           e2 <- genExprSized (n `div` 2)
-          op <- elements [OpAdd, OpSub, OpMul, OpConcat, OpPipe]
+          op <- elements
+            [ OpAdd, OpSub, OpMul, OpDiv, OpMod, OpConcat, OpPipe
+            , OpBitAnd, OpBitOr, OpBitXor, OpEq, OpIdentical, OpNotEq
+            , OpLt, OpLte, OpGt, OpGte, OpSpaceship, OpBoolAnd, OpBoolOr
+            ]
           pure (ExprBinary () op e1 e2)
       , do
           e <- genExprSized (n - 1)
-          pure (ExprUnary () OpBoolNot e)
+          op <- elements [OpBoolNot, OpBitNot, OpUnaryMinus, OpUnaryPlus]
+          pure (ExprUnary () op e)
+      , do
+          cond <- genExprSized (n `div` 3)
+          t <- genExprSized (n `div` 3)
+          f <- genExprSized (n `div` 3)
+          pure (ExprTernary () cond (Just t) f)
+      , do
+          cond <- genExprSized (n `div` 2)
+          f <- genExprSized (n `div` 2)
+          pure (ExprTernary () cond Nothing f)
+      , do
+          e1 <- genExprSized (n `div` 2)
+          e2 <- genExprSized (n `div` 2)
+          pure (ExprNullCoalesce () e1 e2)
+      , do
+          ct <- elements [CastInt, CastFloat, CastString, CastBool, CastArray]
+          e <- genExprSized (n - 1)
+          pure (ExprCast () ct e)
+      , do
+          items <- listOf1 (ArrayItem () Nothing <$> genExprSized (n `div` 2) <*> pure False)
+          pure (ExprArray () (take 3 items))
+      , do
+          arr <- genExprSized (n `div` 2)
+          idx <- genExprSized (n `div` 2)
+          pure (ExprArrayAccess () arr (Just idx))
+      ]
+
+genSimpleStmt :: Gen (Stmt ())
+genSimpleStmt = sized genStmtSized
+
+genStmtSized :: Int -> Gen (Stmt ())
+genStmtSized n
+  | n <= 0 = oneof
+      [ StmtExpr () <$> genExprSized 0
+      , StmtReturn () <$> oneof [pure Nothing, Just <$> genExprSized 0]
+      , pure (StmtBreak () Nothing)
+      , pure (StmtContinue () Nothing)
+      ]
+  | otherwise = oneof
+      [ StmtExpr () <$> genExprSized 1
+      , StmtReturn () <$> (Just <$> genExprSized 1)
+      , do
+          cond <- genExprSized 1
+          thens <- listOf1 (genStmtSized (n `div` 2))
+          pure (StmtIf () cond (take 2 thens) [] Nothing)
+      , do
+          cond <- genExprSized 1
+          body <- listOf1 (genStmtSized (n `div` 2))
+          pure (StmtWhile () cond (take 2 body))
+      , do
+          arr <- genExprSized 1
+          val <- genExprSized 1
+          body <- listOf1 (genStmtSized (n `div` 2))
+          pure (StmtForeach () arr Nothing val False (take 2 body))
+      , do
+          stmts <- listOf1 (genStmtSized (n `div` 2))
+          pure (StmtBlock () (take 3 stmts))
       ]

@@ -284,10 +284,6 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
           then pure (readOctStr clean, raw)
           else pure (read (T.unpack clean), raw)
 
-    underscoreDigits pred' = do
-      let charP = M.satisfy pred' <|> (C.char '_' <* M.lookAhead (M.satisfy pred'))
-      T.pack <$> many charP
-
     readHexStr s = case reads ("0x" ++ T.unpack s) of
       [(v, "")] -> v
       _ -> 0
@@ -298,27 +294,49 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
 
     readBinStr s = T.foldl' (\acc c -> acc * 2 + if c == '1' then 1 else 0) 0 s
 
+underscoreDigits :: (Char -> Bool) -> Parser Text
+underscoreDigits pred' = do
+  let charP = M.satisfy pred' <|> (C.char '_' <* M.lookAhead (M.satisfy pred'))
+  T.pack <$> many charP
+
+underscoreDigits1 :: (Char -> Bool) -> Parser Text
+underscoreDigits1 pred' = do
+  c <- M.satisfy pred'
+  rest <- underscoreDigits pred'
+  pure (T.cons c rest)
+
 -- | Float literals: decimal point, exponent, underscores.
 literalFloat :: Parser (Literal Span)
 literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
   raw <- parseRawFloat
   let clean = T.filter (/= '_') raw
-  let val = case reads (T.unpack clean) of
+  let readStr =
+        (if "." `T.isPrefixOf` clean then ("0" <>) else id) .
+        (if "." `T.isSuffixOf` clean then (<> "0") else id) $ clean
+  let val = case reads (T.unpack readStr) of
         [(v, "")] -> v
         _ -> 0.0
   pure (\sp -> LitFloat sp val raw)
   where
     parseRawFloat = do
-      d1 <- M.takeWhileP Nothing isDigit
-      d2 <- (T.singleton <$> C.char '.') <|> pure ""
-      d3 <- if T.null d2 then M.empty else M.takeWhileP Nothing isDigit
-      when (T.null d1 && T.null d3) M.empty
-      expPart <- (do
-        e <- C.char 'e' <|> C.char 'E'
-        sgn <- (C.char '+' <|> C.char '-') <|> pure '+'
-        digits <- M.takeWhile1P (Just "exponent digits") isDigit
-        pure (T.pack [e, sgn] <> digits)) <|> pure ""
-      pure (d1 <> d2 <> d3 <> expPart)
+      d1 <- underscoreDigits isDigit
+      hasDot <- (True <$ C.char '.') <|> pure False
+      if hasDot
+        then do
+          d2 <- underscoreDigits isDigit
+          when (T.null d1 && T.null d2) M.empty
+          mExp <- optional parseExp
+          pure (d1 <> "." <> d2 <> maybe "" id mExp)
+        else do
+          when (T.null d1) M.empty
+          expPart <- parseExp
+          pure (d1 <> expPart)
+
+    parseExp = do
+      e <- C.char 'e' <|> C.char 'E'
+      sgn <- (C.char '+' <|> C.char '-') <|> pure '+'
+      digits <- underscoreDigits1 isDigit
+      pure (T.pack [e, sgn] <> digits)
 
 -- | String literals: single-quoted (raw) or double-quoted.
 literalString :: Parser (Literal Span)
@@ -366,14 +384,27 @@ literalHeredocOrNowdoc :: Parser (Literal Span)
 literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ M.try $ do
   _ <- C.string "<<<"
   _ <- many (C.char ' ' <|> C.char '\t')
-  isNowdoc <- (True <$ C.char '\'') <|> pure False
-  tag <- rawIdentifier
-  when isNowdoc (void (C.char '\''))
+  (isNowdoc, tag) <- parseTag
   _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
 
   (content, _) <- parseLines tag
   pure (\sp -> LitHeredoc sp tag content isNowdoc)
   where
+    parseTag =
+      (do
+        _ <- C.char '\''
+        t <- rawIdentifier
+        _ <- C.char '\''
+        pure (True, t))
+      <|> (do
+        _ <- C.char '"'
+        t <- rawIdentifier
+        _ <- C.char '"'
+        pure (False, t))
+      <|> (do
+        t <- rawIdentifier
+        pure (False, t))
+
     parseLines tag = do
       lineIndent <- many (C.char ' ' <|> C.char '\t')
       isEnd <- (True <$ M.lookAhead (C.string tag)) <|> pure False

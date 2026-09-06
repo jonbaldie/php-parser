@@ -288,14 +288,20 @@ parseForeach = withSpan $ do
   _ <- symbol "("
   arr <- parseExpr
   keyword_ "as"
-  kOrV <- parseExpr
-  isArrow <- (True <$ symbol "=>") <|> pure False
-  (mKey, val, byRef) <- if isArrow
+  hasLeadingRef <- (True <$ symbol "&") <|> pure False
+  (mKey, val, byRef) <- if hasLeadingRef
     then do
-      byRef <- (True <$ symbol "&") <|> pure False
       v <- parseExpr
-      pure (Just kOrV, v, byRef)
-    else pure (Nothing, kOrV, False)
+      pure (Nothing, v, True)
+    else do
+      kOrV <- parseExpr
+      isArrow <- (True <$ symbol "=>") <|> pure False
+      if isArrow
+        then do
+          byRef <- (True <$ symbol "&") <|> pure False
+          v <- parseExpr
+          pure (Just kOrV, v, byRef)
+        else pure (Nothing, kOrV, False)
   _ <- symbol ")"
   body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
   pure (\sp -> StmtForeach sp arr mKey val byRef body)

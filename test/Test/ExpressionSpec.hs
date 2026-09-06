@@ -88,6 +88,18 @@ expressionTests = testGroup "Expression Specifications"
             assertEqual ("Value for " ++ show s) expectedVal val
           other -> assertFailure ("Failed on " ++ show s ++ ": " ++ show other)) tests
 
+      let floatTests =
+            [ ("1e5", 100000.0)
+            , ("2E+3", 2000.0)
+            , ("1.5e-2", 0.015)
+            , ("3.14_15", 3.1415)
+            ]
+      mapM_ (\(s, expectedVal) ->
+        case parseExpression "test.php" s of
+          Right (ExprLit _ (LitFloat _ val _)) ->
+            assertEqual ("Value for " ++ show s) expectedVal val
+          other -> assertFailure ("Failed on float " ++ show s ++ ": " ++ show other)) floatTests
+
   , testCase "Heredoc and Nowdoc flexible syntax" $ do
       let hereSrc = "<<<EOF\nHello World\nEOF"
           nowSrc = "<<<'NOW'\nSingle $quoted raw\nNOW"
@@ -98,6 +110,11 @@ expressionTests = testGroup "Expression Specifications"
       case parseExpression "test.php" nowSrc of
         Right (ExprLit _ (LitHeredoc _ "NOW" _ True)) -> pure ()
         other -> assertFailure ("Nowdoc failed: " ++ show other)
+
+      let doubleQuotedHereSrc = "<<<\"EOF\"\nDouble quoted heredoc\nEOF"
+      case parseExpression "test.php" doubleQuotedHereSrc of
+        Right (ExprLit _ (LitHeredoc _ "EOF" _ False)) -> pure ()
+        other -> assertFailure ("Double-quoted Heredoc failed: " ++ show other)
 
   , testCase "Generators: yield, yield key => val, yield from" $ do
       assertParsesOkExpr "yield"
@@ -110,6 +127,38 @@ expressionTests = testGroup "Expression Specifications"
           closureSrc = "function ($a) use ($b, &$c): void { return; }"
       assertParsesOkExpr fnSrc
       assertParsesOkExpr closureSrc
+
+  , testCase "Arrow function body precedence: fn($x) => $x == 1 and fn($x) => $x && $y" $ do
+      let src = "fn($x) => $x == 1"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprArrowFunction _ _ _ _ _ _ body) -> case body of
+          ExprBinary _ OpEq _ _ -> pure ()
+          other -> assertFailure ("Expected ExprBinary OpEq in arrow body, got: " ++ show other)
+        Right other -> assertFailure ("Expected ExprArrowFunction, got: " ++ show other)
+
+  , testCase "Null coalescing assignment operator: $a ??= $b" $ do
+      let src = "$a ??= $b"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "pretty-printed representation" "$a ??= $b" (prettyPrintExpr expr)
+
+  , testCase "Array access on cast expression requires parentheses: ((int)$x)[0]" $ do
+      let expr = ExprArrayAccess () (ExprCast () CastInt (ExprVar () (SimpleVar () (VarName () "x")))) (Just (ExprLit () (LitInt () 0 "0")))
+          printed = prettyPrintExpr expr
+      assertEqual "pretty printed" "((int)$x)[0]" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+  , testCase "Double unary minus does not merge into pre-decrement: - (-$x)" $ do
+      let expr = ExprUnary () OpUnaryMinus (ExprUnary () OpUnaryMinus (ExprVar () (SimpleVar () (VarName () "x"))))
+          printed = prettyPrintExpr expr
+      assertEqual "pretty printed" "- -$x" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
   ]
 
 assertParsesOkExpr :: Text -> Assertion

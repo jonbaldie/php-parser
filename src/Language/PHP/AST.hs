@@ -371,6 +371,7 @@ data BinOp
   | OpLogicalXor
   | OpInstanceof
   | OpPipe -- ^ PHP 8.5 pipe operator (|>)
+  | OpCoalesce -- ^ Null coalescing operator (??)
   deriving (Eq, Ord, Show, Generic)
 
 -- | Unary operators.

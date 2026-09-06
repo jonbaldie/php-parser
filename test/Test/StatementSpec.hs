@@ -113,6 +113,13 @@ statementTests = testGroup "Statement & Declaration Specifications"
           let sp = errorSpan err
           assertEqual "error line" 1 (posLine (spanStart sp))
           assertBool "error column > 0" (posColumn (spanStart sp) > 0)
+
+  , testCase "Foreach by-reference without key: foreach ($arr as &$val)" $ do
+      let src = "<?php foreach ($items as &$item) { $item *= 2; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtForeach _ _ Nothing _ True _]) -> pure ()
+        other -> assertFailure ("Unexpected foreach AST: " ++ show other)
   ]
 
 assertParsesOk :: Text -> Assertion

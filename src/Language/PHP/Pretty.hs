@@ -314,15 +314,15 @@ prettyExpr = \case
     maybe mempty (\e -> " extends " <> prettyQualifiedName e) ext <>
     (if null impls then mempty else " implements " <> hsep (punctuate "," (map prettyQualifiedName impls))) <>
     " {" <> line <> indent 4 (vsep (map prettyMember members)) <> line <> "}"
-  ExprCall _ fn args -> prettyExpr fn <> prettyCallArgs args
+  ExprCall _ fn args -> prettyPostfixBase fn <> prettyCallArgs args
   ExprMethodCall _ obj member args ->
-    prettyExpr obj <> "->" <> prettyMemberName member <> prettyCallArgs args
+    prettyPostfixBase obj <> "->" <> prettyMemberName member <> prettyCallArgs args
   ExprNullsafeMethodCall _ obj member args ->
-    prettyExpr obj <> "?->" <> prettyMemberName member <> prettyCallArgs args
+    prettyPostfixBase obj <> "?->" <> prettyMemberName member <> prettyCallArgs args
   ExprPropertyFetch _ obj member ->
-    prettyExpr obj <> "->" <> prettyMemberName member
+    prettyPostfixBase obj <> "->" <> prettyMemberName member
   ExprNullsafePropertyFetch _ obj member ->
-    prettyExpr obj <> "?->" <> prettyMemberName member
+    prettyPostfixBase obj <> "?->" <> prettyMemberName member
   ExprStaticCall _ target member args ->
     prettyTarget target <> "::" <> prettyMemberName member <> prettyCallArgs args
   ExprStaticPropertyFetch _ target var ->
@@ -332,7 +332,7 @@ prettyExpr = \case
   ExprArray _ items ->
     "[" <> hsep (punctuate "," (map prettyArrayItem items)) <> "]"
   ExprArrayAccess _ arr mIdx ->
-    prettyExpr arr <> "[" <> maybe mempty prettyExpr mIdx <> "]"
+    prettyPostfixBase arr <> "[" <> maybe mempty prettyExpr mIdx <> "]"
   ExprMatch _ subject arms ->
     "match (" <> prettyExpr subject <> ") {" <> line <>
     indent 4 (vsep (punctuate "," (map prettyMatchArm arms))) <> line <> "}"
@@ -390,6 +390,7 @@ prettyBinOp = \case
   OpLogicalXor -> "xor"
   OpInstanceof -> "instanceof"
   OpPipe -> "|>"
+  OpCoalesce -> "??"
 
 prettyUnary :: UnOp -> Expr a -> Doc ann
 prettyUnary op e = case op of
@@ -397,8 +398,18 @@ prettyUnary op e = case op of
   OpPostInc -> prettyExpr e <> "++"
   OpPreDec -> "--" <> prettyExpr e
   OpPostDec -> prettyExpr e <> "--"
-  OpUnaryPlus -> "+" <> prettyExpr e
-  OpUnaryMinus -> "-" <> prettyExpr e
+  OpUnaryPlus ->
+    let spaceSep = case e of
+          ExprUnary _ OpUnaryPlus _ -> " "
+          ExprUnary _ OpPreInc _    -> " "
+          _                         -> mempty
+    in "+" <> spaceSep <> prettyExpr e
+  OpUnaryMinus ->
+    let spaceSep = case e of
+          ExprUnary _ OpUnaryMinus _ -> " "
+          ExprUnary _ OpPreDec _     -> " "
+          _                          -> mempty
+    in "-" <> spaceSep <> prettyExpr e
   OpBoolNot -> "!" <> prettyExpr e
   OpBitNot -> "~" <> prettyExpr e
   OpErrorSuppress -> "@" <> prettyExpr e
@@ -412,6 +423,19 @@ prettyCallArgs :: CallArgs a -> Doc ann
 prettyCallArgs = \case
   ArgsList args -> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   FirstClassCallable -> "(...)"
+
+prettyPostfixBase :: Expr a -> Doc ann
+prettyPostfixBase e
+  | needsPostfixParens e = parens (prettyExpr e)
+  | otherwise            = prettyExpr e
+
+needsPostfixParens :: Expr a -> Bool
+needsPostfixParens = \case
+  ExprCast {}   -> True
+  ExprUnary {}  -> True
+  ExprClone {}  -> True
+  ExprAssign {} -> True
+  _             -> False
 
 prettyTarget :: ClassTarget a -> Doc ann
 prettyTarget = \case
