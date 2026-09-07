@@ -116,6 +116,31 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprLit _ (LitHeredoc _ "EOF" _ False)) -> pure ()
         other -> assertFailure ("Double-quoted Heredoc failed: " ++ show other)
 
+  , testCase "Heredoc and nowdoc lines starting with closing tag prefix" $ do
+      let hereSrc = "<<<EOF\nEOF_MORE\nEOF"
+      case parseExpression "test.php" hereSrc of
+        Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
+          assertEqual "content matches" "EOF_MORE" content
+        other -> assertFailure ("Heredoc prefix in body failed: " ++ show other)
+
+      let nowSrc = "<<<'NOW'\nNOW_MORE\nNOW123\nNOW"
+      case parseExpression "test.php" nowSrc of
+        Right (ExprLit _ (LitHeredoc _ "NOW" content True)) ->
+          assertEqual "nowdoc content matches" "NOW_MORE\nNOW123" content
+        other -> assertFailure ("Nowdoc prefix in body failed: " ++ show other)
+
+      let indentedSrc = "<<<EOF\n    EOF_MORE\n    EOF123\n    EOF"
+      case parseExpression "test.php" indentedSrc of
+        Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
+          assertEqual "indented content matches" "EOF_MORE\nEOF123" content
+        other -> assertFailure ("Indented heredoc prefix in body failed: " ++ show other)
+
+      let doubleQuotedSrc = "<<<\"EOF\"\nEOF_MORE\nEOF"
+      case parseExpression "test.php" doubleQuotedSrc of
+        Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
+          assertEqual "double quoted heredoc content matches" "EOF_MORE" content
+        other -> assertFailure ("Double quoted heredoc prefix in body failed: " ++ show other)
+
   , testCase "Generators: yield, yield key => val, yield from" $ do
       assertParsesOkExpr "yield"
       assertParsesOkExpr "yield $value"

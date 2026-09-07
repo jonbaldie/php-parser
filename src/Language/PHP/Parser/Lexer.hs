@@ -407,7 +407,8 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ M.try
 
     parseLines tag = do
       lineIndent <- many (C.char ' ' <|> C.char '\t')
-      isEnd <- (True <$ M.lookAhead (C.string tag)) <|> pure False
+      let isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
+      isEnd <- (True <$ M.lookAhead (M.try (C.string tag *> M.notFollowedBy (M.satisfy isIdentChar)))) <|> pure False
       if isEnd
         then do
           _ <- C.string tag
