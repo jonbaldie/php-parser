@@ -120,6 +120,33 @@ statementTests = testGroup "Statement & Declaration Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right (Program _ [StmtForeach _ _ Nothing _ True _]) -> pure ()
         other -> assertFailure ("Unexpected foreach AST: " ++ show other)
+
+  , testCase "Class constant with final before visibility: final public const A = 1;" $ do
+      let src = "<?php class Foo { final public const A = 1; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtClass _ cd] -> case classMembers cd of
+            [MemberConst (ConstDecl _ _ vis isFinal _ items)] -> do
+              assertEqual "vis is Public" (Just Public) vis
+              assertEqual "isFinal is True" True isFinal
+              assertEqual "items count" 1 (length items)
+            other -> assertFailure ("Expected MemberConst, got: " ++ show other)
+          _ -> assertFailure "Expected StmtClass"
+
+  , testCase "Class constant modifier order permutations" $ do
+      let src = "<?php class Foo { final public const A = 1; public final const B = 2; final protected const int C = 3; final private const ?string D = 'd'; final const E = 5; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+          [ MemberConst (ConstDecl _ _ (Just Public) True Nothing _)
+            , MemberConst (ConstDecl _ _ (Just Public) True Nothing _)
+            , MemberConst (ConstDecl _ _ (Just Protected) True (Just (SimpleType _ _)) _)
+            , MemberConst (ConstDecl _ _ (Just Private) True (Just (NullableType _ _)) _)
+            , MemberConst (ConstDecl _ _ Nothing True Nothing _)
+            ] -> pure ()
+          members -> assertFailure ("Unexpected class members: " ++ show (length members))
+        other -> assertFailure ("Unexpected program AST: " ++ show other)
   ]
 
 assertParsesOk :: Text -> Assertion

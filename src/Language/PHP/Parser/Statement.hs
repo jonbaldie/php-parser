@@ -477,13 +477,25 @@ parseClassModifier = loop False False False
         loop isFin isAbs True)
       <|> pure (ClassModifier isFin isAbs isRo)
 
+-- | Class constant modifiers (visibility and final in any order).
+parseConstModifier :: Parser (Maybe Visibility, Bool)
+parseConstModifier = loop Nothing False
+  where
+    loop vis isFin =
+      (do
+        v <- parseVisibility
+        loop (Just v) isFin)
+      <|> (do
+        keyword_ "final"
+        loop vis True)
+      <|> pure (vis, isFin)
+
 -- | Top-level or Class constant declaration (supports typed constants PHP 8.3).
 parseConstDecl :: Parser (ConstDecl Span)
 parseConstDecl = withSpan $ do
   (attrs, vis, isFinal) <- M.try $ do
     attrs <- parseAttributes
-    vis <- optional parseVisibility
-    isFinal <- (True <$ keyword "final") <|> pure False
+    (vis, isFinal) <- parseConstModifier
     keyword_ "const"
     pure (attrs, vis, isFinal)
   mType <- optional (M.try (parseType <* M.lookAhead identifier))
