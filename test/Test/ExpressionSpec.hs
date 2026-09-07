@@ -184,6 +184,81 @@ expressionTests = testGroup "Expression Specifications"
       case parseExpression "test.php" printed of
         Left err -> assertFailure (show (formatParseError err))
         Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+  , testCase "Dynamic class instantiation using variable: new $c()" $ do
+      let src = "new $c()"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprNew _ (ClassTargetExpr (ExprVar _ (SimpleVar _ (VarName _ "c")))) [] ->
+              pure ()
+            other -> assertFailure ("Expected ExprNew with dynamic variable ClassTargetExpr, got: " ++ show other)
+          assertEqual "pretty printed" "new $c()" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+  , testCase "Dynamic class instantiation without parentheses: new $c" $ do
+      let src = "new $c"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprNew _ (ClassTargetExpr (ExprVar _ (SimpleVar _ (VarName _ "c")))) [] ->
+            pure ()
+          other -> assertFailure ("Expected ExprNew without parens, got: " ++ show other)
+
+  , testCase "Dynamic class instantiation with property fetch: new $this->serviceClass()" $ do
+      let src = "new $this->serviceClass()"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprNew _ (ClassTargetExpr (ExprPropertyFetch _ (ExprVar _ (SimpleVar _ (VarName _ "this"))) (MemberIdent (Ident _ "serviceClass")))) [] ->
+              pure ()
+            other -> assertFailure ("Expected ExprNew with property fetch ClassTargetExpr, got: " ++ show other)
+          assertEqual "pretty printed" "new $this->serviceClass()" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+  , testCase "Dynamic class instantiation with array access: new $classes[0]('arg')" $ do
+      let src = "new $classes[0]('arg')"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprNew _ (ClassTargetExpr (ExprArrayAccess _ (ExprVar _ (SimpleVar _ (VarName _ "classes"))) (Just (ExprLit _ (LitInt _ 0 "0"))))) [Arg _ Nothing (ExprLit _ (LitString _ "arg" "'arg'")) False] ->
+            pure ()
+          other -> assertFailure ("Expected ExprNew with array access ClassTargetExpr, got: " ++ show other)
+
+  , testCase "Dynamic class instantiation with static property: new Foo::$class()" $ do
+      let src = "new Foo::$class()"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprNew _ (ClassTargetExpr (ExprStaticPropertyFetch _ (ClassTargetName (QualifiedName _ NameUnqualified ["Foo"])) (VarName _ "class"))) [] ->
+              pure ()
+            other -> assertFailure ("Expected ExprNew with static property ClassTargetExpr, got: " ++ show other)
+          assertEqual "pretty printed" "new Foo::$class()" (prettyPrintExpr expr)
+
+  , testCase "Dynamic class instantiation with method chaining: new $c()->process()" $ do
+      let src = "new $c()->process()"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprMethodCall _ (ExprNew _ (ClassTargetExpr (ExprVar _ (SimpleVar _ (VarName _ "c")))) []) (MemberIdent (Ident _ "process")) (ArgsList []) ->
+            pure ()
+          other -> assertFailure ("Expected ExprMethodCall on dynamic ExprNew, got: " ++ show other)
+
+  , testCase "Issue #8 reproducer: parseProgram with $obj = new $c();" $ do
+      let src = "<?php\n$obj = new $c();\n"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtExpr _ (ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (ExprNew _ (ClassTargetExpr (ExprVar _ (SimpleVar _ (VarName _ "c")))) []))] ->
+            pure ()
+          other -> assertFailure ("Expected StmtExpr with ExprAssign and dynamic ExprNew, got: " ++ show other)
   ]
 
 assertParsesOkExpr :: Text -> Assertion

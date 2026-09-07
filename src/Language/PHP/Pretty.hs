@@ -306,7 +306,7 @@ prettyExpr = \case
     "clone(" <> prettyExpr obj <> ", [" <>
     hsep (punctuate "," (map (\(k, v) -> prettyExpr k <+> "=>" <+> prettyExpr v) with)) <> "])"
   ExprNew _ target args ->
-    "new " <> prettyTarget target <> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
+    "new " <> prettyNewTarget target <> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   ExprNewAnonClass _ attrs modif args ext impls members ->
     prettyAttributes attrs <>
     "new " <> (if classReadonly modif then "readonly " else "") <> "class(" <>
@@ -437,10 +437,27 @@ needsPostfixParens = \case
   ExprAssign {} -> True
   _             -> False
 
+prettyNewTarget :: ClassTarget a -> Doc ann
+prettyNewTarget = \case
+  ClassTargetName qn -> prettyQualifiedName qn
+  ClassTargetExpr e
+    | isDynamicTarget e -> prettyExpr e
+    | otherwise         -> parens (prettyExpr e)
+  where
+    isDynamicTarget = \case
+      ExprVar {}                   -> True
+      ExprPropertyFetch {}         -> True
+      ExprNullsafePropertyFetch {}  -> True
+      ExprArrayAccess {}           -> True
+      ExprStaticPropertyFetch {}   -> True
+      _                            -> False
+
 prettyTarget :: ClassTarget a -> Doc ann
 prettyTarget = \case
   ClassTargetName qn -> prettyQualifiedName qn
-  ClassTargetExpr e -> parens (prettyExpr e)
+  ClassTargetExpr e -> case e of
+    ExprVar {} -> prettyExpr e
+    _          -> parens (prettyExpr e)
 
 prettyMemberName :: MemberName a -> Doc ann
 prettyMemberName = \case
