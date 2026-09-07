@@ -346,10 +346,59 @@ parseExprWith pStmt pMember = parseExprRec
           members <- braces (M.many pMember)
           pure (\sp -> ExprNewAnonClass sp [] modif args mExtends impls members)
         else do
-          target <- (ClassTargetExpr <$> parens parseExprRec) <|> (ClassTargetName <$> qualifiedName)
+          target <- parseNewTarget
           mArgs <- optional (parens (parseArgWith parseExprRec `M.sepEndBy` comma))
           let args = maybe [] id mArgs
           pure (\sp -> ExprNew sp target args)
+      where
+        parseNewTarget =
+          (ClassTargetExpr <$> parens parseExprRec)
+          <|> (parseVariableExpr >>= chainDynamicTarget)
+          <|> M.try (do
+                QualifiedName qnSp kind parts <- qualifiedName
+                let qn = QualifiedName qnSp kind parts
+                _ <- doubleColon
+                vn <- variableName
+                let sp = combineSpans qnSp (varNameSpan vn)
+                chainDynamicTarget (ExprStaticPropertyFetch sp (ClassTargetName qn) vn))
+          <|> (ClassTargetName <$> qualifiedName)
+
+        chainDynamicTarget base = do
+          mNext <- optional (parseDynamicStep base)
+          case mNext of
+            Nothing   -> pure (toClassTarget base)
+            Just next -> chainDynamicTarget next
+
+        parseDynamicStep base =
+          parseProp
+          <|> parseNullsafeProp
+          <|> parseStaticProp
+          <|> parseArr
+          where
+            parseProp = do
+              _ <- symbol "->"
+              name <- parseMemberName
+              let sp = combineSpans (exprSpan base) (memberNameSpan name)
+              pure (ExprPropertyFetch sp base name)
+
+            parseNullsafeProp = do
+              _ <- symbol "?->"
+              name <- parseMemberName
+              let sp = combineSpans (exprSpan base) (memberNameSpan name)
+              pure (ExprNullsafePropertyFetch sp base name)
+
+            parseStaticProp = do
+              _ <- doubleColon
+              vn <- variableName
+              let sp = combineSpans (exprSpan base) (varNameSpan vn)
+              pure (ExprStaticPropertyFetch sp (toClassTarget base) vn)
+
+            parseArr = do
+              _ <- symbol "["
+              mIdx <- optional parseExprRec
+              (spEnd, _) <- spanned (symbol "]")
+              let sp = combineSpans (exprSpan base) spEnd
+              pure (ExprArrayAccess sp base mIdx)
 
     parseMatch = withSpan $ do
       _ <- keyword "match"
