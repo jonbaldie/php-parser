@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               php-parser
-version:            0.1.0.0
+version:            0.1.1.0
 synopsis:           PHP parsing library in idiomatic Haskell
 description:
     A purely functional, idiomatic Haskell library for parsing modern PHP source code
