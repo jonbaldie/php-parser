@@ -176,6 +176,12 @@ statementTests = testGroup "Statement & Declaration Specifications"
         Right (Program _ stmts) -> case stmts of
           [StmtIf _ _ [_] [(_, [_])] (Just [_])] -> pure ()
           other -> assertFailure ("Unexpected if AST: " ++ show other)
+
+  , testCase "Issue 24 reproducer: relative namespace statements" $ do
+      assertParsesOk "<?php namespace\\Foo::bar();"
+      assertParsesOk "<?php namespace\\func();"
+      assertParsesOk "<?php namespace\\MY_CONST;"
+      assertParsesOk "<?php namespace\\Foo::$bar = 1;"
   ]
 
 assertParsesOk :: Text -> Assertion
