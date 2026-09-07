@@ -314,7 +314,7 @@ prettyExpr = \case
     maybe mempty (\e -> " extends " <> prettyQualifiedName e) ext <>
     (if null impls then mempty else " implements " <> hsep (punctuate "," (map prettyQualifiedName impls))) <>
     " {" <> line <> indent 4 (vsep (map prettyMember members)) <> line <> "}"
-  ExprCall _ fn args -> prettyPostfixBase fn <> prettyCallArgs args
+  ExprCall _ fn args -> prettyCallBase fn <> prettyCallArgs args
   ExprMethodCall _ obj member args ->
     prettyPostfixBase obj <> "->" <> prettyMemberName member <> prettyCallArgs args
   ExprNullsafeMethodCall _ obj member args ->
@@ -423,6 +423,19 @@ prettyCallArgs :: CallArgs a -> Doc ann
 prettyCallArgs = \case
   ArgsList args -> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   FirstClassCallable -> "(...)"
+
+prettyCallBase :: Expr a -> Doc ann
+prettyCallBase e
+  | needsCallParens e = parens (prettyExpr e)
+  | otherwise         = prettyPostfixBase e
+
+needsCallParens :: Expr a -> Bool
+needsCallParens = \case
+  ExprPropertyFetch {}         -> True
+  ExprNullsafePropertyFetch {} -> True
+  ExprStaticPropertyFetch {}   -> True
+  ExprClassConstFetch {}       -> True
+  _                            -> False
 
 prettyPostfixBase :: Expr a -> Doc ann
 prettyPostfixBase e

@@ -42,4 +42,52 @@ prettyTests = testGroup "Pretty Printer Specifications"
         Right ast -> do
           let printed = prettyPrintExpr ast
           assertBool "Printed contains |>" ("|>" `T.isInfixOf` printed)
+
+  , testCase "prettyPrintExpr on ExprCall with property fetch parenthesizes callee" $ do
+      let expr = ExprCall () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "prop"))) (ArgsList [])
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around property fetch" "($obj->prop)()" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed -> do
+          let reparsedStripped = stripAnnotations reparsed
+          assertEqual "Round-trips back to ExprCall rather than ExprMethodCall" expr reparsedStripped
+
+  , testCase "prettyPrintExpr on ExprCall with nullsafe property fetch parenthesizes callee" $ do
+      let expr = ExprCall () (ExprNullsafePropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "prop"))) (ArgsList [])
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around nullsafe property fetch" "($obj?->prop)()" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed -> do
+          let reparsedStripped = stripAnnotations reparsed
+          assertEqual "Round-trips back to ExprCall rather than ExprNullsafeMethodCall" expr reparsedStripped
+
+  , testCase "prettyPrintExpr on ExprCall with static property fetch parenthesizes callee" $ do
+      let expr = ExprCall () (ExprStaticPropertyFetch () (ClassTargetName (QualifiedName () NameUnqualified ["Foo"])) (VarName () "prop")) (ArgsList [])
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around static property fetch" "(Foo::$prop)()" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed -> do
+          let reparsedStripped = stripAnnotations reparsed
+          assertEqual "Round-trips back to ExprCall rather than static method call" expr reparsedStripped
+
+  , testCase "prettyPrintExpr on ExprCall with class const fetch parenthesizes callee" $ do
+      let expr = ExprCall () (ExprClassConstFetch () (ClassTargetName (QualifiedName () NameUnqualified ["Foo"])) (ConstNameIdent (Ident () "CONST"))) (ArgsList [])
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around class const fetch" "(Foo::CONST)()" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed -> do
+          let reparsedStripped = stripAnnotations reparsed
+          assertEqual "Round-trips back to ExprCall rather than ExprStaticCall" expr reparsedStripped
+
+  , testCase "prettyPrintExpr preserves unparenthesized chained property and array accesses" $ do
+      let chainProp = ExprPropertyFetch () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "a"))) (MemberIdent (Ident () "b"))
+      assertEqual "Property chain has no parens" "$obj->a->b" (prettyPrintExpr chainProp)
+      let methodOnProp = ExprMethodCall () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "a"))) (MemberIdent (Ident () "foo")) (ArgsList [])
+      assertEqual "Method call on property has no parens" "$obj->a->foo()" (prettyPrintExpr methodOnProp)
+      let arrayOnProp = ExprArrayAccess () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "a"))) (Just (ExprLit () (LitInt () 0 "0")))
+      assertEqual "Array access on property has no parens" "$obj->a[0]" (prettyPrintExpr arrayOnProp)
   ]
