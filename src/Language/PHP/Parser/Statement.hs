@@ -236,7 +236,7 @@ parseIf = withSpan $ do
   pure (\sp -> StmtIf sp cond thenStmts elifs mElse)
   where
     parseElseIf = do
-      keyword_ "elseif" <|> (keyword_ "else" *> keyword_ "if")
+      keyword_ "elseif" <|> M.try (keyword_ "else" *> keyword_ "if")
       c <- parens parseExpr
       body <- parseStmtBody
       pure (c, body)
