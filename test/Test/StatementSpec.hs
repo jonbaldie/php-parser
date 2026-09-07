@@ -147,6 +147,35 @@ statementTests = testGroup "Statement & Declaration Specifications"
             ] -> pure ()
           members -> assertFailure ("Unexpected class members: " ++ show (length members))
         other -> assertFailure ("Unexpected program AST: " ++ show other)
+
+  , testCase "If statement with else clause parses correctly" $ do
+      let src = "<?php if (1) {} else {}"
+      assertParsesOk src
+
+  , testCase "Issue 17 reproducer: parseProgram with if (true) { echo 1; } else { echo 2; }" $ do
+      let src = "<?php if (true) { echo 1; } else { echo 2; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtIf _ _ [StmtEcho _ [ExprLit _ (LitInt _ 1 "1")]] [] (Just [StmtEcho _ [ExprLit _ (LitInt _ 2 "2")]])] ->
+            pure ()
+          other -> assertFailure ("Unexpected if AST: " ++ show other)
+
+  , testCase "If statement with elseif and else clauses parses correctly" $ do
+      let src = "<?php if ($a) { echo 1; } elseif ($b) { echo 2; } else { echo 3; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtIf _ _ [_] [(_, [_])] (Just [_])] -> pure ()
+          other -> assertFailure ("Unexpected if AST: " ++ show other)
+
+  , testCase "If statement with spaced else if and else clauses parses correctly" $ do
+      let src = "<?php if ($a) { echo 1; } else if ($b) { echo 2; } else { echo 3; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtIf _ _ [_] [(_, [_])] (Just [_])] -> pure ()
+          other -> assertFailure ("Unexpected if AST: " ++ show other)
   ]
 
 assertParsesOk :: Text -> Assertion
