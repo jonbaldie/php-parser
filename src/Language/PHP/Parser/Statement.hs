@@ -351,16 +351,28 @@ parseTry = withSpan $ do
 -- | Namespace declaration (bracketed or unbracketed).
 parseNamespace :: Parser (Stmt Span)
 parseNamespace = withSpan $ do
-  keyword_ "namespace"
-  mName <- optional qualifiedName
-  isBracketed <- (True <$ M.lookAhead (symbol "{")) <|> pure False
+  (mName, isBracketed) <- M.try $ do
+    keyword_ "namespace"
+    mName <- optional parseNamespaceName
+    case mName of
+      Nothing -> do
+        _ <- M.lookAhead (symbol "{")
+        pure (Nothing, True)
+      Just _ -> do
+        isBr <- (True <$ M.lookAhead (symbol "{")) <|> (False <$ semi)
+        pure (mName, isBr)
   if isBracketed
     then do
       stmts <- braces (M.many parseStmt)
       pure (\sp -> StmtNamespace sp mName (Just stmts))
-    else do
-      _ <- semi
-      pure (\sp -> StmtNamespace sp mName Nothing)
+    else pure (\sp -> StmtNamespace sp mName Nothing)
+  where
+    parseNamespaceName = M.try $ do
+      qn@(QualifiedName _ kind _) <- qualifiedName
+      case kind of
+        NameUnqualified -> pure qn
+        NameQualified -> pure qn
+        _ -> M.empty
 
 -- | Use imports (standard, grouped, function, const).
 parseUse :: Parser (Stmt Span)
