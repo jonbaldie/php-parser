@@ -15,6 +15,13 @@ build-type:         Simple
 extra-doc-files:    README.md
                     CHANGELOG.md
                     LICENSE
+tested-with:        GHC == 9.8.4
+                  , GHC == 9.10.1
+                  , GHC == 9.12.1
+
+source-repository head
+    type:     git
+    location: https://github.com/jonbaldie/php-parser.git
 
 common warnings
     ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
