@@ -395,7 +395,7 @@ parseUse = M.try parseGroupUse <|> parseNormalUse
       ut <- parseUseType
       prefix <- qualifiedName
       _ <- symbol "\\"
-      clauses <- braces (parseUseClause `M.sepBy1` comma)
+      clauses <- braces (parseUseClause `M.sepEndBy1` comma)
       _ <- semi
       pure (\sp -> StmtGroupUse sp ut prefix clauses)
 
