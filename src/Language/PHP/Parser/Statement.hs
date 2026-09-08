@@ -435,7 +435,8 @@ parseAsymmetricWriteVis = M.try $ do
   _ <- symbol "(set)"
   pure vis
 
--- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract).
+-- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract, var).
+-- Note: @var@ is an alias for @public@ visibility and cannot be combined with explicit visibility.
 parsePropertyModifier :: Parser PropertyModifier
 parsePropertyModifier = loop Nothing Nothing False False False False
   where
@@ -443,9 +444,15 @@ parsePropertyModifier = loop Nothing Nothing False False False False
       (do
         wv <- parseAsymmetricWriteVis
         loop vis (Just wv) isStat isRo isFin isAbs)
-      <|> (do
-        v <- parseVisibility
-        loop (Just v) wVis isStat isRo isFin isAbs)
+      <|> (case vis of
+            Nothing ->
+              (do
+                v <- parseVisibility
+                loop (Just v) wVis isStat isRo isFin isAbs)
+              <|> (do
+                keyword_ "var"
+                loop (Just Public) wVis isStat isRo isFin isAbs)
+            Just _ -> M.empty)
       <|> (do
         keyword_ "static"
         loop vis wVis True isRo isFin isAbs)

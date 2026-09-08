@@ -6,12 +6,18 @@ module Language.PHP.Parser.Type
   ) where
 
 import Control.Applicative ((<|>))
+import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 
 import Language.PHP.AST
 import Language.PHP.Span (Span (..), combineSpans)
 import Language.PHP.Parser.Lexer
+
+-- | Allowed keywords that can be used as unqualified type names.
+allowedTypeKeywords :: [Text]
+allowedTypeKeywords = ["array", "callable", "static"]
 
 -- | Parse any PHP type (simple, nullable, union, intersection, DNF).
 parseType :: Parser (Type Span)
@@ -41,17 +47,20 @@ parseAtomicType = nullableType <|> parenthesizedIntersection <|> simpleType
 
 -- | Parse a qualified or unqualified type name (including built-ins).
 parseTypeName :: Parser (QualifiedName Span)
-parseTypeName = withSpan $ do
+parseTypeName = M.try $ withSpan $ do
   isFQ <- (True <$ C.char '\\') <|> pure False
   firstPart <- rawIdentifier
   restParts <- M.many (C.char '\\' *> rawIdentifier)
-  _ <- sc
-  let allParts = firstPart : restParts
-  let kind
-        | isFQ = NameFullyQualified
-        | null restParts = NameUnqualified
-        | otherwise = NameQualified
-  pure (\sp -> QualifiedName sp kind allParts)
+  if T.toLower firstPart == "var" || (not isFQ && null restParts && isKeyword firstPart && T.toLower firstPart `notElem` allowedTypeKeywords)
+    then M.empty
+    else do
+      _ <- sc
+      let allParts = firstPart : restParts
+      let kind
+            | isFQ = NameFullyQualified
+            | null restParts = NameUnqualified
+            | otherwise = NameQualified
+      pure (\sp -> QualifiedName sp kind allParts)
 
 -- | Parse intersection type (A&B&C).
 parseIntersectionOnly :: Parser (Type Span)
