@@ -31,6 +31,10 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\nfunction check((A&B)|C $param): void {\n}"
       assertRoundTrips src
 
+  , testCase "Round-trip variable-variables" $ do
+      let src = "<?php\n$$var = 1;\n$$$nested = 2;\n"
+      assertRoundTrips src
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr

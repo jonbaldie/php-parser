@@ -513,6 +513,7 @@ prettyLiteral = \case
 prettyVar :: Var a -> Doc ann
 prettyVar = \case
   SimpleVar _ vn -> prettyVarName vn
+  DynamicVar _ (ExprVar _ innerVar) -> "$" <> prettyVar innerVar
   DynamicVar _ e -> "${" <> prettyExpr e <> "}"
 
 prettyCastType :: CastType -> Doc ann

@@ -442,15 +442,14 @@ parseExprWith pStmt pMember = parseExprRec
       pure (\sp -> ExprVar sp v)
       where
         parseVar = parseSimple <|> parseDynamic
-        parseSimple = withSpan $ do
+        parseSimple = withSpan $ M.try $ do
           vn <- variableName
           pure (\sp -> SimpleVar sp vn)
         parseDynamic = withSpan $ do
           _ <- symbol "$"
-          _ <- symbol "{"
-          expr <- parseExprRec
-          _ <- symbol "}"
-          pure (\sp -> DynamicVar sp expr)
+          inner <- parseBraced <|> parseVariableExpr
+          pure (\sp -> DynamicVar sp inner)
+        parseBraced = braces parseExprRec
 
     parseLiteralExpr = withSpan $ do
       lit <- parseLit

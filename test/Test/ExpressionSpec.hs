@@ -259,6 +259,67 @@ expressionTests = testGroup "Expression Specifications"
           [StmtExpr _ (ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (ExprNew _ (ClassTargetExpr (ExprVar _ (SimpleVar _ (VarName _ "c")))) []))] ->
             pure ()
           other -> assertFailure ("Expected StmtExpr with ExprAssign and dynamic ExprNew, got: " ++ show other)
+
+  , testCase "Variable-variable syntax: $$var and $$$var (Issue #35)" $ do
+      case parseExpression "test.php" "$$x" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "x")))) -> pure ()
+            other -> assertFailure ("Expected ExprVar DynamicVar SimpleVar, got: " ++ show other)
+          assertEqual "pretty printed $$x" "$$x" (prettyPrintExpr expr)
+
+      case parseExpression "test.php" "$$$x" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprVar _ (DynamicVar _ (ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "x")))))) -> pure ()
+            other -> assertFailure ("Expected nested DynamicVar, got: " ++ show other)
+          assertEqual "pretty printed $$$x" "$$$x" (prettyPrintExpr expr)
+
+      case parseExpression "test.php" "$x" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprVar _ (SimpleVar _ (VarName _ "x"))) -> pure ()
+        other -> assertFailure ("Expected SimpleVar, got: " ++ show other)
+
+      case parseExpression "test.php" "${$x}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "x"))))) -> pure ()
+        other -> assertFailure ("Expected DynamicVar, got: " ++ show other)
+
+      case parseExpression "test.php" "$$$$x" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "pretty printed $$$$x" "$$$$x" (prettyPrintExpr expr)
+
+      case parseExpression "test.php" "${'prefix_' . $name}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "pretty printed complex dynamic var" "${('prefix_' . $name)}" (prettyPrintExpr expr)
+
+      case parseExpression "test.php" "$$obj->prop" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprPropertyFetch _ (ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))))) (MemberIdent (Ident _ "prop")) -> pure ()
+            other -> assertFailure ("Expected ExprPropertyFetch on DynamicVar, got: " ++ show other)
+          assertEqual "pretty printed $$obj->prop" "$$obj->prop" (prettyPrintExpr expr)
+
+      case parseExpression "test.php" "$$arr['key']" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprArrayAccess _ (ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))))) (Just (ExprLit _ (LitString _ "key" _))) -> pure ()
+            other -> assertFailure ("Expected ExprArrayAccess on DynamicVar, got: " ++ show other)
+          assertEqual "pretty printed $$arr['key']" "$$arr['key']" (prettyPrintExpr expr)
+
+      case parseExpression "test.php" "new $$c()" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprNew _ (ClassTargetExpr (ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "c")))))) [] -> pure ()
+            other -> assertFailure ("Expected ExprNew with DynamicVar, got: " ++ show other)
+          assertEqual "pretty printed new $$c()" "new $$c()" (prettyPrintExpr expr)
   ]
 
 assertParsesOkExpr :: Text -> Assertion
