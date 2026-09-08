@@ -5,6 +5,7 @@ module Test.RoundTripSpec (roundTripTests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
+import Control.Monad (forM_)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Language.PHP
@@ -50,6 +51,30 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
   , testCase "Round-trip variable property fetch and method calls (Issue #30)" $ do
       let src = "<?php\n$val = $obj->$prop;\n$res = $obj->$method();\n$opt = $obj?->$prop;\n$optRes = $obj?->$method();\n"
       assertRoundTrips src
+
+  , testCase "Round-trip ExprAssign nested in composite expressions (Issue #12)" $ do
+      let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y")))
+                     (ExprLit () (LitInt () 1 "1"))
+          litTwo = ExprLit () (LitInt () 2 "2")
+          contexts =
+            [ ("binary lhs", ExprBinary () OpAdd assign litTwo)
+            , ("binary rhs", ExprBinary () OpAdd litTwo assign)
+            , ("unary operand", ExprUnary () OpBoolNot assign)
+            , ("ternary condition", ExprTernary () assign (Just litTwo) litTwo)
+            , ("coalesce lhs", ExprNullCoalesce () assign litTwo)
+            , ("coalesce rhs", ExprNullCoalesce () litTwo assign)
+            , ("cast operand", ExprCast () CastInt assign)
+            , ("clone operand", ExprClone () assign Nothing)
+            , ("assignment lhs", ExprAssign () Nothing assign litTwo)
+            , ("assignment rhs", ExprAssign () Nothing litTwo assign)
+            ]
+      forM_ contexts $ \(name, ctx) -> do
+        let printed = prettyPrintExpr ctx
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": printed output does not parse: "
+                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
@@ -138,6 +163,11 @@ genExprSized n
           arr <- genExprSized (n `div` 2)
           idx <- genExprSized (n `div` 2)
           pure (ExprArrayAccess () arr (Just idx))
+      , do
+          lhs <- genExprSized (n `div` 2)
+          rhs <- genExprSized (n `div` 2)
+          mOp <- elements [Nothing, Just OpAdd, Just OpConcat, Just OpCoalesce]
+          pure (ExprAssign () mOp lhs rhs)
       ]
 
 genSimpleStmt :: Gen (Stmt ())
