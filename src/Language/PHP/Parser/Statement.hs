@@ -73,6 +73,11 @@ parseCloseTag = do
   _ <- optional (C.char '\n')
   pure ()
 
+-- | A statement may end with a semicolon or an immediately following close tag.
+-- Leave the close tag for 'parsePhpAndHtmlChunks' so it can switch to HTML mode.
+statementTerminator :: Parser T.Text
+statementTerminator = semi <|> (M.lookAhead parseCloseTag *> pure ";")
+
 parsePhpAndHtmlChunks :: Parser [Stmt Span]
 parsePhpAndHtmlChunks = do
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
@@ -159,7 +164,7 @@ parseHaltCompiler = withSpan $ do
 parseExprStmt :: Parser (Stmt Span)
 parseExprStmt = withSpan $ do
   expr <- parseExpr
-  _ <- semi <|> (parseCloseTag *> pure ";")
+  _ <- statementTerminator
   pure (\sp -> StmtExpr sp expr)
 
 -- | Empty statement (;).
@@ -179,7 +184,7 @@ parseEcho :: Parser (Stmt Span)
 parseEcho = withSpan $ do
   keyword_ "echo"
   exprs <- parseExpr `M.sepBy1` comma
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtEcho sp exprs)
 
 -- | Global statement.
@@ -187,7 +192,7 @@ parseGlobal :: Parser (Stmt Span)
 parseGlobal = withSpan $ do
   keyword_ "global"
   vars <- parseExpr `M.sepBy1` comma
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtGlobal sp vars)
 
 -- | Static variable declaration in function: static $a = 1, $b;
@@ -195,7 +200,7 @@ parseStaticStmt :: Parser (Stmt Span)
 parseStaticStmt = withSpan $ do
   keyword_ "static"
   items <- parseStaticItem `M.sepBy1` comma
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtStatic sp items)
   where
     parseStaticItem = do
@@ -208,7 +213,7 @@ parseBreak :: Parser (Stmt Span)
 parseBreak = withSpan $ do
   keyword_ "break"
   mNum <- optional parseExpr
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtBreak sp mNum)
 
 -- | Continue statement.
@@ -216,7 +221,7 @@ parseContinue :: Parser (Stmt Span)
 parseContinue = withSpan $ do
   keyword_ "continue"
   mNum <- optional parseExpr
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtContinue sp mNum)
 
 -- | Return statement.
@@ -224,7 +229,7 @@ parseReturn :: Parser (Stmt Span)
 parseReturn = withSpan $ do
   keyword_ "return"
   mExpr <- optional parseExpr
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtReturn sp mExpr)
 
 -- | Throw statement.
@@ -232,7 +237,7 @@ parseThrowStmt :: Parser (Stmt Span)
 parseThrowStmt = withSpan $ do
   keyword_ "throw"
   expr <- parseExpr
-  _ <- semi
+  _ <- statementTerminator
   pure (\sp -> StmtThrowStmt sp expr)
 
 -- | If statement (supports if (...) ... elseif (...) ... else ...).
