@@ -140,6 +140,7 @@ data HookType = HookGet | HookSet
 data HookBody a
   = HookExpr !(Expr a)
   | HookBlock ![Stmt a]
+  | HookAbstract -- ^ Bodyless hook in interfaces/abstract classes (e.g. @get;@)
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 -- | PHP 8.4 Property Hook (e.g. get => $this->name; or set(string $value) { ... }).

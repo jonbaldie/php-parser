@@ -28,6 +28,67 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberProperty"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "bodyless property hooks parse in interfaces and abstract classes (Issue #6)" $ do
+      -- Interface: hooks with no bodies, each terminated by a semicolon.
+      let ifaceSrc = "<?php interface HasName { public string $name { get; set; } }"
+      case parseProgram "test.php" ifaceSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtInterface _ id'] -> case ifaceMembers id' of
+            [MemberProperty pd] -> case propHooks pd of
+              [hGet, hSet] -> do
+                assertEqual "hook 1 type" HookGet (hookType hGet)
+                assertEqual "hook 2 type" HookSet (hookType hSet)
+              _ -> assertFailure "Expected 2 hooks"
+            _ -> assertFailure "Expected MemberProperty"
+          _ -> assertFailure "Expected StmtInterface"
+      -- Abstract class: abstract property with a single bodyless hook.
+      let abstractSrc = "<?php abstract class Base { abstract public string $name { get; } }"
+      case parseProgram "test.php" abstractSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtClass _ cd] -> case classMembers cd of
+            [MemberProperty pd] -> case propHooks pd of
+              [hGet] -> assertEqual "hook type" HookGet (hookType hGet)
+              _ -> assertFailure "Expected 1 hook"
+            _ -> assertFailure "Expected MemberProperty"
+          _ -> assertFailure "Expected StmtClass"
+      -- Bodyless hook with an explicit parameter list.
+      let paramSrc = "<?php abstract class Base { abstract public int $count { set(string $val); } }"
+      case parseProgram "test.php" paramSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtClass _ cd] -> case classMembers cd of
+            [MemberProperty pd] -> case propHooks pd of
+              [hSet] -> do
+                assertEqual "hook type" HookSet (hookType hSet)
+                assertBool "hook has param" (case hookParam hSet of Just (VarName _ "val", Just (SimpleType _ _)) -> True; _ -> False)
+              _ -> assertFailure "Expected 1 hook"
+            _ -> assertFailure "Expected MemberProperty"
+          _ -> assertFailure "Expected StmtClass"
+
+  , testCase "bodyless hooks round-trip through pretty printing (Issue #6)" $ do
+      let src = "<?php interface I { public string $name { get; set; } }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right prog -> do
+          let printed = prettyPrint prog
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right prog2 ->
+              assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+
+  , testCase "bodyless hook with final modifier and parameter round-trips (Issue #6)" $ do
+      let src = "<?php abstract class A { abstract public int $count { final set(string $val); } }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right prog -> do
+          let printed = prettyPrint prog
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right prog2 ->
+              assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+
   , testCase "Asymmetric property visibility public private(set)" $ do
       let src = "<?php class Order { public private(set) string $status; protected private(set) int $id; }"
       case parseProgram "test.php" src of
