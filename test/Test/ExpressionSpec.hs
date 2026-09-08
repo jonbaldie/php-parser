@@ -320,6 +320,112 @@ expressionTests = testGroup "Expression Specifications"
             ExprNew _ (ClassTargetExpr (ExprVar _ (DynamicVar _ (ExprVar _ (SimpleVar _ (VarName _ "c")))))) [] -> pure ()
             other -> assertFailure ("Expected ExprNew with DynamicVar, got: " ++ show other)
           assertEqual "pretty printed new $$c()" "new $$c()" (prettyPrintExpr expr)
+
+  , testGroup "Attributes on closures and arrow functions (Issue #34)"
+      [ testCase "Arrow function with attribute: #[Test] fn() => 1" $ do
+          case parseExpression "test.php" "#[Test] fn() => 1" of
+            Left err -> assertFailure ("#[Test] fn() => 1 failed: " ++ show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprArrowFunction _ attrs _ _ _ _ _ ->
+                  assertEqual "arrow function attrs" 1 (length attrs)
+                other -> assertFailure ("Expected ExprArrowFunction, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              assertEqual "pretty printed #[Test] fn() => 1" "#[Test]\nfn () => 1" printed
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      , testCase "Arrow function parameter with attribute: fn(#[SensitiveParameter] $pass) => $pass" $ do
+          case parseExpression "test.php" "fn(#[SensitiveParameter] $pass) => $pass" of
+            Left err -> assertFailure ("fn(#[SensitiveParameter] $pass) => $pass failed: " ++ show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprArrowFunction _ _ _ _ [p] _ _ ->
+                  assertEqual "arrow param attrs" 1 (length (paramAttrs p))
+                other -> assertFailure ("Expected ExprArrowFunction with 1 param, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      , testCase "Closure with attribute: #[Inline] function() {}" $ do
+          case parseExpression "test.php" "#[Inline] function() {}" of
+            Left err -> assertFailure ("#[Inline] function() {} failed: " ++ show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprClosure _ attrs _ _ _ _ _ _ ->
+                  assertEqual "closure attrs" 1 (length attrs)
+                other -> assertFailure ("Expected ExprClosure, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              assertEqual "pretty printed #[Inline] function() {}" "#[Inline]\nfunction () {\n    \n}" printed
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      , testCase "Closure parameter with attribute: function(#[SensitiveParameter] $pass) {}" $ do
+          case parseExpression "test.php" "function(#[SensitiveParameter] $pass) {}" of
+            Left err -> assertFailure ("function(#[SensitiveParameter] $pass) {} failed: " ++ show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprClosure _ _ _ _ [p] _ _ _ ->
+                  assertEqual "closure param attrs" 1 (length (paramAttrs p))
+                other -> assertFailure ("Expected ExprClosure with 1 param, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      , testCase "Static arrow function with attributes: #[Attr] static fn() => 1" $ do
+          case parseExpression "test.php" "#[Attr] static fn() => 1" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprArrowFunction _ attrs _ isStat _ _ _ -> do
+                  assertEqual "attrs" 1 (length attrs)
+                  assertBool "isStatic" isStat
+                other -> assertFailure ("Expected ExprArrowFunction, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      , testCase "Static closure with attributes: static #[Attr] function() {}" $ do
+          case parseExpression "test.php" "static #[Attr] function() {}" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprClosure _ attrs _ isStat _ _ _ _ -> do
+                  assertEqual "attrs" 1 (length attrs)
+                  assertBool "isStatic" isStat
+                other -> assertFailure ("Expected ExprClosure, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      , testCase "Multiple attribute groups and trailing comma: #[A, B,] #[C] fn(#[D] $x): int => $x" $ do
+          let src = "#[A, B,] #[C] fn(#[D] $x): int => $x"
+          case parseExpression "test.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprArrowFunction _ attrs _ _ [p] _ _ -> do
+                  assertEqual "arrow function attr groups" 2 (length attrs)
+                  assertEqual "param attr groups" 1 (length (paramAttrs p))
+                other -> assertFailure ("Expected ExprArrowFunction, got: " ++ show other)
+              let printed = prettyPrintExpr expr
+              case parseExpression "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right reparsed ->
+                  assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+      ]
   ]
 
 assertParsesOkExpr :: Text -> Assertion
