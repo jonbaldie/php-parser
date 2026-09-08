@@ -8,6 +8,9 @@ module Language.PHP.Parser.Expression
   , parseCallArgs
   , parseMatchArm
   , parseArrayItem
+  , parseAttributes
+  , parseAttributeGroup
+  , parseAttribute
   , exprSpan
   ) where
 
@@ -407,24 +410,30 @@ parseExprWith pStmt pMember = parseExprRec
       pure (\sp -> ExprMatch sp subject arms)
 
     parseArrowFunction = withSpan $ M.try $ do
+      attrs1 <- parseAttributes
       isStatic <- (True <$ keyword "static") <|> pure False
+      attrs2 <- if isStatic then parseAttributes else pure []
+      let attrs = attrs1 ++ attrs2
       keyword_ "fn"
       byRef <- (True <$ symbol "&") <|> pure False
       params <- parens (parseParamDummy parseExprRec `M.sepEndBy` comma)
       retType <- parseReturnType
       _ <- symbol "=>"
       body <- parseAssignment
-      pure (\sp -> ExprArrowFunction sp [] byRef isStatic params retType body)
+      pure (\sp -> ExprArrowFunction sp attrs byRef isStatic params retType body)
 
     parseClosure = withSpan $ M.try $ do
+      attrs1 <- parseAttributes
       isStatic <- (True <$ keyword "static") <|> pure False
+      attrs2 <- if isStatic then parseAttributes else pure []
+      let attrs = attrs1 ++ attrs2
       keyword_ "function"
       byRef <- (True <$ symbol "&") <|> pure False
       params <- parens (parseParamDummy parseExprRec `M.sepEndBy` comma)
       uses <- (keyword "use" *> parens (parseClosureUse `M.sepEndBy` comma)) <|> pure []
       retType <- parseReturnType
       body <- braces (M.many pStmt)
-      pure (\sp -> ExprClosure sp [] byRef isStatic params uses retType body)
+      pure (\sp -> ExprClosure sp attrs byRef isStatic params uses retType body)
       where
         parseClosureUse = do
           isRef <- (True <$ symbol "&") <|> pure False
@@ -548,14 +557,34 @@ parseArrayItemWith pExpr = withSpan $ do
           pure (\sp -> ArrayItem sp (Just kOrV) v False)
         else pure (\sp -> ArrayItem sp Nothing kOrV False)
 
+-- | Attributes #[ ... ]
+parseAttributes :: Parser [AttributeGroup Span]
+parseAttributes = M.many parseAttributeGroup
+
+-- | Parse a single attribute group @#[ ... ]@.
+parseAttributeGroup :: Parser (AttributeGroup Span)
+parseAttributeGroup = withSpan $ do
+  _ <- symbol "#["
+  attrs <- parseAttribute `M.sepEndBy1` comma
+  _ <- symbol "]"
+  pure (\sp -> AttributeGroup sp attrs)
+
+-- | Parse an attribute declaration within an attribute group.
+parseAttribute :: Parser (Attribute Span)
+parseAttribute = withSpan $ do
+  qn <- qualifiedName
+  mArgs <- optional (parens (parseArg `M.sepEndBy` comma))
+  pure (\sp -> Attribute sp qn (maybe [] id mArgs))
+
 parseParamDummy :: Parser (Expr Span) -> Parser (Param Span)
 parseParamDummy pExpr = withSpan $ do
+  attrs <- parseAttributes
   typ <- optional parseType
   byRef <- (True <$ symbol "&") <|> pure False
   isVariadic <- (True <$ symbol "...") <|> pure False
   var <- variableName
   mDef <- optional (symbol "=" *> pExpr)
-  pure (\sp -> Param sp [] Nothing Nothing False typ byRef isVariadic var mDef)
+  pure (\sp -> Param sp attrs Nothing Nothing False typ byRef isVariadic var mDef)
 
 parseStmtDummy :: Parser (Stmt Span)
 parseStmtDummy = withSpan $ do

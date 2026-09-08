@@ -21,7 +21,7 @@ import Language.PHP.AST
 import Language.PHP.Span (Span)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
-import Language.PHP.Parser.Expression (parseExprWith, parseArg, exprSpan)
+import Language.PHP.Parser.Expression (parseExprWith, parseAttributes, parseAttributeGroup, exprSpan)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
@@ -404,22 +404,7 @@ parseUse = M.try parseGroupUse <|> parseNormalUse
       mAlias <- optional (keyword "as" *> identifier)
       pure (\sp -> UseClause sp qn mAlias)
 
--- | Attributes #[ ... ]
-parseAttributes :: Parser [AttributeGroup Span]
-parseAttributes = M.many parseAttributeGroup
 
-parseAttributeGroup :: Parser (AttributeGroup Span)
-parseAttributeGroup = withSpan $ do
-  _ <- symbol "#["
-  attrs <- parseAttribute `M.sepBy1` comma
-  _ <- symbol "]"
-  pure (\sp -> AttributeGroup sp attrs)
-
-parseAttribute :: Parser (Attribute Span)
-parseAttribute = withSpan $ do
-  qn <- qualifiedName
-  mArgs <- optional (parens (parseArg `M.sepEndBy` comma))
-  pure (\sp -> Attribute sp qn (maybe [] id mArgs))
 
 -- | Visibility & Asymmetric visibility (PHP 8.4/8.5).
 parseVisibility :: Parser Visibility

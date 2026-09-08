@@ -35,6 +35,10 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\n$$var = 1;\n$$$nested = 2;\n"
       assertRoundTrips src
 
+  , testCase "Round-trip callable attributes on closures and arrow functions" $ do
+      let src = "<?php\n$f = #[Test]\nfn (#[SensitiveParameter]\n$pass) => $pass;\n$g = #[Inline]\nfunction (#[SensitiveParameter]\n$pass) {\n};\n"
+      assertRoundTrips src
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr
