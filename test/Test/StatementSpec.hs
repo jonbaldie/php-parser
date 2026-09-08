@@ -190,6 +190,18 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php use const Foo\\{BAR, BAZ,};"
       assertParsesOk "<?php use Foo\\{Bar, Baz};"
       assertParsesFail "<?php use Foo,;"
+
+  , testCase "Issue 32 reproducer: parseAttributeGroup with trailing commas" $ do
+      assertParsesOk "<?php #[Attr,] class Foo {}"
+      assertParsesOk "<?php #[Attr1, Attr2,] function bar() {}"
+      assertParsesOk "<?php class Foo { #[Attr,] public int $bar; }"
+      assertParsesOk "<?php class Foo { #[Attr1, Attr2,] public function baz(#[ParamAttr,] int $p) {} }"
+      assertParsesOk "<?php #[Attr,] interface IFoo {}"
+      assertParsesOk "<?php #[Attr,] trait TFoo {}"
+      assertParsesOk "<?php #[Attr,] enum EFoo {}"
+      assertParsesOk "<?php #[Attr] class NonTrailing {}"
+      assertParsesFail "<?php #[] class Foo {}"
+      assertParsesFail "<?php #[,] class Foo {}"
   ]
 
 assertParsesOk :: Text -> Assertion

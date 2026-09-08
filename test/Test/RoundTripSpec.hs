@@ -43,6 +43,10 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\nuse Foo\\{Bar, Baz,};\n"
       assertRoundTrips src
 
+  , testCase "Round-trip attribute groups with trailing comma" $ do
+      let src = "<?php\n#[Attr1, Attr2,]\nclass Foo {\n    #[Attr,]\n    public int $x;\n}\n"
+      assertRoundTrips src
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr
