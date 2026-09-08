@@ -47,6 +47,10 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\n#[Attr1, Attr2,]\nclass Foo {\n    #[Attr,]\n    public int $x;\n}\n"
       assertRoundTrips src
 
+  , testCase "Round-trip variable property fetch and method calls (Issue #30)" $ do
+      let src = "<?php\n$val = $obj->$prop;\n$res = $obj->$method();\n$opt = $obj?->$prop;\n$optRes = $obj?->$method();\n"
+      assertRoundTrips src
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr

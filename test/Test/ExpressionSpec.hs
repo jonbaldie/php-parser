@@ -426,6 +426,58 @@ expressionTests = testGroup "Expression Specifications"
                 Right reparsed ->
                   assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
       ]
+  , testCase "Variable property fetch and method call syntax: $obj->$prop and $obj->$method() (Issue #30)" $ do
+      case parseExpression "test.php" "$obj->$prop" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprPropertyFetch _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberExpr (ExprVar _ (SimpleVar _ (VarName _ "prop")))) -> pure ()
+            other -> assertFailure ("Expected ExprPropertyFetch with MemberExpr, got: " ++ show other)
+          assertEqual "pretty printed $obj->$prop" "$obj->$prop" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      case parseExpression "test.php" "$obj->$method()" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprMethodCall _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberExpr (ExprVar _ (SimpleVar _ (VarName _ "method")))) (ArgsList []) -> pure ()
+            other -> assertFailure ("Expected ExprMethodCall with MemberExpr, got: " ++ show other)
+          assertEqual "pretty printed $obj->$method()" "$obj->$method()" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      case parseExpression "test.php" "$obj?->$prop" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprNullsafePropertyFetch _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberExpr (ExprVar _ (SimpleVar _ (VarName _ "prop")))) -> pure ()
+            other -> assertFailure ("Expected ExprNullsafePropertyFetch with MemberExpr, got: " ++ show other)
+          assertEqual "pretty printed $obj?->$prop" "$obj?->$prop" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      case parseExpression "test.php" "$obj?->$method()" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprNullsafeMethodCall _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberExpr (ExprVar _ (SimpleVar _ (VarName _ "method")))) (ArgsList []) -> pure ()
+            other -> assertFailure ("Expected ExprNullsafeMethodCall with MemberExpr, got: " ++ show other)
+          assertEqual "pretty printed $obj?->$method()" "$obj?->$method()" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+      case parseExpression "test.php" "$obj->$$prop" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "pretty printed $obj->$$prop" "$obj->$$prop" (prettyPrintExpr expr)
+          case parseExpression "test.php" (prettyPrintExpr expr) of
+            Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+            Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
   ]
 
 assertParsesOkExpr :: Text -> Assertion
