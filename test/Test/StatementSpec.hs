@@ -227,6 +227,73 @@ statementTests = testGroup "Statement & Declaration Specifications"
         Right (StmtHaltCompiler _ payload) ->
           assertEqual "standalone halt compiler payload" " payload data" payload
         Right other -> assertFailure ("Unexpected standalone AST: " ++ show other)
+
+  , testCase "Issue 7 reproducer: leading inline HTML starting with # or whitespace" $ do
+      let srcWithHash = "# Header\n<?php echo 1;"
+      case parseProgram "test.php" srcWithHash of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program _ (StmtInlineHtml _ html : _)) -> do
+          assertEqual "leading # header preserved" "# Header\n" html
+          let printed = prettyPrint ast
+          assertEqual "prettyPrint preserves leading # verbatim" "# Header\n<?php\n\necho 1;" printed
+          case parseProgram "test.php" printed of
+            Left err2 -> assertFailure ("Reparse failed on:\n" ++ show printed ++ "\n" ++ show (formatParseError err2))
+            Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+        Right other -> assertFailure ("Expected leading StmtInlineHtml, got: " ++ show other)
+
+      let srcWithWhitespace = "   \n\t<?php echo 1;"
+      case parseProgram "test.php" srcWithWhitespace of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program _ (StmtInlineHtml _ html : _)) -> do
+          assertEqual "leading whitespace preserved" "   \n\t" html
+          let printed = prettyPrint ast
+          assertEqual "prettyPrint preserves leading whitespace verbatim" "   \n\t<?php\n\necho 1;" printed
+          case parseProgram "test.php" printed of
+            Left err2 -> assertFailure ("Reparse failed on:\n" ++ show printed ++ "\n" ++ show (formatParseError err2))
+            Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+        Right other -> assertFailure ("Expected leading StmtInlineHtml, got: " ++ show other)
+
+      let srcImmediatePhp = "<?php echo 1;"
+      case parseProgram "test.php" srcImmediatePhp of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ (StmtInlineHtml _ _ : _)) ->
+          assertFailure "Did not expect leading StmtInlineHtml for immediate <?php"
+        Right _ -> pure ()
+
+      let srcImmediateShortEcho = "<?= 1;"
+      case parseProgram "test.php" srcImmediateShortEcho of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ (StmtInlineHtml _ _ : _)) ->
+          assertFailure "Did not expect leading StmtInlineHtml for immediate <?="
+        Right _ -> pure ()
+
+      let srcPureHtml = "<h1>Header</h1><p>Paragraph</p>"
+      case parseProgram "test.php" srcPureHtml of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program _ [StmtInlineHtml _ html]) -> do
+          assertEqual "pure html preserved" srcPureHtml html
+          let printed = prettyPrint ast
+          assertEqual "prettyPrint pure html verbatim" srcPureHtml printed
+          case parseProgram "test.php" printed of
+            Left err2 -> assertFailure ("Reparse failed on:\n" ++ show printed ++ "\n" ++ show (formatParseError err2))
+            Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+        Right other -> assertFailure ("Expected single StmtInlineHtml, got: " ++ show other)
+
+      let srcWithComments = "/* C-comment */\n// line comment\n<?php echo 1;"
+      case parseProgram "test.php" srcWithComments of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program _ (StmtInlineHtml _ html : _)) -> do
+          assertEqual "leading comment-like html preserved" "/* C-comment */\n// line comment\n" html
+          let printed = prettyPrint ast
+          assertEqual "prettyPrint preserves comment-like html verbatim" "/* C-comment */\n// line comment\n<?php\n\necho 1;" printed
+          case parseProgram "test.php" printed of
+            Left err2 -> assertFailure ("Reparse failed on:\n" ++ show printed ++ "\n" ++ show (formatParseError err2))
+            Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+        Right other -> assertFailure ("Expected leading StmtInlineHtml, got: " ++ show other)
+
+      case parseProgram "test.php" "" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> assertEqual "empty input produces empty stmts" [] stmts
   ]
 
 assertParsesOk :: Text -> Assertion

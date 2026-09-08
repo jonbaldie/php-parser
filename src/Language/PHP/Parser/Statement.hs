@@ -30,7 +30,6 @@ parseExpr = parseExprWith parseStmt parseClassMember
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
 parseProgram :: Parser (Program Span)
 parseProgram = withSpan $ do
-  sc
   stmts <- parseProgramBody
   pure (\sp -> Program sp stmts)
 
