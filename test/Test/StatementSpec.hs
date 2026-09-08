@@ -202,6 +202,31 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php #[Attr] class NonTrailing {}"
       assertParsesFail "<?php #[] class Foo {}"
       assertParsesFail "<?php #[,] class Foo {}"
+
+  , testCase "Issue 29 reproducer: halt compiler captures the remaining file" $ do
+      let src = "<?php __halt_compiler(); payload data"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtHaltCompiler _ payload]) -> do
+          assertEqual "halt compiler payload" " payload data" payload
+          case parseProgram "test.php" (prettyPrint (Program () [StmtHaltCompiler () payload])) of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtHaltCompiler _ reparsedPayload]) ->
+              assertEqual "round-trip payload" payload reparsedPayload
+            Right other -> assertFailure ("Unexpected round-trip AST: " ++ show other)
+        Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      case parseProgram "test.php" "<?php __halt_compiler();" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtHaltCompiler _ payload]) ->
+          assertEqual "empty halt compiler payload" "" payload
+        Right other -> assertFailure ("Unexpected empty-payload AST: " ++ show other)
+
+      case parseStatement "test.php" "__halt_compiler(); payload data" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (StmtHaltCompiler _ payload) ->
+          assertEqual "standalone halt compiler payload" " payload data" payload
+        Right other -> assertFailure ("Unexpected standalone AST: " ++ show other)
   ]
 
 assertParsesOk :: Text -> Assertion

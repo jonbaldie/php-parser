@@ -143,7 +143,18 @@ parseStmt =
   <|> parseReturn
   <|> parseThrowStmt
   <|> parseEmptyStmt
+  <|> M.try parseHaltCompiler
   <|> parseExprStmt
+
+-- | Halt compilation and capture the remainder of the file as payload.
+parseHaltCompiler :: Parser (Stmt Span)
+parseHaltCompiler = withSpan $ do
+  keyword_ "__halt_compiler"
+  _ <- symbol "("
+  _ <- symbol ")"
+  _ <- C.char ';'
+  payload <- M.takeRest
+  pure (\sp -> StmtHaltCompiler sp payload)
 
 -- | Expression statement (expr ;).
 parseExprStmt :: Parser (Stmt Span)
