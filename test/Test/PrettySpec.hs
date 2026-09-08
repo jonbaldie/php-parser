@@ -83,6 +83,33 @@ prettyTests = testGroup "Pretty Printer Specifications"
           let reparsedStripped = stripAnnotations reparsed
           assertEqual "Round-trips back to ExprCall rather than ExprStaticCall" expr reparsedStripped
 
+  , testCase "prettyPrintExpr on ExprAssign operand in ExprBinary parenthesizes the assignment (Issue #12)" $ do
+      let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y"))) (ExprLit () (LitInt () 1 "1"))
+      let expr = ExprBinary () OpAdd assign (ExprLit () (LitInt () 2 "2"))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around the assignment" "(($y = 1) + 2)" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving precedence" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on ExprAssign operand in ExprTernary condition parenthesizes the assignment (Issue #12)" $ do
+      let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "x"))) (ExprConstFetch () (QualifiedName () NameUnqualified ["foo"]))
+      let expr = ExprTernary () assign (Just (ExprLit () (LitInt () 1 "1"))) (ExprLit () (LitInt () 2 "2"))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around the assignment" "(($x = foo) ? 1 : 2)" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving precedence" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on top-level ExprAssign prints without extraneous outer parentheses (Issue #12)" $ do
+      let expr = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "x")))
+                   (ExprBinary () OpAdd (ExprLit () (LitInt () 1 "1")) (ExprLit () (LitInt () 2 "2")))
+      assertEqual "Top-level assignment has no outer parens" "$x = (1 + 2)" (prettyPrintExpr expr)
+      assertEqual "Statement-level assignment has no outer parens" "$x = (1 + 2);"
+        (prettyPrintStmt (StmtExpr () expr))
+
   , testCase "prettyPrintExpr preserves unparenthesized chained property and array accesses" $ do
       let chainProp = ExprPropertyFetch () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "a"))) (MemberIdent (Ident () "b"))
       assertEqual "Property chain has no parens" "$obj->a->b" (prettyPrintExpr chainProp)

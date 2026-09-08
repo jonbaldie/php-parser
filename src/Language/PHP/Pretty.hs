@@ -297,20 +297,20 @@ prettyExpr = \case
   ExprVar _ v -> prettyVar v
   ExprLit _ l -> prettyLiteral l
   ExprBinary _ op lhs rhs ->
-    parens (prettyExpr lhs <+> prettyBinOp op <+> prettyExpr rhs)
+    parens (prettySubExpr lhs <+> prettyBinOp op <+> prettySubExpr rhs)
   ExprUnary _ op e -> prettyUnary op e
   ExprAssign _ mOp lhs rhs ->
-    prettyExpr lhs <+> prettyAssignOp mOp <+> prettyExpr rhs
+    prettySubExpr lhs <+> prettyAssignOp mOp <+> prettySubExpr rhs
   ExprTernary _ cond (Just t) f ->
-    parens (prettyExpr cond <+> "?" <+> prettyExpr t <+> ":" <+> prettyExpr f)
+    parens (prettySubExpr cond <+> "?" <+> prettySubExpr t <+> ":" <+> prettySubExpr f)
   ExprTernary _ cond Nothing f ->
-    parens (prettyExpr cond <+> "?:" <+> prettyExpr f)
+    parens (prettySubExpr cond <+> "?:" <+> prettySubExpr f)
   ExprNullCoalesce _ lhs rhs ->
-    parens (prettyExpr lhs <+> "??" <+> prettyExpr rhs)
-  ExprClone _ obj Nothing -> "clone " <> prettyExpr obj
+    parens (prettySubExpr lhs <+> "??" <+> prettySubExpr rhs)
+  ExprClone _ obj Nothing -> "clone " <> prettySubExpr obj
   ExprClone _ obj (Just with) ->
-    "clone(" <> prettyExpr obj <> ", [" <>
-    hsep (punctuate "," (map (\(k, v) -> prettyExpr k <+> "=>" <+> prettyExpr v) with)) <> "])"
+    "clone(" <> prettySubExpr obj <> ", [" <>
+    hsep (punctuate "," (map (\(k, v) -> prettySubExpr k <+> "=>" <+> prettySubExpr v) with)) <> "])"
   ExprNew _ target args ->
     "new " <> prettyNewTarget target <> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   ExprNewAnonClass _ attrs modif args ext impls members ->
@@ -358,13 +358,26 @@ prettyExpr = \case
     "yield" <> maybe mempty (\k -> " " <> prettyExpr k <+> "=>") mK <>
     maybe mempty (\v -> " " <> prettyExpr v) mV
   ExprYieldFrom _ e -> "yield from " <> prettyExpr e
-  ExprCast _ ct e -> "(" <> prettyCastType ct <> ")" <> prettyExpr e
+  ExprCast _ ct e -> "(" <> prettyCastType ct <> ")" <> prettySubExpr e
   ExprIsset _ es -> "isset(" <> hsep (punctuate "," (map prettyExpr es)) <> ")"
   ExprEmpty _ e -> "empty(" <> prettyExpr e <> ")"
   ExprEval _ e -> "eval(" <> prettyExpr e <> ")"
   ExprInclude _ inc e -> prettyInclude inc <+> prettyExpr e
   ExprThrow _ e -> "throw " <> prettyExpr e
   ExprConstFetch _ qn -> prettyQualifiedName qn
+
+-- | Render an expression in an operator-operand position. Assignment
+-- binds more loosely than every operator that can enclose it, so an
+-- operand-position assignment must be parenthesized to survive re-parsing.
+prettySubExpr :: Expr a -> Doc ann
+prettySubExpr e
+  | needsAssignParens e = parens (prettyExpr e)
+  | otherwise           = prettyExpr e
+
+needsAssignParens :: Expr a -> Bool
+needsAssignParens = \case
+  ExprAssign {} -> True
+  _             -> False
 
 prettyBinOp :: BinOp -> Doc ann
 prettyBinOp = \case
@@ -400,25 +413,25 @@ prettyBinOp = \case
 
 prettyUnary :: UnOp -> Expr a -> Doc ann
 prettyUnary op e = case op of
-  OpPreInc -> "++" <> prettyExpr e
-  OpPostInc -> prettyExpr e <> "++"
-  OpPreDec -> "--" <> prettyExpr e
-  OpPostDec -> prettyExpr e <> "--"
+  OpPreInc -> "++" <> prettySubExpr e
+  OpPostInc -> prettySubExpr e <> "++"
+  OpPreDec -> "--" <> prettySubExpr e
+  OpPostDec -> prettySubExpr e <> "--"
   OpUnaryPlus ->
     let spaceSep = case e of
           ExprUnary _ OpUnaryPlus _ -> " "
           ExprUnary _ OpPreInc _    -> " "
           _                         -> mempty
-    in "+" <> spaceSep <> prettyExpr e
+    in "+" <> spaceSep <> prettySubExpr e
   OpUnaryMinus ->
     let spaceSep = case e of
           ExprUnary _ OpUnaryMinus _ -> " "
           ExprUnary _ OpPreDec _     -> " "
           _                          -> mempty
-    in "-" <> spaceSep <> prettyExpr e
-  OpBoolNot -> "!" <> prettyExpr e
-  OpBitNot -> "~" <> prettyExpr e
-  OpErrorSuppress -> "@" <> prettyExpr e
+    in "-" <> spaceSep <> prettySubExpr e
+  OpBoolNot -> "!" <> prettySubExpr e
+  OpBitNot -> "~" <> prettySubExpr e
+  OpErrorSuppress -> "@" <> prettySubExpr e
 
 prettyAssignOp :: Maybe BinOp -> Doc ann
 prettyAssignOp = \case
