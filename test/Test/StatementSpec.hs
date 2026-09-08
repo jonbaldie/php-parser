@@ -311,6 +311,64 @@ statementTests = testGroup "Statement & Declaration Specifications"
               assertEqual "inline HTML" "<p>content</p>" html
             Right other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
+  , testGroup "Issue 11: var keyword in property declarations"
+      [ testCase "var $x; parses with public visibility and no type annotation" $ do
+          case parseProgram "test.php" "<?php class Foo { var $x; }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberProperty pd] -> do
+                assertEqual "visibility" (Just Public) (propVis (propModifier pd))
+                assertEqual "no type" Nothing (propType pd)
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+
+      , testCase "var string $x; parses with public visibility and string type" $ do
+          case parseProgram "test.php" "<?php class Foo { var string $x; }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberProperty pd] -> do
+                assertEqual "visibility" (Just Public) (propVis (propModifier pd))
+                assertBool "has string type" (case propType pd of
+                  Just (SimpleType _ (QualifiedName _ NameUnqualified ["string"])) -> True
+                  _ -> False)
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+
+      , testCase "var static $x; parses with public visibility and static modifier" $ do
+          case parseProgram "test.php" "<?php class Foo { var static $x; }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberProperty pd] -> do
+                assertEqual "visibility" (Just Public) (propVis (propModifier pd))
+                assertEqual "static" True (propStatic (propModifier pd))
+                assertEqual "no type" Nothing (propType pd)
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+
+      , testCase "static var $x; parses with public visibility and static modifier" $ do
+          case parseProgram "test.php" "<?php class Foo { static var $x; }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberProperty pd] -> do
+                assertEqual "visibility" (Just Public) (propVis (propModifier pd))
+                assertEqual "static" True (propStatic (propModifier pd))
+                assertEqual "no type" Nothing (propType pd)
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+
+      , testCase "round-trip formatting and reparsing preserves property AST structure" $ do
+          let src = "<?php class Foo { var $x; var string $y; var static $z; }"
+          case parseProgram "test.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> do
+              let printed = prettyPrint ast
+              case parseProgram "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
+                Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+
+      , testCase "public var $x is rejected" $ do
+          assertParsesFail "<?php class Foo { public var $x; }"
+      ]
   ]
 
 assertParsesOk :: Text -> Assertion
