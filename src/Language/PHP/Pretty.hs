@@ -475,7 +475,9 @@ prettyTarget = \case
 prettyMemberName :: MemberName a -> Doc ann
 prettyMemberName = \case
   MemberIdent id' -> prettyIdent id'
-  MemberExpr e -> "{" <> prettyExpr e <> "}"
+  MemberExpr e -> case e of
+    ExprVar {} -> prettyExpr e
+    _          -> "{" <> prettyExpr e <> "}"
 
 prettyConstName :: ClassConstName a -> Doc ann
 prettyConstName = \case

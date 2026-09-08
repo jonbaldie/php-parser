@@ -313,6 +313,7 @@ parseExprWith pStmt pMember = parseExprRec
 
     parseMemberName =
       (MemberExpr <$> braces parseExprRec)
+      <|> (MemberExpr <$> parseVariableExpr)
       <|> (MemberIdent <$> parseAnyIdent)
       where
         parseAnyIdent = withSpan $ do
