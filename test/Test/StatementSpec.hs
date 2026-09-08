@@ -294,6 +294,23 @@ statementTests = testGroup "Statement & Declaration Specifications"
       case parseProgram "test.php" "" of
         Left err -> assertFailure (show (formatParseError err))
         Right (Program _ stmts) -> assertEqual "empty input produces empty stmts" [] stmts
+
+  , testGroup "Issue 9: statements may omit semicolon before closing tag"
+      [ testCase "echo" $ assertParsesOk "<?php echo 1 ?>"
+      , testCase "return" $ assertParsesOk "<?php return $x ?>"
+      , testCase "break" $ assertParsesOk "<?php break ?>"
+      , testCase "continue" $ assertParsesOk "<?php continue ?>"
+      , testCase "global" $ assertParsesOk "<?php global $x ?>"
+      , testCase "static" $ assertParsesOk "<?php static $x ?>"
+      , testCase "throw" $ assertParsesOk "<?php throw $e ?>"
+      , testCase "explicit semicolon" $ assertParsesOk "<?php echo 1; ?>"
+      , testCase "close tag switches to inline HTML" $ do
+          case parseProgram "test.php" "<?php echo 1 ?><p>content</p>" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "inline HTML" "<p>content</p>" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+      ]
   ]
 
 assertParsesOk :: Text -> Assertion
