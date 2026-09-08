@@ -167,6 +167,7 @@ transformHookBody :: (Expr a -> Expr a) -> HookBody a -> HookBody a
 transformHookBody f = \case
   HookExpr e -> HookExpr (transformExpr f e)
   HookBlock stmts -> HookBlock (map (transformStmt f) stmts)
+  HookAbstract -> HookAbstract
 
 -- | Transform statements recursively.
 transformStmt :: (Expr a -> Expr a) -> Stmt a -> Stmt a
@@ -347,7 +348,8 @@ queryClassMember q = \case
     foldMap (maybe mempty (queryExpr q) . snd) (propItems p) <>
     foldMap (\h -> case hookBody h of
       HookExpr e -> queryExpr q e
-      HookBlock ss -> foldMap (queryStmt q) ss) (propHooks p)
+      HookBlock ss -> foldMap (queryStmt q) ss
+      HookAbstract -> mempty) (propHooks p)
   MemberMethod m ->
     foldMap (maybe mempty (queryExpr q) . paramDefault) (methodParams m) <>
     maybe mempty (foldMap (queryStmt q)) (methodBody m)
@@ -392,7 +394,8 @@ foldClassMember q = \case
   MemberProperty p ->
     foldMap (\h -> case hookBody h of
       HookExpr _ -> mempty
-      HookBlock ss -> foldMap (foldStmt q) ss) (propHooks p)
+      HookBlock ss -> foldMap (foldStmt q) ss
+      HookAbstract -> mempty) (propHooks p)
   MemberMethod m ->
     maybe mempty (foldMap (foldStmt q)) (methodBody m)
   _ -> mempty

@@ -643,6 +643,7 @@ parsePropertyHook = withSpan $ do
         _ <- semi
         pure (HookExpr expr))
       <|> (HookBlock <$> braces (M.many parseStmt))
+      <|> (HookAbstract <$ semi)
 
 -- | Trait usage inside class.
 parseTraitUse :: Parser (TraitUse Span)

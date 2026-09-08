@@ -208,6 +208,7 @@ prettyHook (PropertyHook _ hookT mParam body) =
   case body of
     HookExpr e -> " => " <> prettyExpr e <> ";"
     HookBlock ss -> " {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}"
+    HookAbstract -> ";"
 
 prettyMethodDecl :: MethodDecl a -> Doc ann
 prettyMethodDecl (MethodDecl _ attrs modif byRef name params retType body) =
