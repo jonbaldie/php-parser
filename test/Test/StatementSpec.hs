@@ -182,9 +182,22 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php namespace\\func();"
       assertParsesOk "<?php namespace\\MY_CONST;"
       assertParsesOk "<?php namespace\\Foo::$bar = 1;"
+
+  , testCase "Issue 33 reproducer: parseGroupUse with trailing commas" $ do
+      assertParsesOk "<?php use Foo\\{Bar, Baz,};"
+      assertParsesOk "<?php use Foo\\{Bar,};"
+      assertParsesOk "<?php use function Foo\\{bar, baz,};"
+      assertParsesOk "<?php use const Foo\\{BAR, BAZ,};"
+      assertParsesOk "<?php use Foo\\{Bar, Baz};"
+      assertParsesFail "<?php use Foo,;"
   ]
 
 assertParsesOk :: Text -> Assertion
 assertParsesOk src = case parseProgram "test.php" src of
   Left err -> assertFailure (show (formatParseError err))
   Right _ -> pure ()
+
+assertParsesFail :: Text -> Assertion
+assertParsesFail src = case parseProgram "test.php" src of
+  Left _ -> pure ()
+  Right _ -> assertFailure "Expected parse failure but parse succeeded"
