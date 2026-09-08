@@ -32,7 +32,9 @@ mapAnnotation = fmap
 -- | Bottom-up transformation of expressions.
 transformExpr :: (Expr a -> Expr a) -> Expr a -> Expr a
 transformExpr f = f . \case
-  ExprVar a v -> ExprVar a v
+  ExprVar a v -> case v of
+    DynamicVar va e -> ExprVar a (DynamicVar va (transformExpr f e))
+    SimpleVar {} -> ExprVar a v
   ExprLit a l -> ExprLit a l
   ExprBinary a op e1 e2 -> ExprBinary a op (transformExpr f e1) (transformExpr f e2)
   ExprUnary a op e -> ExprUnary a op (transformExpr f e)
@@ -229,7 +231,9 @@ transformStmt f = \case
 -- | Monoidal query over expressions.
 queryExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
 queryExpr q expr = q expr <> case expr of
-  ExprVar _ _ -> mempty
+  ExprVar _ v -> case v of
+    DynamicVar _ e -> queryExpr q e
+    SimpleVar {} -> mempty
   ExprLit _ _ -> mempty
   ExprBinary _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
   ExprUnary _ _ e -> queryExpr q e

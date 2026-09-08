@@ -47,4 +47,17 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
         Right stmt -> do
           let Sum exprCount = queryStmt (const (Sum (1 :: Int))) stmt
           assertBool "Expression count is positive" (exprCount >= 3)
+
+  , testCase "allVariables and transformExpr handle variable-variables" $ do
+      let src = "$$var + $$$nested"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          let vars = allVariables expr
+          assertEqual "Extracted variables from variable-variables" ["var", "nested"] vars
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "var")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamed"))
+                e -> e) expr
+          assertEqual "Renamed variables" ["renamed", "nested"] (allVariables renamed)
   ]
