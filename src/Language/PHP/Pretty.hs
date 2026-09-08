@@ -40,8 +40,11 @@ prettyPrintType typ = renderStrict (layoutPretty defaultLayoutOptions (prettyTyp
 
 -- | Wadler-Leijen Pretty Document for Program.
 prettyProgram :: Program a -> Doc ann
-prettyProgram (Program _ stmts) =
-  "<?php" <> line <> line <> vsep (map prettyStmt stmts)
+prettyProgram (Program _ stmts) = case stmts of
+  StmtInlineHtml _ txt : rest ->
+    pretty txt <> if null rest then mempty else "<?php" <> line <> line <> vsep (map prettyStmt rest)
+  _ ->
+    "<?php" <> line <> line <> vsep (map prettyStmt stmts)
 
 -- | Pretty Document for Statements.
 prettyStmt :: Stmt a -> Doc ann
