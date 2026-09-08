@@ -113,6 +113,8 @@ data PropertyModifier = PropertyModifier
   , propWriteVis :: !(Maybe Visibility) -- ^ Asymmetric visibility, e.g. private(set)
   , propStatic   :: !Bool
   , propReadonly :: !Bool
+  , propFinal    :: !Bool
+  , propAbstract :: !Bool
   } deriving (Eq, Ord, Show, Generic)
 
 -- | Method modifiers.

@@ -193,6 +193,8 @@ prettyPropertyDecl (PropertyDecl _ attrs modif mType items hooks) =
   maybe mempty (\wv -> prettyVisibility wv <> "(set) ") (propWriteVis modif) <>
   (if propStatic modif then "static " else "") <>
   (if propReadonly modif then "readonly " else "") <>
+  (if propFinal modif then "final " else "") <>
+  (if propAbstract modif then "abstract " else "") <>
   maybe mempty (\t -> prettyType t <> " ") mType <>
   hsep (punctuate "," (map (\(var, mVal) -> prettyVarName var <> maybe mempty (\v -> " = " <> prettyExpr v) mVal) items)) <>
   if null hooks
