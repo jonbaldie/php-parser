@@ -2,6 +2,7 @@
 
 module Test.PHP84Spec (php84Tests) where
 
+import Control.Monad (forM)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Language.PHP
@@ -83,4 +84,73 @@ php84Tests = testGroup "PHP 8.4 Specifications"
           ExprMethodCall _ (ExprMethodCall _ (ExprNew _ _ [_, _]) _ _) _ _ ->
             pure ()
           other -> assertFailure ("Expected chained call, got: " ++ show other)
+
+  , testGroup "Property final/abstract modifiers (issue #5)"
+    [ testCase "final public property parses" $ do
+        let src = "<?php class C { final public string $name = \"test\"; }"
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right (Program _ stmts) -> case stmts of
+            [StmtClass _ cd] -> case classMembers cd of
+              [MemberProperty pd] -> do
+                let m = propModifier pd
+                assertBool "final modifier set" (propFinal m)
+                assertEqual "read vis" (Just Public) (propVis m)
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+
+    , testCase "abstract property in abstract class parses without default" $ do
+        let src = "<?php abstract class C { abstract public string $name; }"
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right (Program _ stmts) -> case stmts of
+            [StmtClass _ cd] -> case classMembers cd of
+              [MemberProperty pd] -> do
+                let m = propModifier pd
+                assertBool "abstract modifier set" (propAbstract m)
+                assertEqual "no default value" Nothing
+                  (case propItems pd of [(_, v)] -> v; _ -> Just (error "unreachable"))
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+
+    , testCase "modifier permutations parse to equivalent ASTs" $ do
+        let srcs =
+              [ "<?php class C { final public string $name; }"
+              , "<?php class C { public final string $name; }"
+              ]
+        mods <- forM srcs $ \src ->
+          case parseProgram "test.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberProperty pd] -> pure (propModifier pd)
+              _ -> assertFailure ("Expected MemberProperty in " ++ show src)
+            _ -> assertFailure ("Expected one class in " ++ show src)
+        case mods of
+          [m1, m2] -> assertEqual "permutations equal" m1 m2
+          _ -> assertFailure "Expected 2 modifier sets"
+
+    , testCase "final/abstract methods still parse after modifier extension" $ do
+        let src = "<?php abstract class C { final public function f() {} public final static function g() {} abstract protected function h(); }"
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right (Program _ stmts) -> case stmts of
+            [StmtClass _ cd] -> case classMembers cd of
+              [MemberMethod m1, MemberMethod m2, MemberMethod m3] -> do
+                assertBool "m1 final" (methodFinal (methodModifier m1))
+                assertBool "m2 final+static" (methodFinal (methodModifier m2) && methodStatic (methodModifier m2))
+                assertBool "m3 abstract" (methodAbstract (methodModifier m3))
+              _ -> assertFailure "Expected 3 MemberMethod"
+            _ -> assertFailure "Expected StmtClass"
+
+    , testCase "final/abstract survive pretty-print round-trip" $ do
+        let src = "<?php abstract class C { final public string $a; abstract protected int $b; }"
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right prog -> do
+            let printed = prettyPrint prog
+            case parseProgram "test.php" printed of
+              Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+              Right prog2 ->
+                assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+    ]
   ]
