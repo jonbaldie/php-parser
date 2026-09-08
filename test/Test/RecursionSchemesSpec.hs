@@ -60,4 +60,55 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
                   ExprVar a (SimpleVar sv (VarName vn "renamed"))
                 e -> e) expr
           assertEqual "Renamed variables" ["renamed", "nested"] (allVariables renamed)
+
+  , testCase "foldStmt visits return inside block" $ do
+      case parseStatement "test.php" "{ return 1; }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "returns inside block" [True] (foldReturns stmt)
+
+  , testCase "foldStmt visits return inside function declaration" $ do
+      assertFoldsReturn "<?php function foo() { return 1; }"
+
+  , testCase "foldStmt visits return inside class method" $ do
+      assertFoldsReturn "<?php class Foo { public function bar() { return 1; } }"
+
+  , testCase "foldStmt visits return inside trait method" $ do
+      assertFoldsReturn "<?php trait Foo { public function bar() { return 1; } }"
+
+  , testCase "foldStmt visits return inside enum method" $ do
+      assertFoldsReturn "<?php enum Foo { public function bar() { return 1; } }"
+
+  , testCase "foldStmt visits return inside interface method" $ do
+      assertFoldsReturn "<?php interface Foo { public function bar() { return 1; } }"
+
+  , testCase "foldStmt visits return inside property hook block" $ do
+      assertFoldsReturn "<?php class Book { public string $title { set(string $value) { return; } } }"
+
+  , testCase "foldStmt still visits returns in if/while/try" $ do
+      case parseStatement "test.php" "if ($c) { return 1; } elseif ($d) { return 2; } else { return 3; }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "returns inside if" [True, True, True] (foldReturns stmt)
+      case parseStatement "test.php" "while ($c) { return 1; }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "returns inside while" [True] (foldReturns stmt)
+      case parseStatement "test.php" "try { return 1; } catch (E $e) { return 2; } finally { return 3; }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "returns inside try" [True, True, True] (foldReturns stmt)
   ]
+
+foldReturns :: Stmt a -> [Bool]
+foldReturns = foldStmt (\case
+  StmtReturn _ _ -> [True]
+  _ -> [])
+
+assertFoldsReturn :: Text -> IO ()
+assertFoldsReturn src =
+  case parseProgram "test.php" src of
+    Left err -> assertFailure (show (formatParseError err))
+    Right (Program _ [stmt]) ->
+      assertEqual "returns inside declaration" [True] (foldReturns stmt)
+    Right other -> assertFailure ("Expected one statement, got: " ++ show other)

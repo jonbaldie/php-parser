@@ -379,6 +379,22 @@ foldStmt q s = q s <> case s of
     foldMap (foldMap (foldStmt q) . catchBody) catches <>
     maybe mempty (foldMap (foldStmt q)) mFinally
   StmtNamespace _ _ mStmts -> maybe mempty (foldMap (foldStmt q)) mStmts
+  StmtFunction _ fn -> foldMap (foldStmt q) (funcBody fn)
+  StmtClass _ cd -> foldMap (foldClassMember q) (classMembers cd)
+  StmtInterface _ id' -> foldMap (foldClassMember q) (ifaceMembers id')
+  StmtTrait _ td -> foldMap (foldClassMember q) (traitMembers td)
+  StmtEnum _ ed -> foldMap (foldClassMember q) (enumMembers ed)
+  _ -> mempty
+
+-- | Fold statements contained in class members.
+foldClassMember :: Monoid m => (Stmt a -> m) -> ClassMember a -> m
+foldClassMember q = \case
+  MemberProperty p ->
+    foldMap (\h -> case hookBody h of
+      HookExpr _ -> mempty
+      HookBlock ss -> foldMap (foldStmt q) ss) (propHooks p)
+  MemberMethod m ->
+    maybe mempty (foldMap (foldStmt q)) (methodBody m)
   _ -> mempty
 
 
