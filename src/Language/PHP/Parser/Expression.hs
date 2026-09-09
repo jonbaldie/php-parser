@@ -37,7 +37,7 @@ parseExprWith pStmt pMember = parseExprRec
     parseLogicalXor = parseBinaryLeft parseLogicalAnd [ (keyword "xor", OpLogicalXor) ]
     parseLogicalAnd = parseBinaryLeft parseAssignment [ (keyword "and", OpLogicalAnd) ]
 
-    parseAssignment = parseYield <|> parseThrow <|> do
+    parseAssignment = parseYield <|> parseThrow <|> parseInclude <|> do
       lhs <- parseTernary
       assignRest lhs <|> pure lhs
       where
@@ -86,6 +86,17 @@ parseExprWith pStmt pMember = parseExprRec
       _ <- keyword "throw"
       expr <- parseAssignment
       pure (\sp -> ExprThrow sp expr)
+
+    parseInclude = withSpan $ do
+      incType <- parseIncludeType
+      expr <- parseAssignment
+      pure (\sp -> ExprInclude sp incType expr)
+
+    parseIncludeType =
+      (IncIncludeOnce <$ keyword "include_once")
+      <|> (IncInclude <$ keyword "include")
+      <|> (IncRequireOnce <$ keyword "require_once")
+      <|> (IncRequire <$ keyword "require")
 
     parseTernary = do
       cond <- parseCoalesce
@@ -329,8 +340,26 @@ parseExprWith pStmt pMember = parseExprRec
       <|> parseArrayLit
       <|> parseVariableExpr
       <|> parseLiteralExpr
+      <|> parseIsset
+      <|> parseEmpty
+      <|> parseEval
       <|> parseConstFetch
       <|> parens parseExprRec
+
+    parseIsset = withSpan $ do
+      keyword_ "isset"
+      args <- parens (parseExprRec `M.sepEndBy1` comma)
+      pure (\sp -> ExprIsset sp args)
+
+    parseEmpty = withSpan $ do
+      keyword_ "empty"
+      expr <- parens parseExprRec
+      pure (\sp -> ExprEmpty sp expr)
+
+    parseEval = withSpan $ do
+      keyword_ "eval"
+      expr <- parens parseExprRec
+      pure (\sp -> ExprEval sp expr)
 
     parseConstFetch = withSpan $ do
       qn <- parseClassName

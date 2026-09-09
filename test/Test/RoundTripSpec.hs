@@ -68,6 +68,17 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php namespace\\MY_CONST;"
       assertRoundTrips "<?php namespace\\namespace;"
 
+  , testCase "Round-trip language construct expressions (Issue #20)" $ do
+      assertRoundTrips "<?php isset($x);"
+      assertRoundTrips "<?php isset($x, $y);"
+      assertRoundTrips "<?php empty($x);"
+      assertRoundTrips "<?php eval('$a = 1;');"
+      assertRoundTrips "<?php include 'file.php';"
+      assertRoundTrips "<?php include_once 'file.php';"
+      assertRoundTrips "<?php require 'file.php';"
+      assertRoundTrips "<?php require_once 'file.php';"
+      assertRoundTrips "<?php $a = (isset($x) && !empty($y));"
+
   , testCase "Round-trip ExprAssign nested in composite expressions (Issue #12)" $ do
       let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y")))
                      (ExprLit () (LitInt () 1 "1"))
