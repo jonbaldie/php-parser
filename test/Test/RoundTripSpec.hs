@@ -79,6 +79,33 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php require_once 'file.php';"
       assertRoundTrips "<?php $a = (isset($x) && !empty($y));"
 
+  , testCase "Round-trip yield, arrow function, and throw in postfix positions (Issue #22)" $ do
+      let yieldX = ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))
+          arrow = ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))
+          throwE = ExprThrow () (ExprVar () (SimpleVar () (VarName () "e")))
+          yieldFromX = ExprYieldFrom () (ExprVar () (SimpleVar () (VarName () "x")))
+          prop = MemberIdent (Ident () "prop")
+          idx = Just (ExprLit () (LitInt () 0 "0"))
+          contexts =
+            [ ("yield property fetch", ExprPropertyFetch () yieldX prop)
+            , ("yield method call", ExprMethodCall () yieldX prop (ArgsList []))
+            , ("yield nullsafe property fetch", ExprNullsafePropertyFetch () yieldX prop)
+            , ("yield nullsafe method call", ExprNullsafeMethodCall () yieldX prop (ArgsList []))
+            , ("yield array access", ExprArrayAccess () yieldX idx)
+            , ("yield from property fetch", ExprPropertyFetch () yieldFromX prop)
+            , ("arrow function call", ExprCall () arrow (ArgsList []))
+            , ("arrow property fetch", ExprPropertyFetch () arrow prop)
+            , ("throw property fetch", ExprPropertyFetch () throwE prop)
+            , ("throw array access", ExprArrayAccess () throwE idx)
+            ]
+      forM_ contexts $ \(name, ctx) -> do
+        let printed = prettyPrintExpr ctx
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": printed output does not parse: "
+                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
+
   , testCase "Round-trip ExprAssign nested in composite expressions (Issue #12)" $ do
       let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y")))
                      (ExprLit () (LitInt () 1 "1"))

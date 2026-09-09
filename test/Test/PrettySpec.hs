@@ -180,4 +180,57 @@ prettyTests = testGroup "Pretty Printer Specifications"
             Left err2 -> assertFailure (show (formatParseError err2))
             Right reparsed ->
               assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on ExprYield property fetch parenthesizes the yield (Issue #22)" $ do
+      let expr = ExprPropertyFetch () (ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))) (MemberIdent (Ident () "prop"))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around yield" "(yield $x)->prop" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving postfix structure" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on ExprArrowFunction call parenthesizes the callee (Issue #22)" $ do
+      let expr = ExprCall () (ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))) (ArgsList [])
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around arrow function" "(fn () => $x)()" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving call structure" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on ExprThrow property fetch parenthesizes the throw (Issue #22)" $ do
+      let expr = ExprPropertyFetch () (ExprThrow () (ExprVar () (SimpleVar () (VarName () "e")))) (MemberIdent (Ident () "prop"))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around throw" "(throw $e)->prop" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving postfix structure" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on ExprYield array access parenthesizes the yield (Issue #22)" $ do
+      let expr = ExprArrayAccess () (ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))) (Just (ExprLit () (LitInt () 0 "0")))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around yield" "(yield $x)[0]" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving array access structure" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on ExprYieldFrom property fetch parenthesizes the yield from (Issue #22)" $ do
+      let expr = ExprPropertyFetch () (ExprYieldFrom () (ExprVar () (SimpleVar () (VarName () "x")))) (MemberIdent (Ident () "prop"))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around yield from" "(yield from $x)->prop" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving postfix structure" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on top-level yield, arrow function, and throw prints without extraneous outer parentheses (Issue #22)" $ do
+      assertEqual "Top-level yield has no outer parens" "yield $x"
+        (prettyPrintExpr (ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))))
+      assertEqual "Top-level arrow function has no outer parens" "fn () => $x"
+        (prettyPrintExpr (ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))))
+      assertEqual "Top-level throw has no outer parens" "throw $e"
+        (prettyPrintExpr (ExprThrow () (ExprVar () (SimpleVar () (VarName () "e")))))
   ]
