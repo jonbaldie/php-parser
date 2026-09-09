@@ -53,6 +53,7 @@ module Language.PHP
   , Stmt (..)
   , Expr (..)
   , Literal (..)
+  , StringPart (..)
   , Var (..)
   , VarName (..)
   , Ident (..)

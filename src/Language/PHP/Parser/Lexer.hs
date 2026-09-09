@@ -51,7 +51,7 @@ import qualified Text.Megaparsec.Char as C
 import qualified Text.Megaparsec.Char.Lexer as L
 
 import Language.PHP.AST
-import Language.PHP.Span (Span, SourcePos (..), mkSpan)
+import Language.PHP.Span (Span, SourcePos (..), combineSpans, mkSpan)
 
 data LexerState = LexerState
   { currentTrivia :: ![Trivia]
@@ -364,9 +364,11 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
       digits <- underscoreDigits1 isDigit
       pure (T.pack [e, sgn] <> digits)
 
--- | String literals: single-quoted (raw) or double-quoted.
-literalString :: Parser (Literal Span)
-literalString = M.label "string" $ lexeme $ withSpan $ singleQuoted <|> doubleQuoted
+-- | String literals: single-quoted (raw) or double-quoted (with variable
+-- interpolation). The parser for complex-syntax @{$expr}@ bodies is passed in
+-- to avoid a module cycle with the expression parser.
+literalString :: Parser (Expr Span) -> Parser (Literal Span)
+literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuoted <|> doubleQuoted
   where
     singleQuoted = do
       (raw, val) <- M.match $ do
@@ -382,16 +384,101 @@ literalString = M.label "string" $ lexeme $ withSpan $ singleQuoted <|> doubleQu
       <|> M.satisfy (/= '\'')
 
     doubleQuoted = do
-      (raw, val) <- M.match $ do
+      (raw, parts) <- M.match $ do
         _ <- C.char '"'
-        content <- many doubleChar
+        ps <- many doublePart
         _ <- C.char '"'
-        pure content
-      pure (\sp -> LitString sp (T.pack val) raw)
+        pure ps
+      pure $ \sp -> case [e | StrExpr e <- parts] of
+        [] -> LitString sp (T.concat [t | StrLit t <- parts]) raw
+        _  -> LitInterpolated sp (mergeLiterals parts)
 
-    doubleChar =
-      (C.char '\\' *> (unescape <$> M.anySingle))
-      <|> M.satisfy (\c -> c /= '"' && c /= '\\')
+    -- One chunk of content: an interpolated expression, or literal text. A
+    -- failed interpolation attempt backtracks into literal text, so unmatched
+    -- @{@ and stray @$@ stay ordinary characters.
+    doublePart =
+      (StrExpr <$> (interpolatedExpr <|> simpleInterp))
+      <|> literalRun
+      <|> strayDollar
+      <|> strayBrace
+
+    -- Complex syntax @{$expr}@: an arbitrary expression between braces, which
+    -- must start with @$@, as in PHP. Once @{@$ matches, the expression is
+    -- committed, so an unterminated one is a parse error, as in PHP.
+    interpolatedExpr = do
+      _ <- M.try (C.char '{' *> M.lookAhead (C.char '$'))
+      e <- parseInterpExpr
+      _ <- C.char '}'
+      pure e
+
+    -- Simple syntax: @$name@ followed by at most one @->prop@ or @[key]@
+    -- dereference, matching PHP's greedy scan of the variable expression. A
+    -- @->@ without a property name stays literal; once @[@ opens a subscript,
+    -- the key and @]@ are required, as in PHP.
+    simpleInterp = do
+      (sp, name) <- M.try (spanned (C.char '$' *> rawIdentifier))
+      let var = ExprVar sp (SimpleVar sp (VarName sp name))
+      simpleStep sp var <|> pure var
+
+    simpleStep sp base = propStep <|> subscriptStep
+      where
+        propStep = M.try $ do
+          _ <- C.string "->"
+          (idSp, prop) <- spanned rawIdentifier
+          pure (ExprPropertyFetch (combineSpans sp idSp) base (MemberIdent (Ident idSp prop)))
+        subscriptStep = do
+          _ <- C.char '['
+          (_, key) <- spanned subscriptKey
+          (endSp, _) <- spanned (C.char ']')
+          pure (ExprArrayAccess (combineSpans sp endSp) base (Just key))
+
+    -- Subscript keys in simple syntax: a variable, or a run of identifier
+    -- characters — plain decimal digits give an integer key, anything else
+    -- (including @0x1F@) is taken as a string, as in PHP.
+    subscriptKey =
+      varKey <|> wordKey
+      where
+        varKey = do
+          _ <- C.char '$'
+          (sp, name) <- spanned rawIdentifier
+          pure (ExprVar sp (SimpleVar sp (VarName sp name)))
+        wordKey = do
+          (sp, tok) <- spanned word
+          pure $
+            if T.all isDigit tok
+              then ExprLit sp (LitInt sp (read (T.unpack tok)) tok)
+              else ExprLit sp (LitString sp tok tok)
+        word = do
+          c <- M.satisfy (\x -> isAlphaNum x || x == '_' || x >= '\x80')
+          rest <- M.takeWhileP Nothing (\x -> isAlphaNum x || x == '_' || x >= '\x80')
+          pure (T.cons c rest)
+
+    -- A run of ordinary characters. Dollars, braces, backslashes and quotes end
+    -- the run; a dollar or brace at which interpolation just failed becomes a
+    -- one-character literal part below, so the surrounding 'many' retries
+    -- interpolation at the next character.
+    literalRun = StrLit . T.pack <$> some litCh
+
+    litCh =
+      escapedChar
+      <|> M.satisfy (\c -> c /= '"' && c /= '\\' && c /= '$' && c /= '{')
+
+    -- Stray characters that look like interpolation starts but did not parse
+    -- as one: a trailing @$@, @$@ before a non-identifier char, or an
+    -- unmatched @{@. Consumed one at a time so later interpolations still get
+    -- their chance.
+    strayDollar = StrLit . T.singleton <$> C.char '$'
+
+    strayBrace = StrLit . T.singleton <$> C.char '{'
+
+    escapedChar = C.char '\\' *> (unescape <$> M.anySingle)
+
+    -- Merge neighbouring literal chunks left over from backtracking into
+    -- single parts, keeping the AST canonical.
+    mergeLiterals = \case
+      [] -> []
+      StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
+      p : rest -> p : mergeLiterals rest
 
     unescape = \case
       'n' -> '\n'
