@@ -523,13 +523,13 @@ parseConstDecl = withSpan $ do
     (vis, isFinal) <- parseConstModifier
     keyword_ "const"
     pure (attrs, vis, isFinal)
-  mType <- optional (M.try (parseType <* M.lookAhead identifier))
+  mType <- optional (M.try (parseType <* M.lookAhead semiReservedIdentifier))
   items <- parseConstItem `M.sepBy1` comma
   _ <- semi
   pure (\sp -> ConstDecl sp attrs vis isFinal mType items)
   where
     parseConstItem = do
-      name <- identifier
+      name <- semiReservedIdentifier
       _ <- symbol "="
       val <- parseExpr
       pure (name, val)
@@ -602,7 +602,7 @@ parseMethod attrs = withSpan $ do
   modif <- parseMethodModifier
   keyword_ "function"
   byRef <- (True <$ symbol "&") <|> pure False
-  name <- identifier
+  name <- semiReservedIdentifier
   params <- parens (parseParam `M.sepEndBy` comma)
   retType <- parseReturnType
   body <- (semi *> pure Nothing) <|> (Just <$> braces (M.many parseStmt))
