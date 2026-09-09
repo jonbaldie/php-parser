@@ -280,4 +280,41 @@ prettyTests = testGroup "Pretty Printer Specifications"
         (prettyPrintExpr (ExprUnary () OpPostInc varX))
       assertEqual "Pre-increment of cast has no parens" "++(int)$x"
         (prettyPrintExpr (ExprUnary () OpPreInc (ExprCast () CastInt varX)))
+
+  , testCase "prettyPrintExpr on post-increment of include parenthesizes the include (Issue #67)" $ do
+      let expr = ExprUnary () OpPostInc
+                   (ExprInclude () IncInclude (ExprLit () (LitString () "f.php" "'f.php'")))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around the include" "(include 'f.php')++" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving precedence" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on postfix operators of include constructs parenthesizes the operand (Issue #67)" $ do
+      let lit = ExprLit () (LitString () "f.php" "'f.php'")
+          inc t = ExprInclude () t lit
+          prop = MemberIdent (Ident () "prop")
+          idx = Just (ExprLit () (LitInt () 0 "0"))
+      assertEqual "Post-increment of include has parens" "(include 'f.php')++"
+        (prettyPrintExpr (ExprUnary () OpPostInc (inc IncInclude)))
+      assertEqual "Post-decrement of include has parens" "(include 'f.php')--"
+        (prettyPrintExpr (ExprUnary () OpPostDec (inc IncInclude)))
+      assertEqual "Post-increment of include_once has parens" "(include_once 'f.php')++"
+        (prettyPrintExpr (ExprUnary () OpPostInc (inc IncIncludeOnce)))
+      assertEqual "Post-increment of require has parens" "(require 'f.php')++"
+        (prettyPrintExpr (ExprUnary () OpPostInc (inc IncRequire)))
+      assertEqual "Post-increment of require_once has parens" "(require_once 'f.php')++"
+        (prettyPrintExpr (ExprUnary () OpPostInc (inc IncRequireOnce)))
+      assertEqual "Property fetch on include has parens" "(include 'f.php')->prop"
+        (prettyPrintExpr (ExprPropertyFetch () (inc IncInclude) prop))
+      assertEqual "Array access on include has parens" "(include 'f.php')[0]"
+        (prettyPrintExpr (ExprArrayAccess () (inc IncInclude) idx))
+      assertEqual "Call on include has parens" "(include 'f.php')()"
+        (prettyPrintExpr (ExprCall () (inc IncInclude) (ArgsList [])))
+
+  , testCase "prettyPrintExpr on top-level include prints without extraneous outer parentheses (Issue #67)" $ do
+      let lit = ExprLit () (LitString () "f.php" "'f.php'")
+      assertEqual "Top-level include has no outer parens" "include 'f.php'"
+        (prettyPrintExpr (ExprInclude () IncInclude lit))
   ]
