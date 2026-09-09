@@ -413,10 +413,13 @@ prettyBinOp = \case
 
 prettyUnary :: UnOp -> Expr a -> Doc ann
 prettyUnary op e = case op of
+  -- Postfix ++/-- bind tighter than the prefix operators above them, so
+  -- the operand takes the same parenthesization as every other postfix
+  -- base (e.g. ((int)$x)++, else (int)$x++ reparses as (int)($x++)).
   OpPreInc -> "++" <> prettySubExpr e
-  OpPostInc -> prettySubExpr e <> "++"
+  OpPostInc -> prettyPostfixBase e <> "++"
   OpPreDec -> "--" <> prettySubExpr e
-  OpPostDec -> prettySubExpr e <> "--"
+  OpPostDec -> prettyPostfixBase e <> "--"
   OpUnaryPlus ->
     let spaceSep = case e of
           ExprUnary _ OpUnaryPlus _ -> " "
