@@ -296,6 +296,8 @@ prettyExpr :: Expr a -> Doc ann
 prettyExpr = \case
   ExprVar _ v -> prettyVar v
   ExprLit _ l -> prettyLiteral l
+  ExprBinary _ OpPow lhs rhs ->
+    parens (prettyPowLhs lhs <+> prettyBinOp OpPow <+> prettySubExpr rhs)
   ExprBinary _ op lhs rhs ->
     parens (prettySubExpr lhs <+> prettyBinOp op <+> prettySubExpr rhs)
   ExprUnary _ op e -> prettyUnary op e
@@ -435,6 +437,23 @@ prettyUnary op e = case op of
   OpBoolNot -> "!" <> prettySubExpr e
   OpBitNot -> "~" <> prettySubExpr e
   OpErrorSuppress -> "@" <> prettySubExpr e
+
+-- | Render the left operand of "**". Exponentiation binds tighter than the
+-- prefix operators and casts, so an unparenthesized "-2 ** 2" reparses as
+-- "-(2 ** 2)"; such an operand must keep its own parentheses.
+prettyPowLhs :: Expr a -> Doc ann
+prettyPowLhs e
+  | bindsLooserThanPow e = parens (prettyExpr e)
+  | otherwise            = prettySubExpr e
+  where
+    bindsLooserThanPow = \case
+      ExprCast {}                    -> True
+      ExprUnary _ OpUnaryPlus _      -> True
+      ExprUnary _ OpUnaryMinus _     -> True
+      ExprUnary _ OpBitNot _         -> True
+      ExprUnary _ OpBoolNot _        -> True
+      ExprUnary _ OpErrorSuppress _  -> True
+      _                              -> False
 
 prettyAssignOp :: Maybe BinOp -> Doc ann
 prettyAssignOp = \case

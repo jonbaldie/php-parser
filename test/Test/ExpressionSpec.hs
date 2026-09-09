@@ -4,6 +4,7 @@ module Test.ExpressionSpec (expressionTests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
+import Control.Monad (forM_)
 import Data.Text (Text)
 import Language.PHP
 
@@ -15,6 +16,26 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprLit (Annotated _ triv) (LitInt _ 1 _)) ->
           assertEqual "trivia is empty block comment" [CommentBlock ""] triv
         other -> assertFailure ("Expected integer 1, got: " ++ show other)
+
+  , testCase "Unary minus binds looser than exponentiation (Issue #45)" $ do
+      let cases =
+            [ ("-2 ** 2", "-(2 ** 2)")
+            , ("+2 ** 2", "+(2 ** 2)")
+            , ("~2 ** 2", "~(2 ** 2)")
+            , ("-2 ** 3 ** 2", "-(2 ** (3 ** 2))")
+            ] :: [(Text, String)]
+      forM_ cases $ \(src, expected) ->
+        case parseExpression "pow.php" src of
+          Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+          Right (ExprUnary _ _ (ExprBinary _ OpPow _ _)) -> pure ()
+          Right other -> assertFailure (show src ++ ": expected " ++ expected
+                                        ++ ", got: " ++ show other)
+
+  , testCase "Parenthesized negative base stays the base of ** (Issue #45)" $ do
+      case parseExpression "pow.php" "(-2) ** 2" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprBinary _ OpPow (ExprUnary _ OpUnaryMinus _) _) -> pure ()
+        other -> assertFailure ("Expected (-2) ** 2 exponentiation, got: " ++ show other)
 
   , testCase "Match expression with multiple patterns and default" $ do
       let src = "match ($status) { 200, 201 => 'success', 400 => 'bad request', default => 'unknown' }"

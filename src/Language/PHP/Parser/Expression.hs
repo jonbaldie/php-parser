@@ -177,24 +177,31 @@ parseExprWith pStmt pMember = parseExprRec
         let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
 
-    parseUnary = parseClone <|> parsePrefix <|> parseCast <|> parsePostfix
+    parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parsePostfix
       where
+        -- Prefix ++/-- take a variable, so they bind tighter than "**".
+        parseIncDec = withSpan $ do
+          op <- (OpPreInc <$ symbol "++") <|> (OpPreDec <$ symbol "--")
+          operand <- parseUnary
+          pure (\sp -> ExprUnary sp op operand)
+
+        -- The remaining prefix operators bind looser than "**", so "-2 ** 2"
+        -- is "-(2 ** 2)"; their operand is parsed at exponentiation level.
         parsePrefix = withSpan $ do
-          op <- (OpPreInc <$ symbol "++")
-                <|> (OpPreDec <$ symbol "--")
-                <|> (OpBoolNot <$ symbol "!")
+          op <- (OpBoolNot <$ symbol "!")
                 <|> (OpBitNot <$ symbol "~")
                 <|> (OpUnaryPlus <$ symbol "+")
                 <|> (OpUnaryMinus <$ symbol "-")
                 <|> (OpErrorSuppress <$ symbol "@")
-          operand <- parseUnary
+          operand <- parseExponentiation
           pure (\sp -> ExprUnary sp op operand)
 
+        -- Casts likewise bind looser than "**".
         parseCast = withSpan $ M.try $ do
           _ <- symbol "("
           castType <- parseCastType
           _ <- symbol ")"
-          operand <- parseUnary
+          operand <- parseExponentiation
           pure (\sp -> ExprCast sp castType operand)
 
         parseCastType =
