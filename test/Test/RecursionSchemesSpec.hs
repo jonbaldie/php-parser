@@ -98,6 +98,71 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right stmt ->
           assertEqual "returns inside try" [True, True, True] (foldReturns stmt)
+
+  , testCase "allExprs matches issue #52 reproducer exactly" $ do
+      let src = "#[Attr(1 + 2)] fn() => $y"
+      case parseExpression "attrs.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr ->
+          assertEqual "All expressions printed match expected sequence"
+            ["#[Attr((1 + 2))]\nfn () => $y", "(1 + 2)", "1", "2", "$y"]
+            (map prettyPrintExpr (allExprs expr))
+
+  , testCase "allExprs visits expressions inside attributes (Issue #52)" $ do
+      let src = "#[Attr(1 + 2)] fn(#[ParamAttr($x)] $p) => $y"
+      case parseExpression "attrs.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          let printed = map prettyPrintExpr (allExprs expr)
+          assertBool "Contains attribute argument expression" ("(1 + 2)" `elem` printed)
+          assertEqual "Extracts all variables from attributes and body"
+            ["x", "y"]
+            (allVariables expr)
+
+  , testCase "transformExpr rewrites expressions inside attributes (Issue #52)" $ do
+      let src = "#[Attr($old)] fn(#[ParamAttr($old)] $p) => $old"
+      case parseExpression "attrs.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "old")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "new"))
+                e -> e) expr
+          assertEqual "All variables renamed inside attributes and body"
+            ["new", "new", "new"]
+            (allVariables renamed)
+
+  , testCase "allExprs visits expressions in anonymous class attributes (Issue #52)" $ do
+      let src = "new #[ClassAttr($a)] class($b) { #[PropAttr($c)] public $prop; }"
+      case parseExpression "attrs.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts variables from anon class attributes, args, and member attributes"
+            ["a", "b", "c"]
+            (allVariables expr)
+
+  , testCase "queryStmt and transformStmt traverse expressions in declaration attributes (Issue #52)" $ do
+      let src = "<?php #[FuncAttr($a)] function test(#[ParamAttr($b)] $p) { return $c; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [stmt]) -> do
+          let varsInStmt = queryStmt (\case
+                ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
+                _ -> []) stmt
+          assertEqual "Extracts variables from function declaration attributes"
+            ["a", "b", "c"]
+            varsInStmt
+          let transformed = transformStmt (\case
+                ExprVar a (SimpleVar sv (VarName vn "a")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedA"))
+                e -> e) stmt
+          let varsAfter = queryStmt (\case
+                ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
+                _ -> []) transformed
+          assertEqual "Variables renamed in statement attributes"
+            ["renamedA", "b", "c"]
+            varsAfter
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
   ]
 
 foldReturns :: Stmt a -> [Bool]
