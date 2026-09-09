@@ -17,6 +17,18 @@ expressionTests = testGroup "Expression Specifications"
           assertEqual "trivia is empty block comment" [CommentBlock ""] triv
         other -> assertFailure ("Expected integer 1, got: " ++ show other)
 
+  , testCase "Successful AST spans report input offsets (Issue #47)" $ do
+      case parseExpression "offsets.php" "  $a + $b" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprBinary _ _ left right) -> do
+          let startA = spanStart (annValue (getAnnotation left))
+              startB = spanStart (annValue (getAnnotation right))
+          assertEqual "first variable column" 3 (posColumn startA)
+          assertEqual "second variable column" 8 (posColumn startB)
+          assertEqual "first variable offset" 2 (posOffset startA)
+          assertEqual "second variable offset" 7 (posOffset startB)
+        other -> assertFailure ("Expected $a + $b, got: " ++ show other)
+
   , testCase "Unary minus binds looser than exponentiation (Issue #45)" $ do
       let cases =
             [ ("-2 ** 2", "-(2 ** 2)")

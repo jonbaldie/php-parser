@@ -69,29 +69,32 @@ runPHPParser p file input =
     Left err -> Left err
     Right (_, val) -> Right (val, currentTrivia st)
 
-toSourcePos :: M.SourcePos -> Language.PHP.Span.SourcePos
-toSourcePos sp = Language.PHP.Span.SourcePos
+toSourcePos :: M.SourcePos -> Int -> Language.PHP.Span.SourcePos
+toSourcePos sp offset = Language.PHP.Span.SourcePos
   { posFile   = M.sourceName sp
   , posLine   = M.unPos (M.sourceLine sp)
   , posColumn = M.unPos (M.sourceColumn sp)
-  , posOffset = 0
+  , posOffset = offset
   }
+
+sourcePosHere :: Parser Language.PHP.Span.SourcePos
+sourcePosHere = toSourcePos <$> M.getSourcePos <*> M.getOffset
 
 -- | Run a parser and record its source span.
 spanned :: Parser a -> Parser (Span, a)
 spanned p = do
-  start <- M.getSourcePos
+  start <- sourcePosHere
   res <- p
-  end <- M.getSourcePos
-  pure (mkSpan (toSourcePos start) (toSourcePos end), res)
+  end <- sourcePosHere
+  pure (mkSpan start end, res)
 
 -- | Wrap a parser that expects a Span.
 withSpan :: Parser (Span -> a) -> Parser a
 withSpan p = do
-  start <- M.getSourcePos
+  start <- sourcePosHere
   f <- p
-  end <- M.getSourcePos
-  pure (f (mkSpan (toSourcePos start) (toSourcePos end)))
+  end <- sourcePosHere
+  pure (f (mkSpan start end))
 
 -- | Take all accumulated trivia and reset the trivia buffer.
 takeTrivia :: Parser [Trivia]
