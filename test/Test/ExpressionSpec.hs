@@ -478,7 +478,81 @@ expressionTests = testGroup "Expression Specifications"
           case parseExpression "test.php" (prettyPrintExpr expr) of
             Left err2 -> assertFailure ("Reparse failed: " ++ show (formatParseError err2))
             Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
+
+  , testGroup "Issue 19: late static binding"
+      [ testCase "static::bar() parses as a static method call with target static" $ do
+          case parseExpression "test.php" "static::bar()" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprStaticCall _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) (MemberIdent (Ident _ "bar")) (ArgsList []) ->
+                  pure ()
+                other -> assertFailure ("Expected ExprStaticCall with target static, got: " ++ show other)
+              assertEqual "pretty printed" "static::bar()" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "static::$foo parses as a static property fetch with target static" $ do
+          case parseExpression "test.php" "static::$foo" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprStaticPropertyFetch _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) (VarName _ "foo") ->
+                  pure ()
+                other -> assertFailure ("Expected ExprStaticPropertyFetch with target static, got: " ++ show other)
+              assertEqual "pretty printed" "static::$foo" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "static::CONSTANT parses as a class constant fetch with target static" $ do
+          case parseExpression "test.php" "static::CONSTANT" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprClassConstFetch _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) (ConstNameIdent (Ident _ "CONSTANT")) ->
+                  pure ()
+                other -> assertFailure ("Expected ExprClassConstFetch with target static, got: " ++ show other)
+              assertEqual "pretty printed" "static::CONSTANT" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "static::class parses as a class constant fetch with target static" $ do
+          case parseExpression "test.php" "static::class" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprClassConstFetch _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) (ConstNameIdent (Ident _ "class")) ->
+                  pure ()
+                other -> assertFailure ("Expected static::class, got: " ++ show other)
+              assertEqual "pretty printed" "static::class" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "new static() parses as ExprNew with target static" $ do
+          case parseExpression "test.php" "new static()" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprNew _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) [] ->
+                  pure ()
+                other -> assertFailure ("Expected ExprNew with target static, got: " ++ show other)
+              assertEqual "pretty printed" "new static()" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "new static parses as ExprNew with target static" $ do
+          case parseExpression "test.php" "new static" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprNew _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) [] ->
+                  pure ()
+                other -> assertFailure ("Expected ExprNew with target static, got: " ++ show other)
+              assertEqual "pretty printed" "new static()" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+      ]
   ]
+
+assertRoundTripExpr :: Expr (Annotated Span) -> Assertion
+assertRoundTripExpr expr =
+  case parseExpression "test.php" (prettyPrintExpr expr) of
+    Left err -> assertFailure ("Reparse failed: " ++ show (formatParseError err))
+    Right reparsed -> assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
 
 assertParsesOkExpr :: Text -> Assertion
 assertParsesOkExpr src = case parseExpression "test.php" src of

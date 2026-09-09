@@ -333,7 +333,7 @@ parseExprWith pStmt pMember = parseExprRec
       <|> parens parseExprRec
 
     parseConstFetch = withSpan $ do
-      qn <- qualifiedName
+      qn <- parseClassName
       pure (\sp -> ExprConstFetch sp qn)
 
     parseNew = withSpan $ M.try $ do
@@ -359,13 +359,13 @@ parseExprWith pStmt pMember = parseExprRec
           (ClassTargetExpr <$> parens parseExprRec)
           <|> (parseVariableExpr >>= chainDynamicTarget)
           <|> M.try (do
-                QualifiedName qnSp kind parts <- qualifiedName
+                QualifiedName qnSp kind parts <- parseClassName
                 let qn = QualifiedName qnSp kind parts
                 _ <- doubleColon
                 vn <- variableName
                 let sp = combineSpans qnSp (varNameSpan vn)
                 chainDynamicTarget (ExprStaticPropertyFetch sp (ClassTargetName qn) vn))
-          <|> (ClassTargetName <$> qualifiedName)
+          <|> (ClassTargetName <$> parseClassName)
 
         chainDynamicTarget base = do
           mNext <- optional (parseDynamicStep base)
@@ -614,3 +614,11 @@ classConstSpan = \case
 toClassTarget :: Expr a -> ClassTarget a
 toClassTarget (ExprConstFetch _ qn) = ClassTargetName qn
 toClassTarget e                     = ClassTargetExpr e
+
+-- | Class name, including late static binding `static`.
+parseClassName :: Parser (QualifiedName Span)
+parseClassName = qualifiedName <|> staticClassName
+  where
+    staticClassName = withSpan $ do
+      tok <- keyword "static"
+      pure (\sp -> QualifiedName sp NameUnqualified [tok])

@@ -52,6 +52,14 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\n$val = $obj->$prop;\n$res = $obj->$method();\n$opt = $obj?->$prop;\n$optRes = $obj?->$method();\n"
       assertRoundTrips src
 
+  , testCase "Round-trip late static binding expressions (Issue #19)" $ do
+      assertRoundTrips "<?php static::bar();"
+      assertRoundTrips "<?php static::$foo;"
+      assertRoundTrips "<?php static::CONSTANT;"
+      assertRoundTrips "<?php static::class;"
+      assertRoundTrips "<?php $x = new static();"
+      assertRoundTrips "<?php $x = new static;"
+
   , testCase "Round-trip relative qualified names (Issue #18)" $ do
       assertRoundTrips "<?php namespace\\Foo;"
       assertRoundTrips "<?php namespace\\Foo\\Bar;"
