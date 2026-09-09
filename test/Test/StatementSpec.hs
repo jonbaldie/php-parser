@@ -369,6 +369,23 @@ statementTests = testGroup "Statement & Declaration Specifications"
       , testCase "public var $x is rejected" $ do
           assertParsesFail "<?php class Foo { public var $x; }"
       ]
+
+  , testGroup "Issue 19: late static binding statements"
+      [ testCase "static::bar(); parses as an expression statement" $ do
+          case parseStatement "test.php" "static::bar();" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right stmt -> case stmt of
+              StmtExpr _ (ExprStaticCall _ (ClassTargetName (QualifiedName _ NameUnqualified ["static"])) (MemberIdent (Ident _ "bar")) (ArgsList [])) ->
+                pure ()
+              other -> assertFailure ("Expected StmtExpr of static::bar(), got: " ++ show other)
+
+      , testCase "static $x; still parses as a static variable declaration" $ do
+          case parseStatement "test.php" "static $x;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right stmt -> case stmt of
+              StmtStatic _ [(VarName _ "x", Nothing)] -> pure ()
+              other -> assertFailure ("Expected StmtStatic, got: " ++ show other)
+      ]
   ]
 
 assertParsesOk :: Text -> Assertion

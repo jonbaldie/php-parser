@@ -197,7 +197,7 @@ parseGlobal = withSpan $ do
 
 -- | Static variable declaration in function: static $a = 1, $b;
 parseStaticStmt :: Parser (Stmt Span)
-parseStaticStmt = withSpan $ do
+parseStaticStmt = withSpan $ M.try $ do
   keyword_ "static"
   items <- parseStaticItem `M.sepBy1` comma
   _ <- statementTerminator
