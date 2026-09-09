@@ -48,16 +48,17 @@ transformExpr f = f . \case
     let target' = case target of
           ClassTargetExpr e -> ClassTargetExpr (transformExpr f e)
           t -> t
-        args' = map (\arg -> arg { argExpr = transformExpr f (argExpr arg) }) args
+        args' = map (transformArg f) args
     in ExprNew a target' args'
   ExprNewAnonClass a attrs modif args ext impl members ->
-    let args' = map (\arg -> arg { argExpr = transformExpr f (argExpr arg) }) args
+    let attrs' = map (transformAttributeGroup f) attrs
+        args' = map (transformArg f) args
         members' = map (transformClassMember f) members
-    in ExprNewAnonClass a attrs modif args' ext impl members'
+    in ExprNewAnonClass a attrs' modif args' ext impl members'
   ExprCall a fn args ->
     let fn' = transformExpr f fn
         args' = case args of
-          ArgsList as -> ArgsList (map (\arg -> arg { argExpr = transformExpr f (argExpr arg) }) as)
+          ArgsList as -> ArgsList (map (transformArg f) as)
           FirstClassCallable -> FirstClassCallable
     in ExprCall a fn' args'
   ExprMethodCall a obj member args ->
@@ -66,7 +67,7 @@ transformExpr f = f . \case
           MemberExpr e -> MemberExpr (transformExpr f e)
           m -> m
         args' = case args of
-          ArgsList as -> ArgsList (map (\arg -> arg { argExpr = transformExpr f (argExpr arg) }) as)
+          ArgsList as -> ArgsList (map (transformArg f) as)
           FirstClassCallable -> FirstClassCallable
     in ExprMethodCall a obj' member' args'
   ExprNullsafeMethodCall a obj member args ->
@@ -98,7 +99,7 @@ transformExpr f = f . \case
           MemberExpr e -> MemberExpr (transformExpr f e)
           m -> m
         args' = case args of
-          ArgsList as -> ArgsList (map (\arg -> arg { argExpr = transformExpr f (argExpr arg) }) as)
+          ArgsList as -> ArgsList (map (transformArg f) as)
           FirstClassCallable -> FirstClassCallable
     in ExprStaticCall a target' member' args'
   ExprStaticPropertyFetch a target var ->
@@ -126,12 +127,14 @@ transformExpr f = f . \case
           MatchDefault ann res -> MatchDefault ann (transformExpr f res)) arms
     in ExprMatch a subject' arms'
   ExprClosure a attrs byRef isStatic params uses retType stmts ->
-    let params' = map (\p -> p { paramDefault = fmap (transformExpr f) (paramDefault p) }) params
+    let attrs' = map (transformAttributeGroup f) attrs
+        params' = map (transformParam f) params
         stmts' = map (transformStmt f) stmts
-    in ExprClosure a attrs byRef isStatic params' uses retType stmts'
+    in ExprClosure a attrs' byRef isStatic params' uses retType stmts'
   ExprArrowFunction a attrs byRef isStatic params retType expr ->
-    let params' = map (\p -> p { paramDefault = fmap (transformExpr f) (paramDefault p) }) params
-    in ExprArrowFunction a attrs byRef isStatic params' retType (transformExpr f expr)
+    let attrs' = map (transformAttributeGroup f) attrs
+        params' = map (transformParam f) params
+    in ExprArrowFunction a attrs' byRef isStatic params' retType (transformExpr f expr)
   ExprYield a mK mV ->
     ExprYield a (fmap (transformExpr f) mK) (fmap (transformExpr f) mV)
   ExprYieldFrom a e -> ExprYieldFrom a (transformExpr f e)
@@ -143,24 +146,49 @@ transformExpr f = f . \case
   ExprThrow a e -> ExprThrow a (transformExpr f e)
   ExprConstFetch a qn -> ExprConstFetch a qn
 
+-- | Transform attribute group recursively.
+transformAttributeGroup :: (Expr a -> Expr a) -> AttributeGroup a -> AttributeGroup a
+transformAttributeGroup f (AttributeGroup ann attrs) =
+  AttributeGroup ann (map (transformAttribute f) attrs)
+
+-- | Transform attribute recursively.
+transformAttribute :: (Expr a -> Expr a) -> Attribute a -> Attribute a
+transformAttribute f (Attribute ann name args) =
+  Attribute ann name (map (transformArg f) args)
+
+-- | Transform argument expression.
+transformArg :: (Expr a -> Expr a) -> Arg a -> Arg a
+transformArg f arg = arg { argExpr = transformExpr f (argExpr arg) }
+
+-- | Transform parameter recursively.
+transformParam :: (Expr a -> Expr a) -> Param a -> Param a
+transformParam f p = p
+  { paramAttrs = map (transformAttributeGroup f) (paramAttrs p)
+  , paramDefault = fmap (transformExpr f) (paramDefault p)
+  }
+
 -- | Transform class members recursively.
 transformClassMember :: (Expr a -> Expr a) -> ClassMember a -> ClassMember a
 transformClassMember f = \case
   MemberProperty p ->
-    let items' = map (\(n, me) -> (n, fmap (transformExpr f) me)) (propItems p)
+    let attrs' = map (transformAttributeGroup f) (propAttrs p)
+        items' = map (\(n, me) -> (n, fmap (transformExpr f) me)) (propItems p)
         hooks' = map (\h -> h { hookBody = transformHookBody f (hookBody h) }) (propHooks p)
-    in MemberProperty p { propItems = items', propHooks = hooks' }
+    in MemberProperty p { propAttrs = attrs', propItems = items', propHooks = hooks' }
   MemberMethod m ->
-    let params' = map (\p -> p { paramDefault = fmap (transformExpr f) (paramDefault p) }) (methodParams m)
+    let attrs' = map (transformAttributeGroup f) (methodAttrs m)
+        params' = map (transformParam f) (methodParams m)
         body' = fmap (map (transformStmt f)) (methodBody m)
-    in MemberMethod m { methodParams = params', methodBody = body' }
+    in MemberMethod m { methodAttrs = attrs', methodParams = params', methodBody = body' }
   MemberConst c ->
-    let items' = map (\(n, e) -> (n, transformExpr f e)) (constItems c)
-    in MemberConst c { constItems = items' }
+    let attrs' = map (transformAttributeGroup f) (constAttrs c)
+        items' = map (\(n, e) -> (n, transformExpr f e)) (constItems c)
+    in MemberConst c { constAttrs = attrs', constItems = items' }
   MemberTraitUse tu -> MemberTraitUse tu
   MemberEnumCase ec ->
-    let val' = fmap (transformExpr f) (enumCaseVal ec)
-    in MemberEnumCase ec { enumCaseVal = val' }
+    let attrs' = map (transformAttributeGroup f) (enumCaseAttrs ec)
+        val' = fmap (transformExpr f) (enumCaseVal ec)
+    in MemberEnumCase ec { enumCaseAttrs = attrs', enumCaseVal = val' }
 
 -- | Transform hook body.
 transformHookBody :: (Expr a -> Expr a) -> HookBody a -> HookBody a
@@ -206,20 +234,30 @@ transformStmt f = \case
   StmtUse a ut ucs -> StmtUse a ut ucs
   StmtGroupUse a ut qn ucs -> StmtGroupUse a ut qn ucs
   StmtConst a c ->
-    let items' = map (\(n, e) -> (n, transformExpr f e)) (constItems c)
-    in StmtConst a c { constItems = items' }
+    let attrs' = map (transformAttributeGroup f) (constAttrs c)
+        items' = map (\(n, e) -> (n, transformExpr f e)) (constItems c)
+    in StmtConst a c { constAttrs = attrs', constItems = items' }
   StmtFunction a fn ->
-    let params' = map (\p -> p { paramDefault = fmap (transformExpr f) (paramDefault p) }) (funcParams fn)
+    let attrs' = map (transformAttributeGroup f) (funcAttrs fn)
+        params' = map (transformParam f) (funcParams fn)
         body' = map (transformStmt f) (funcBody fn)
-    in StmtFunction a fn { funcParams = params', funcBody = body' }
+    in StmtFunction a fn { funcAttrs = attrs', funcParams = params', funcBody = body' }
   StmtClass a cd ->
-    StmtClass a cd { classMembers = map (transformClassMember f) (classMembers cd) }
+    let attrs' = map (transformAttributeGroup f) (classAttrs cd)
+        members' = map (transformClassMember f) (classMembers cd)
+    in StmtClass a cd { classAttrs = attrs', classMembers = members' }
   StmtInterface a id' ->
-    StmtInterface a id' { ifaceMembers = map (transformClassMember f) (ifaceMembers id') }
+    let attrs' = map (transformAttributeGroup f) (ifaceAttrs id')
+        members' = map (transformClassMember f) (ifaceMembers id')
+    in StmtInterface a id' { ifaceAttrs = attrs', ifaceMembers = members' }
   StmtTrait a td ->
-    StmtTrait a td { traitMembers = map (transformClassMember f) (traitMembers td) }
+    let attrs' = map (transformAttributeGroup f) (traitAttrs td)
+        members' = map (transformClassMember f) (traitMembers td)
+    in StmtTrait a td { traitAttrs = attrs', traitMembers = members' }
   StmtEnum a ed ->
-    StmtEnum a ed { enumMembers = map (transformClassMember f) (enumMembers ed) }
+    let attrs' = map (transformAttributeGroup f) (enumAttrs ed)
+        members' = map (transformClassMember f) (enumMembers ed)
+    in StmtEnum a ed { enumAttrs = attrs', enumMembers = members' }
   StmtEcho a es -> StmtEcho a (map (transformExpr f) es)
   StmtGlobal a es -> StmtGlobal a (map (transformExpr f) es)
   StmtStatic a items ->
@@ -228,6 +266,24 @@ transformStmt f = \case
   StmtInlineHtml a t -> StmtInlineHtml a t
   StmtHaltCompiler a t -> StmtHaltCompiler a t
   StmtEmpty a -> StmtEmpty a
+
+-- | Query attribute group.
+queryAttributeGroup :: Monoid m => (Expr a -> m) -> AttributeGroup a -> m
+queryAttributeGroup q (AttributeGroup _ attrs) = foldMap (queryAttribute q) attrs
+
+-- | Query attribute.
+queryAttribute :: Monoid m => (Expr a -> m) -> Attribute a -> m
+queryAttribute q (Attribute _ _ args) = foldMap (queryArg q) args
+
+-- | Query argument.
+queryArg :: Monoid m => (Expr a -> m) -> Arg a -> m
+queryArg q = queryExpr q . argExpr
+
+-- | Query parameter.
+queryParam :: Monoid m => (Expr a -> m) -> Param a -> m
+queryParam q p =
+  foldMap (queryAttributeGroup q) (paramAttrs p) <>
+  maybe mempty (queryExpr q) (paramDefault p)
 
 -- | Monoidal query over expressions.
 queryExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
@@ -246,19 +302,21 @@ queryExpr q expr = q expr <> case expr of
     queryExpr q e <> maybe mempty (foldMap (\(k, v) -> queryExpr q k <> queryExpr q v)) mWith
   ExprNew _ target args ->
     (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
-    foldMap (queryExpr q . argExpr) args
-  ExprNewAnonClass _ _ _ args _ _ members ->
-    foldMap (queryExpr q . argExpr) args <> foldMap (queryClassMember q) members
+    foldMap (queryArg q) args
+  ExprNewAnonClass _ attrs _ args _ _ members ->
+    foldMap (queryAttributeGroup q) attrs <>
+    foldMap (queryArg q) args <>
+    foldMap (queryClassMember q) members
   ExprCall _ fn args ->
     queryExpr q fn <> case args of
-      ArgsList as -> foldMap (queryExpr q . argExpr) as
+      ArgsList as -> foldMap (queryArg q) as
       FirstClassCallable -> mempty
   ExprMethodCall _ obj member args ->
     queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryExpr q . argExpr) as; FirstClassCallable -> mempty)
+    (case args of ArgsList as -> foldMap (queryArg q) as; FirstClassCallable -> mempty)
   ExprNullsafeMethodCall _ obj member args ->
     queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryExpr q . argExpr) as; FirstClassCallable -> mempty)
+    (case args of ArgsList as -> foldMap (queryArg q) as; FirstClassCallable -> mempty)
   ExprPropertyFetch _ obj member ->
     queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty)
   ExprNullsafePropertyFetch _ obj member ->
@@ -266,7 +324,7 @@ queryExpr q expr = q expr <> case expr of
   ExprStaticCall _ target member args ->
     (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
     (case member of MemberExpr e -> queryExpr q e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryExpr q . argExpr) as; FirstClassCallable -> mempty)
+    (case args of ArgsList as -> foldMap (queryArg q) as; FirstClassCallable -> mempty)
   ExprStaticPropertyFetch _ target _ ->
     case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty
   ExprClassConstFetch _ target constName ->
@@ -280,10 +338,14 @@ queryExpr q expr = q expr <> case expr of
     queryExpr q subject <> foldMap (\case
       MatchArm _ conds res -> foldMap (queryExpr q) conds <> queryExpr q res
       MatchDefault _ res -> queryExpr q res) arms
-  ExprClosure _ _ _ _ params _ _ stmts ->
-    foldMap (maybe mempty (queryExpr q) . paramDefault) params <> foldMap (queryStmt q) stmts
-  ExprArrowFunction _ _ _ _ params _ body ->
-    foldMap (maybe mempty (queryExpr q) . paramDefault) params <> queryExpr q body
+  ExprClosure _ attrs _ _ params _ _ stmts ->
+    foldMap (queryAttributeGroup q) attrs <>
+    foldMap (queryParam q) params <>
+    foldMap (queryStmt q) stmts
+  ExprArrowFunction _ attrs _ _ params _ body ->
+    foldMap (queryAttributeGroup q) attrs <>
+    foldMap (queryParam q) params <>
+    queryExpr q body
   ExprYield _ mK mV ->
     maybe mempty (queryExpr q) mK <> maybe mempty (queryExpr q) mV
   ExprYieldFrom _ e -> queryExpr q e
@@ -326,14 +388,25 @@ queryStmt q = \case
   StmtNamespace _ _ mStmts -> maybe mempty (foldMap (queryStmt q)) mStmts
   StmtUse _ _ _ -> mempty
   StmtGroupUse _ _ _ _ -> mempty
-  StmtConst _ c -> foldMap (queryExpr q . snd) (constItems c)
+  StmtConst _ c ->
+    foldMap (queryAttributeGroup q) (constAttrs c) <>
+    foldMap (queryExpr q . snd) (constItems c)
   StmtFunction _ fn ->
-    foldMap (maybe mempty (queryExpr q) . paramDefault) (funcParams fn) <>
+    foldMap (queryAttributeGroup q) (funcAttrs fn) <>
+    foldMap (queryParam q) (funcParams fn) <>
     foldMap (queryStmt q) (funcBody fn)
-  StmtClass _ cd -> foldMap (queryClassMember q) (classMembers cd)
-  StmtInterface _ id' -> foldMap (queryClassMember q) (ifaceMembers id')
-  StmtTrait _ td -> foldMap (queryClassMember q) (traitMembers td)
-  StmtEnum _ ed -> foldMap (queryClassMember q) (enumMembers ed)
+  StmtClass _ cd ->
+    foldMap (queryAttributeGroup q) (classAttrs cd) <>
+    foldMap (queryClassMember q) (classMembers cd)
+  StmtInterface _ id' ->
+    foldMap (queryAttributeGroup q) (ifaceAttrs id') <>
+    foldMap (queryClassMember q) (ifaceMembers id')
+  StmtTrait _ td ->
+    foldMap (queryAttributeGroup q) (traitAttrs td) <>
+    foldMap (queryClassMember q) (traitMembers td)
+  StmtEnum _ ed ->
+    foldMap (queryAttributeGroup q) (enumAttrs ed) <>
+    foldMap (queryClassMember q) (enumMembers ed)
   StmtEcho _ es -> foldMap (queryExpr q) es
   StmtGlobal _ es -> foldMap (queryExpr q) es
   StmtStatic _ items -> foldMap (maybe mempty (queryExpr q) . snd) items
@@ -345,17 +418,23 @@ queryStmt q = \case
 queryClassMember :: Monoid m => (Expr a -> m) -> ClassMember a -> m
 queryClassMember q = \case
   MemberProperty p ->
+    foldMap (queryAttributeGroup q) (propAttrs p) <>
     foldMap (maybe mempty (queryExpr q) . snd) (propItems p) <>
     foldMap (\h -> case hookBody h of
       HookExpr e -> queryExpr q e
       HookBlock ss -> foldMap (queryStmt q) ss
       HookAbstract -> mempty) (propHooks p)
   MemberMethod m ->
-    foldMap (maybe mempty (queryExpr q) . paramDefault) (methodParams m) <>
+    foldMap (queryAttributeGroup q) (methodAttrs m) <>
+    foldMap (queryParam q) (methodParams m) <>
     maybe mempty (foldMap (queryStmt q)) (methodBody m)
-  MemberConst c -> foldMap (queryExpr q . snd) (constItems c)
+  MemberConst c ->
+    foldMap (queryAttributeGroup q) (constAttrs c) <>
+    foldMap (queryExpr q . snd) (constItems c)
   MemberTraitUse _ -> mempty
-  MemberEnumCase ec -> maybe mempty (queryExpr q) (enumCaseVal ec)
+  MemberEnumCase ec ->
+    foldMap (queryAttributeGroup q) (enumCaseAttrs ec) <>
+    maybe mempty (queryExpr q) (enumCaseVal ec)
 
 -- | Catamorphism over expressions using an expression transformation or reduction.
 foldExpr :: Monoid m => (Expr a -> m) -> Expr a -> m

@@ -2,6 +2,7 @@
 
 ## 0.1.2.0
 
+* Fix expression traversal and transformation helpers (`allExprs`, `queryExpr`, `transformExpr`, `queryStmt`, and `transformStmt`) to visit expressions stored in attributes (#52).
 * Fix `parsePropertyHook` to retain `final` on property hooks and `prettyHook` to print it (#49).
 * Fix successful AST spans to report input offsets instead of always setting `posOffset` to 0 (#47).
 * Fix `parseExpression` to parse attributes on anonymous class expressions after `new`, and keep `prettyPrintExpr` attributes in valid `new #[...] class` order (#46).
