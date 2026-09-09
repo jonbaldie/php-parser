@@ -454,6 +454,10 @@ needsCallParens = \case
   ExprNullsafePropertyFetch {} -> True
   ExprStaticPropertyFetch {}   -> True
   ExprClassConstFetch {}       -> True
+  ExprYield {}                 -> True
+  ExprYieldFrom {}             -> True
+  ExprArrowFunction {}         -> True
+  ExprThrow {}                 -> True
   _                            -> False
 
 prettyPostfixBase :: Expr a -> Doc ann
@@ -463,11 +467,15 @@ prettyPostfixBase e
 
 needsPostfixParens :: Expr a -> Bool
 needsPostfixParens = \case
-  ExprCast {}   -> True
-  ExprUnary {}  -> True
-  ExprClone {}  -> True
-  ExprAssign {} -> True
-  _             -> False
+  ExprCast {}          -> True
+  ExprUnary {}         -> True
+  ExprClone {}         -> True
+  ExprAssign {}        -> True
+  ExprYield {}         -> True
+  ExprYieldFrom {}     -> True
+  ExprArrowFunction {} -> True
+  ExprThrow {}         -> True
+  _                    -> False
 
 prettyNewTarget :: ClassTarget a -> Doc ann
 prettyNewTarget = \case
