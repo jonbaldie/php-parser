@@ -4,7 +4,7 @@ module Test.ExpressionSpec (expressionTests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.Text (Text)
 import Language.PHP
 
@@ -793,6 +793,94 @@ expressionTests = testGroup "Expression Specifications"
                 ExprBinary _ OpBoolAnd (ExprUnary _ OpBoolNot (ExprIsset _ [_])) (ExprUnary _ OpBoolNot (ExprEmpty _ _)) -> pure ()
                 other -> assertFailure ("Expected binary bool with isset and empty, got: " ++ show other)
               assertRoundTripExpr expr
+      ]
+
+  , testGroup "Double-quoted string interpolation (Issue #51)"
+      [ testCase "simple variable interpolation parses into LitInterpolated" $ do
+          case parseExpression "test.php" "\"hello $name\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ parts)) ->
+              case parts of
+                [StrLit "hello ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name")))] -> pure ()
+                _ -> assertFailure ("Unexpected string parts: " ++ show parts)
+            other -> assertFailure ("Expected LitInterpolated, got: " ++ show other)
+
+      , testCase "escaped dollar sign stays a plain literal string" $ do
+          case parseExpression "test.php" "\"escaped \\$name\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitString _ "escaped $name" _)) -> pure ()
+            other -> assertFailure ("Expected LitString, got: " ++ show other)
+
+      , testCase "simple syntax property access and subscript become StrExpr parts" $ do
+          case parseExpression "test.php" "\"$obj->a and $arr[0] and $arr[key] and $arr[$k]\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ parts)) -> do
+              when (length parts /= 7) $
+                assertFailure ("Expected 7 string parts, got: " ++ show parts)
+              case parts of
+                [ StrExpr (ExprPropertyFetch _ _ _)
+                 , StrLit " and "
+                 , StrExpr (ExprArrayAccess _ _ (Just (ExprLit _ (LitInt _ 0 _))))
+                 , StrLit " and "
+                 , StrExpr (ExprArrayAccess _ _ (Just (ExprLit _ (LitString _ "key" _))))
+                 , StrLit " and "
+                 , StrExpr (ExprArrayAccess _ _ (Just (ExprVar _ (SimpleVar _ (VarName _ "k")))))
+                 ] -> pure ()
+                _ -> assertFailure ("Unexpected string parts: " ++ show parts)
+            other -> assertFailure ("Expected LitInterpolated, got: " ++ show other)
+
+      , testCase "complex curly syntax parses the full expression" $ do
+          case parseExpression "test.php" "\"a{$arr['k']}b{$obj->b->c}c{ $name }d{notvar}e\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ parts)) ->
+              case parts of
+                [ StrLit "a"
+                 , StrExpr (ExprArrayAccess _ _ (Just (ExprLit _ (LitString _ "k" _))))
+                 , StrLit "b"
+                 , StrExpr (ExprPropertyFetch _ (ExprPropertyFetch _ _ _) _)
+                 , StrLit "c{ "
+                 , StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name")))
+                 , StrLit " }d{notvar}e"
+                 ] -> pure ()
+                _ -> assertFailure ("Unexpected string parts: " ++ show parts)
+            other -> assertFailure ("Expected LitInterpolated, got: " ++ show other)
+
+      , testCase "plain and stray-dollar strings remain LitString" $
+          forM_ [ "\"plain\"" :: Text
+                , "\"$\""
+                , "\"$$\""
+                , "\"$1abc\""
+                , "\"{b}\""
+                ] $ \src ->
+            case parseExpression "test.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right (ExprLit _ (LitString _ _ _)) -> pure ()
+              other -> assertFailure ("Expected LitString for " ++ show src ++ ", got: " ++ show other)
+
+      , testCase "space after brace keeps it literal but the variable still interpolates" $
+          case parseExpression "test.php" "\"a{ $name }b\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrLit "a{ ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name"))), StrLit " }b"])) -> pure ()
+            other -> assertFailure ("Expected literal brace around interpolation, got: " ++ show other)
+
+      , testCase "dollar-dollar keeps the first dollar literal and interpolates the name" $
+          case parseExpression "test.php" "\"$$name\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrLit "$", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name")))])) -> pure ()
+            other -> assertFailure ("Expected literal $ plus interpolation, got: " ++ show other)
+
+      , testCase "interpolated strings round-trip through pretty printing" $
+          forM_ [ "\"hello $name\"" :: Text
+                , "\"$obj->a and $arr[0]\""
+                , "\"a{$arr['k']}b\""
+                ] $ \src -> do
+            expr <- case parseExpression "test.php" src of
+              Left err -> assertFailure (show (formatParseError err))
+              Right e -> pure e
+            reparsed <- case parseExpression "test.php" (prettyPrintExpr expr) of
+              Left err -> assertFailure ("Reparse failed: " ++ show (formatParseError err))
+              Right e -> pure e
+            assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
       ]
   ]
 

@@ -508,7 +508,7 @@ parseExprWith pStmt pMember = parseExprRec
         parseLit =
           literalFloat
           <|> literalInt
-          <|> literalString
+          <|> literalString parseExprRec
           <|> literalHeredocOrNowdoc
           <|> parseBool
           <|> parseNull
