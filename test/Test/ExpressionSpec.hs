@@ -50,6 +50,27 @@ expressionTests = testGroup "Expression Specifications"
           assertEqual "argument names" ["template", "cache", "timeout"] names
         other -> assertFailure ("Expected call with named args, got: " ++ show other)
 
+  , testCase "Static member access in arguments: func(Foo::CONST), func(Foo::$prop), func(Foo::method())" $ do
+      let assertPositional src = case parseExpression "test.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprCall _ _ (ArgsList [Arg _ mName _ False])) ->
+              assertEqual ("no named label expected in " ++ show src) Nothing mName
+            other -> assertFailure ("Expected positional call arg, got: " ++ show other)
+      assertPositional "func(Foo::CONST)"
+      assertPositional "func(Foo::$prop)"
+      assertPositional "func(Foo::method())"
+      case parseExpression "test.php" "func(Foo::CONST)" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprCall _ _ (ArgsList [Arg _ _ (ExprClassConstFetch _ _ (ConstNameIdent (Ident _ "CONST"))) False])) -> pure ()
+        other -> assertFailure ("Expected class constant fetch arg, got: " ++ show other)
+
+  , testCase "Named argument with static member value: func(name: Foo::CONST)" $ do
+      let src = "func(name: Foo::CONST)"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprCall _ _ (ArgsList [Arg _ (Just (Ident _ "name")) (ExprClassConstFetch _ _ (ConstNameIdent (Ident _ "CONST"))) False])) -> pure ()
+        other -> assertFailure ("Expected named arg with class constant value, got: " ++ show other)
+
   , testCase "Nullsafe operator chain: $user?->getProfile()?->name" $ do
       let src = "$user?->getProfile()?->name"
       case parseExpression "test.php" src of

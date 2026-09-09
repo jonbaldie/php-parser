@@ -27,6 +27,14 @@ statementTests = testGroup "Statement & Declaration Specifications"
               _ -> assertFailure "Expected property and method"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "Attribute argument with class constant: #[Route(Config::PATH)]" $ do
+      let src = "<?php #[Route(Config::PATH)] class Post {}"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtClass _ cd]) ->
+          assertEqual "class attrs" 1 (length (classAttrs cd))
+        other -> assertFailure ("Expected class with attribute, got: " ++ show other)
+
   , testCase "Constructor property promotion" $ do
       let src = "<?php class Customer { public function __construct(public string $name, private readonly int $age = 18) {} }"
       case parseProgram "test.php" src of
