@@ -130,6 +130,30 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           Right reparsed ->
             assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testCase "Round-trip post-increment and post-decrement of cast expressions (Issue #23)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+          varS = ExprVar () (SimpleVar () (VarName () "s"))
+          contexts =
+            [ ("post-increment of int cast", ExprUnary () OpPostInc
+                (ExprCast () CastInt varX))
+            , ("post-decrement of string cast", ExprUnary () OpPostDec
+                (ExprCast () CastString varS))
+            , ("post-increment of clone", ExprUnary () OpPostInc
+                (ExprClone () varX Nothing))
+            , ("post-increment of pre-increment", ExprUnary () OpPostInc
+                (ExprUnary () OpPreInc varX))
+            , ("post-increment of throw", ExprUnary () OpPostInc
+                (ExprThrow () varX))
+            , ("post-increment of variable", ExprUnary () OpPostInc varX)
+            ]
+      forM_ contexts $ \(name, ctx) -> do
+        let printed = prettyPrintExpr ctx
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": printed output does not parse: "
+                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr

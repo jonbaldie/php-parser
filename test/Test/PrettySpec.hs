@@ -233,4 +233,41 @@ prettyTests = testGroup "Pretty Printer Specifications"
         (prettyPrintExpr (ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))))
       assertEqual "Top-level throw has no outer parens" "throw $e"
         (prettyPrintExpr (ExprThrow () (ExprVar () (SimpleVar () (VarName () "e")))))
+
+  , testCase "prettyPrintExpr on post-increment of cast parenthesizes the cast (Issue #23)" $ do
+      let expr = ExprUnary () OpPostInc
+                   (ExprCast () CastInt (ExprVar () (SimpleVar () (VarName () "x"))))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around the cast" "((int)$x)++" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving precedence" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on post-decrement of cast parenthesizes the cast (Issue #23)" $ do
+      let expr = ExprUnary () OpPostDec
+                   (ExprCast () CastString (ExprVar () (SimpleVar () (VarName () "s"))))
+      let printed = prettyPrintExpr expr
+      assertEqual "Prints with parens around the cast" "((string)$s)--" printed
+      case parseExpression "test.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips preserving precedence" expr (stripAnnotations reparsed)
+
+  , testCase "prettyPrintExpr on postfix increment of prefix constructs parenthesizes the operand (Issue #23)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+      assertEqual "Post-increment of clone has parens" "(clone $x)++"
+        (prettyPrintExpr (ExprUnary () OpPostInc (ExprClone () varX Nothing)))
+      assertEqual "Post-increment of pre-increment has parens" "(++$x)++"
+        (prettyPrintExpr (ExprUnary () OpPostInc (ExprUnary () OpPreInc varX)))
+      assertEqual "Post-increment of throw has parens" "(throw $e)++"
+        (prettyPrintExpr (ExprUnary () OpPostInc
+          (ExprThrow () (ExprVar () (SimpleVar () (VarName () "e"))))))
+
+  , testCase "prettyPrintExpr on plain variable post-increment stays unparenthesized (Issue #23)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+      assertEqual "Variable post-increment has no parens" "$x++"
+        (prettyPrintExpr (ExprUnary () OpPostInc varX))
+      assertEqual "Pre-increment of cast has no parens" "++(int)$x"
+        (prettyPrintExpr (ExprUnary () OpPreInc (ExprCast () CastInt varX)))
   ]
