@@ -80,6 +80,35 @@ expressionTests = testGroup "Expression Specifications"
             pure ()
           other -> assertFailure ("Expected nullsafe chain, got: " ++ show other)
 
+  , testCase "clone postfix on parenthesized operand: clone ($obj)->prop, [0], ->method() (Issue #28)" $ do
+      case parseExpression "test.php" "clone ($obj)->prop" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprClone _ (ExprPropertyFetch _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberIdent (Ident _ "prop"))) Nothing ->
+            pure ()
+          other -> assertFailure ("Expected ExprClone of ExprPropertyFetch, got: " ++ show other)
+
+      case parseExpression "test.php" "clone ($obj)[0]" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprClone _ (ExprArrayAccess _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (Just (ExprLit _ (LitInt _ 0 "0")))) Nothing ->
+            pure ()
+          other -> assertFailure ("Expected ExprClone of ExprArrayAccess, got: " ++ show other)
+
+      case parseExpression "test.php" "clone ($obj)->method()" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprClone _ (ExprMethodCall _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberIdent (Ident _ "method")) (ArgsList [])) Nothing ->
+            pure ()
+          other -> assertFailure ("Expected ExprClone of ExprMethodCall, got: " ++ show other)
+
+      case parseExpression "test.php" "clone($obj, ['key' => 'val'])" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprClone _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (Just [_]) ->
+            pure ()
+          other -> assertFailure ("Expected clone-with ExprClone, got: " ++ show other)
+
   , testCase "Throw expression in coalescing and ternary" $ do
       let src1 = "$value ?? throw new InvalidArgumentException('Missing value')"
           src2 = "$ready ? $go : throw new RuntimeException('Not ready')"
