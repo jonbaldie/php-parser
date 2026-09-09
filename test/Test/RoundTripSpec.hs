@@ -154,6 +154,26 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           Right reparsed ->
             assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testCase "Round-trip unary operands of exponentiation (Issue #45)" $ do
+      let lit n = ExprLit () (LitInt () n (T.pack (show n)))
+          contexts =
+            [ ("negation of a power", ExprUnary () OpUnaryMinus
+                (ExprBinary () OpPow (lit 2) (lit 2)))
+            , ("power of a negated base", ExprBinary () OpPow
+                (ExprUnary () OpUnaryMinus (lit 2)) (lit 2))
+            , ("power of a cast base", ExprBinary () OpPow
+                (ExprCast () CastInt (lit 2)) (lit 2))
+            , ("cast of a power", ExprCast () CastInt
+                (ExprBinary () OpPow (lit 2) (lit 2)))
+            ]
+      forM_ contexts $ \(name, ctx) -> do
+        let printed = prettyPrintExpr ctx
+        case parseExpression "pow.php" printed of
+          Left err -> assertFailure (name ++ ": printed output does not parse: "
+                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr
