@@ -234,7 +234,7 @@ qualifiedName = M.label "qualified name" $ lexeme $ withSpan $ M.try $ do
   if not isFullyQualified && not isNamespaceRel && null restParts && isKeyword firstPart
     then M.empty
     else do
-      let allParts = if isNamespaceRel then "namespace" : firstPart : restParts else firstPart : restParts
+      let allParts = firstPart : restParts
       let kind
             | isFullyQualified = NameFullyQualified
             | isNamespaceRel = NameRelative

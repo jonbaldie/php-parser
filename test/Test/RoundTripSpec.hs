@@ -52,6 +52,14 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\n$val = $obj->$prop;\n$res = $obj->$method();\n$opt = $obj?->$prop;\n$optRes = $obj?->$method();\n"
       assertRoundTrips src
 
+  , testCase "Round-trip relative qualified names (Issue #18)" $ do
+      assertRoundTrips "<?php namespace\\Foo;"
+      assertRoundTrips "<?php namespace\\Foo\\Bar;"
+      assertRoundTrips "<?php namespace\\Foo::bar();"
+      assertRoundTrips "<?php namespace\\func();"
+      assertRoundTrips "<?php namespace\\MY_CONST;"
+      assertRoundTrips "<?php namespace\\namespace;"
+
   , testCase "Round-trip ExprAssign nested in composite expressions (Issue #12)" $ do
       let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y")))
                      (ExprLit () (LitInt () 1 "1"))
