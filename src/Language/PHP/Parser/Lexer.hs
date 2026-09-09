@@ -40,8 +40,9 @@ module Language.PHP.Parser.Lexer
 
 import Control.Applicative (Alternative (..), optional)
 import Control.Monad (void, when)
-import Control.Monad.State.Strict (State, runState, get, modify')
+import Control.Monad.State.Strict (State, runState, get, modify', put)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -54,20 +55,21 @@ import Language.PHP.Span (Span, SourcePos (..), mkSpan)
 
 data LexerState = LexerState
   { currentTrivia :: ![Trivia]
+  , triviaBySpan  :: !(Map.Map Span [Trivia])
   } deriving (Eq, Show)
 
 initialLexerState :: LexerState
-initialLexerState = LexerState []
+initialLexerState = LexerState [] Map.empty
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
 -- | Run a parser with initial state.
-runPHPParser :: Parser a -> FilePath -> Text -> Either (M.ParseErrorBundle Text Void) (a, [Trivia])
+runPHPParser :: Parser a -> FilePath -> Text -> Either (M.ParseErrorBundle Text Void) (a, Map.Map Span [Trivia])
 runPHPParser p file input =
   let (res, st) = runState (M.runParserT (spanned p <* M.eof) file input) initialLexerState
   in case res of
     Left err -> Left err
-    Right (_, val) -> Right (val, currentTrivia st)
+    Right (_, val) -> Right (val, triviaBySpan st)
 
 toSourcePos :: M.SourcePos -> Int -> Language.PHP.Span.SourcePos
 toSourcePos sp offset = Language.PHP.Span.SourcePos
@@ -92,9 +94,20 @@ spanned p = do
 withSpan :: Parser (Span -> a) -> Parser a
 withSpan p = do
   start <- sourcePosHere
-  f <- p
-  end <- sourcePosHere
-  pure (f (mkSpan start end))
+  original <- get
+  leading <- takeTrivia
+  result <- M.observing $ do
+    f <- p
+    end <- sourcePosHere
+    pure (f, end)
+  case result of
+    Left err -> do
+      put original
+      M.parseError err
+    Right (f, end) -> do
+      let span' = mkSpan start end
+      modify' (\st -> st { triviaBySpan = Map.insert span' leading (triviaBySpan st) })
+      pure (f span')
 
 -- | Take all accumulated trivia and reset the trivia buffer.
 takeTrivia :: Parser [Trivia]

@@ -34,6 +34,7 @@ module Language.PHP
   , prettyPrintStmt
   , prettyPrintExpr
   , prettyPrintType
+  , HasLeadingTrivia (..)
 
     -- * Traversal & Recursion Schemes
   , stripAnnotations
