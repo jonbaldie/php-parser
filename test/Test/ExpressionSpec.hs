@@ -9,7 +9,14 @@ import Language.PHP
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
-  [ testCase "Match expression with multiple patterns and default" $ do
+  [ testCase "Empty block comment /**/ is skipped before an expression" $ do
+      case parseExpression "comment.php" "/**/ 1" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprLit (Annotated _ triv) (LitInt _ 1 _)) ->
+          assertEqual "trivia is empty block comment" [CommentBlock ""] triv
+        other -> assertFailure ("Expected integer 1, got: " ++ show other)
+
+  , testCase "Match expression with multiple patterns and default" $ do
       let src = "match ($status) { 200, 201 => 'success', 400 => 'bad request', default => 'unknown' }"
       case parseExpression "test.php" src of
         Left err -> assertFailure (show (formatParseError err))

@@ -134,7 +134,7 @@ hashComment = M.try $ do
 blockOrDocComment :: Parser ()
 blockOrDocComment = do
   _ <- C.string "/*"
-  isDoc <- (True <$ C.char '*') <|> pure False
+  isDoc <- (True <$ M.try (C.char '*' <* M.notFollowedBy (C.char '/'))) <|> pure False
   txt <- takeUntilClose
   if isDoc
     then addTrivia (DocBlock (T.pack txt))
