@@ -2,7 +2,7 @@
 
 ## 0.1.2.0
 
-* Fix `parseArgWith` named argument label matcher to not consume the first colon of `::`, so static calls, static property fetches, and class constants parse in argument lists (#27, #67).
+* Fix `parseArgWith` named argument label matcher to not consume the first colon of `::`, so static calls, static property fetches, and class constants parse in argument lists (#27, #68).
 * Fix `parseClosure` and `parseArrowFunction` to support attribute groups (#34, #38).
 * Fix `parseVar` to support variable-variable syntax (`$$var` and `$$$var`) (#35, #37).
 * Fix `parseAttributeGroup` to accept trailing commas in attribute lists (#32, #40).
