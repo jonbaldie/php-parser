@@ -572,6 +572,7 @@ needsPostfixParens = \case
   ExprYieldFrom {}     -> True
   ExprArrowFunction {} -> True
   ExprThrow {}         -> True
+  ExprInclude {}       -> True
   _                    -> False
 
 prettyNewTarget :: HasLeadingTrivia a => ClassTarget a -> Doc ann

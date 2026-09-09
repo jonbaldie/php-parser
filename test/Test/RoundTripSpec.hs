@@ -130,6 +130,30 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           Right reparsed ->
             assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testCase "Round-trip postfix operators on include expressions (Issue #67)" $ do
+      let lit = ExprLit () (LitString () "f.php" "'f.php'")
+          inc t = ExprInclude () t lit
+          prop = MemberIdent (Ident () "prop")
+          idx = Just (ExprLit () (LitInt () 0 "0"))
+          contexts =
+            [ ("post-increment of include", ExprUnary () OpPostInc (inc IncInclude))
+            , ("post-decrement of include", ExprUnary () OpPostDec (inc IncInclude))
+            , ("post-increment of include_once", ExprUnary () OpPostInc (inc IncIncludeOnce))
+            , ("post-increment of require", ExprUnary () OpPostInc (inc IncRequire))
+            , ("post-increment of require_once", ExprUnary () OpPostInc (inc IncRequireOnce))
+            , ("property fetch on include", ExprPropertyFetch () (inc IncInclude) prop)
+            , ("array access on include", ExprArrayAccess () (inc IncInclude) idx)
+            , ("call on include", ExprCall () (inc IncInclude) (ArgsList []))
+            , ("top-level include", inc IncInclude)
+            ]
+      forM_ contexts $ \(name, ctx) -> do
+        let printed = prettyPrintExpr ctx
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": printed output does not parse: "
+                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
+
   , testCase "Round-trip post-increment and post-decrement of cast expressions (Issue #23)" $ do
       let varX = ExprVar () (SimpleVar () (VarName () "x"))
           varS = ExprVar () (SimpleVar () (VarName () "s"))
