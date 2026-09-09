@@ -631,9 +631,11 @@ parseProperty attrs = withSpan $ do
       pure (var, mVal)
 
 -- | PHP 8.4 Property Hook: get => expr; or set(Type $v) { ... }
+--
+-- A hook takes no visibility modifier of its own; asymmetric visibility
+-- belongs to the enclosing property declaration.
 parsePropertyHook :: Parser (PropertyHook Span)
 parsePropertyHook = withSpan $ do
-  _ <- optional parseVisibility
   isFinal <- (True <$ keyword "final") <|> pure False
   hookT <- (HookGet <$ keyword "get") <|> (HookSet <$ keyword "set")
   mParam <- if hookT == HookSet

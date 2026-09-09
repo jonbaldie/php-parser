@@ -118,6 +118,20 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             Right prog2 ->
               assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
 
+  , testCase "visibility modifiers on property hooks are rejected (Issue #50)" $ do
+      let srcs = [ "<?php class C { public string $x { public get => \"x\"; } }"
+                 , "<?php class C { public string $x { protected get => \"x\"; } }"
+                 , "<?php class C { public string $x { private set(string $v) { } } }"
+                 ]
+      _ <- forM srcs $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("expected parse failure for: " ++ show src)
+      -- Hooks without a modifier, and with `final`, still parse.
+      case parseProgram "test.php" "<?php class C { public private(set) string $x { final get => \"x\"; } }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right _ -> pure ()
+
   , testCase "Asymmetric property visibility public private(set)" $ do
       let src = "<?php class Order { public private(set) string $status; protected private(set) int $id; }"
       case parseProgram "test.php" src of
