@@ -2,6 +2,7 @@
 
 ## 0.1.2.0
 
+* Fix `parseCloseTag` to consume the whole newline following `?>`, including CRLF and lone CR, so Windows-style newlines do not leak into inline HTML (#53).
 * Fix expression traversal and transformation helpers (`allExprs`, `queryExpr`, `transformExpr`, `queryStmt`, and `transformStmt`) to visit expressions stored in attributes (#52).
 * Fix `parsePropertyHook` to retain `final` on property hooks and `prettyHook` to print it (#49).
 * Fix successful AST spans to report input offsets instead of always setting `posOffset` to 0 (#47).

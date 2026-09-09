@@ -70,7 +70,9 @@ parseOpenTag = do
 parseCloseTag :: Parser ()
 parseCloseTag = do
   _ <- C.string "?>"
-  _ <- optional (C.char '\n')
+  -- PHP suppresses the newline immediately following a close tag,
+  -- matching its lexer's NEWLINE rule: "\r\n" as a pair, "\n", or "\r".
+  _ <- optional (C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n'))
   pure ()
 
 -- | A statement may end with a semicolon or an immediately following close tag.
