@@ -146,6 +146,7 @@ data HookBody a
 -- | PHP 8.4 Property Hook (e.g. get => $this->name; or set(string $value) { ... }).
 data PropertyHook a = PropertyHook
   { hookAnn    :: !a
+  , hookFinal  :: !Bool
   , hookType   :: !HookType
   , hookParam  :: !(Maybe (VarName a, Maybe (Type a)))
   , hookBody   :: !(HookBody a)
