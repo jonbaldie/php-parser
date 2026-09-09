@@ -208,16 +208,18 @@ parseExprWith pStmt pMember = parseExprRec
 
     parseClone = withSpan $ do
       _ <- keyword "clone"
-      isParen <- (True <$ M.lookAhead (symbol "(")) <|> pure False
-      if isParen
-        then parens $ do
+      cloneWith <|> cloneOperand
+      where
+        cloneWith = M.try $ parens $ do
           obj <- parseExprRec
-          mWith <- optional (comma *> parseCloneWithPayload)
-          pure (\sp -> ExprClone sp obj mWith)
-        else do
+          _ <- comma
+          payload <- parseCloneWithPayload
+          pure (\sp -> ExprClone sp obj (Just payload))
+
+        cloneOperand = do
           obj <- parseUnary
           pure (\sp -> ExprClone sp obj Nothing)
-      where
+
         parseCloneWithPayload = do
           _ <- optional (keyword "with" *> colon)
           items <- brackets (parseClonePair `M.sepEndBy` comma)
