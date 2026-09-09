@@ -533,7 +533,7 @@ parseArg = parseArgWith parseExpr
 
 parseArgWith :: Parser (Expr Span) -> Parser (Arg Span)
 parseArgWith pExpr = withSpan $ do
-  mName <- optional (M.try (spanned (rawIdentifier <* sc) <* colon))
+  mName <- optional (M.try (spanned (rawIdentifier <* sc) <* colon <* M.notFollowedBy (C.char ':')))
   let mIdent = case mName of
         Nothing -> Nothing
         Just (spId, n) -> Just (Ident spId n)
