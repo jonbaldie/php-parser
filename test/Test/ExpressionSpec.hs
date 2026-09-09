@@ -546,6 +546,155 @@ expressionTests = testGroup "Expression Specifications"
               assertEqual "pretty printed" "new static()" (prettyPrintExpr expr)
               assertRoundTripExpr expr
       ]
+  , testGroup "Issue 20 reproducer: language construct expressions"
+      [ testCase "isset($x) and isset($x, $y) parse into ExprIsset" $ do
+          case parseExpression "test.php" "isset($x)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprIsset _ [ExprVar _ (SimpleVar _ (VarName _ "x"))] -> pure ()
+                other -> assertFailure ("Expected ExprIsset, got: " ++ show other)
+              assertEqual "pretty printed" "isset($x)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "isset($x, $y)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprIsset _ [ExprVar _ (SimpleVar _ (VarName _ "x")), ExprVar _ (SimpleVar _ (VarName _ "y"))] -> pure ()
+                other -> assertFailure ("Expected ExprIsset with 2 args, got: " ++ show other)
+              assertEqual "pretty printed" "isset($x, $y)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "empty($x) parses into ExprEmpty" $ do
+          case parseExpression "test.php" "empty($x)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprEmpty _ (ExprVar _ (SimpleVar _ (VarName _ "x"))) -> pure ()
+                other -> assertFailure ("Expected ExprEmpty, got: " ++ show other)
+              assertEqual "pretty printed" "empty($x)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "eval($code) parses into ExprEval" $ do
+          case parseExpression "test.php" "eval('$a = 1;')" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprEval _ (ExprLit _ (LitString _ "$a = 1;" _)) -> pure ()
+                other -> assertFailure ("Expected ExprEval, got: " ++ show other)
+              assertEqual "pretty printed" "eval('$a = 1;')" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "include and include_once parse into ExprInclude" $ do
+          case parseExpression "test.php" "include 'file.php'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprInclude _ IncInclude (ExprLit _ (LitString _ "file.php" _)) -> pure ()
+                other -> assertFailure ("Expected ExprInclude IncInclude, got: " ++ show other)
+              assertEqual "pretty printed" "include 'file.php'" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "include_once 'file.php'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprInclude _ IncIncludeOnce (ExprLit _ (LitString _ "file.php" _)) -> pure ()
+                other -> assertFailure ("Expected ExprInclude IncIncludeOnce, got: " ++ show other)
+              assertEqual "pretty printed" "include_once 'file.php'" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "require and require_once parse into ExprInclude" $ do
+          case parseExpression "test.php" "require 'file.php'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprInclude _ IncRequire (ExprLit _ (LitString _ "file.php" _)) -> pure ()
+                other -> assertFailure ("Expected ExprInclude IncRequire, got: " ++ show other)
+              assertEqual "pretty printed" "require 'file.php'" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "require_once 'file.php'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprInclude _ IncRequireOnce (ExprLit _ (LitString _ "file.php" _)) -> pure ()
+                other -> assertFailure ("Expected ExprInclude IncRequireOnce, got: " ++ show other)
+              assertEqual "pretty printed" "require_once 'file.php'" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "isset with trailing comma parses correctly" $ do
+          case parseExpression "test.php" "isset($x, $y,)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprIsset _ [ExprVar _ (SimpleVar _ (VarName _ "x")), ExprVar _ (SimpleVar _ (VarName _ "y"))] -> pure ()
+                other -> assertFailure ("Expected ExprIsset with 2 args, got: " ++ show other)
+              assertEqual "pretty printed" "isset($x, $y)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "empty and eval with complex expressions" $ do
+          case parseExpression "test.php" "empty($obj->prop)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprEmpty _ (ExprPropertyFetch _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (MemberIdent (Ident _ "prop"))) -> pure ()
+                other -> assertFailure ("Expected ExprEmpty on property fetch, got: " ++ show other)
+              assertEqual "pretty printed" "empty($obj->prop)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "empty($arr['k'])" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprEmpty _ (ExprArrayAccess _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))) (Just (ExprLit _ (LitString _ "k" _)))) -> pure ()
+                other -> assertFailure ("Expected ExprEmpty on array access, got: " ++ show other)
+              assertEqual "pretty printed" "empty($arr['k'])" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "include with concatenation and parentheses" $ do
+          case parseExpression "test.php" "include $dir . '/file.php'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprInclude _ IncInclude (ExprBinary _ OpConcat (ExprVar _ (SimpleVar _ (VarName _ "dir"))) (ExprLit _ (LitString _ "/file.php" _))) -> pure ()
+                other -> assertFailure ("Expected ExprInclude with concat, got: " ++ show other)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "include('file.php')" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprInclude _ IncInclude (ExprLit _ (LitString _ "file.php" _)) -> pure ()
+                other -> assertFailure ("Expected ExprInclude from parenthesized argument, got: " ++ show other)
+              assertEqual "pretty printed" "include 'file.php'" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+      , testCase "language constructs are case-insensitive" $ do
+          assertParsesOkExpr "ISSET($x)"
+          assertParsesOkExpr "Empty($x)"
+          assertParsesOkExpr "EVAL('$x = 1;')"
+          assertParsesOkExpr "Include 'file.php'"
+          assertParsesOkExpr "Require_Once 'file.php'"
+
+      , testCase "language constructs in assignment and boolean context" $ do
+          case parseExpression "test.php" "$res = include 'file.php'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "res"))) (ExprInclude _ IncInclude (ExprLit _ (LitString _ "file.php" _))) -> pure ()
+                other -> assertFailure ("Expected ExprAssign with ExprInclude, got: " ++ show other)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "!isset($x) && !empty($y)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprBinary _ OpBoolAnd (ExprUnary _ OpBoolNot (ExprIsset _ [_])) (ExprUnary _ OpBoolNot (ExprEmpty _ _)) -> pure ()
+                other -> assertFailure ("Expected binary bool with isset and empty, got: " ++ show other)
+              assertRoundTripExpr expr
+      ]
   ]
 
 assertRoundTripExpr :: Expr (Annotated Span) -> Assertion
