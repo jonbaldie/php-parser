@@ -454,6 +454,36 @@ statementTests = testGroup "Statement & Declaration Specifications"
       , testCase "top-level function declarations still reject keywords" $ do
           assertParsesFail "<?php function list() {}"
       ]
+
+  , testGroup "Issue 53: close tag consumes CRLF after ?>"
+      [ testCase "CRLF immediately after close tag is not inline HTML" $ do
+          case parseProgram "close-crlf.php" "<?php echo 1; ?>\r\nHTML" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "inline HTML starts at HTML" "HTML" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "lone LF after close tag is still consumed" $ do
+          case parseProgram "test.php" "<?php echo 1; ?>\nHTML" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "inline HTML starts at HTML" "HTML" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "close tag with no trailing newline still switches to HTML" $ do
+          case parseProgram "test.php" "<?php echo 1; ?>HTML" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "inline HTML" "HTML" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "second newline after CRLF is preserved as inline HTML" $ do
+          case parseProgram "test.php" "<?php echo 1; ?>\r\n\r\nHTML" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "only the first CRLF is consumed" "\r\nHTML" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+      ]
   ]
 
 assertParsesOk :: Text -> Assertion
