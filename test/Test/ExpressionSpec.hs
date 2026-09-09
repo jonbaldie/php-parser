@@ -37,6 +37,15 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprBinary _ OpPow (ExprUnary _ OpUnaryMinus _) _) -> pure ()
         other -> assertFailure ("Expected (-2) ** 2 exponentiation, got: " ++ show other)
 
+  , testCase "Anonymous class expression attributes parse into the AST (Issue #46)" $ do
+      case parseExpression "anon.php" "new #[Attribute] class {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (ExprNewAnonClass _ [AttributeGroup _ [Attribute _ (QualifiedName _ NameUnqualified ["Attribute"]) []]] _ _ _ _ _) -> pure ()
+        other -> assertFailure ("Expected an attributed anonymous class expression, got: " ++ show other)
+      case parseExpression "anon.php" "new #[Attribute] NamedClass()" of
+        Left _ -> pure ()
+        Right other -> assertFailure ("Expected attributes on named instantiation to be rejected, got: " ++ show other)
+
   , testCase "Match expression with multiple patterns and default" $ do
       let src = "match ($status) { 200, 201 => 'success', 400 => 'bad request', default => 'unknown' }"
       case parseExpression "test.php" src of

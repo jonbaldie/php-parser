@@ -18,6 +18,16 @@ prettyTests = testGroup "Pretty Printer Specifications"
           assertBool "Printed contains class Greeter" ("class Greeter" `T.isInfixOf` printed)
           assertBool "Printed contains function greet" ("function greet" `T.isInfixOf` printed)
 
+  , testCase "Pretty print anonymous class attributes after new (Issue #46)" $ do
+      let attrs = [AttributeGroup () [Attribute () (QualifiedName () NameUnqualified ["Attribute"]) []]]
+          expr = ExprNewAnonClass () attrs (ClassModifier False False False) [] Nothing [] []
+          printed = prettyPrintExpr expr
+      assertBool "Attributes follow new" ("new #[Attribute]" `T.isInfixOf` printed)
+      case parseExpression "anon.php" printed of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Pretty output round-trips" expr (stripAnnotations reparsed)
+
   , testCase "Pretty print PHP 8.4 property hooks" $ do
       let src = "<?php\n\nclass User {\n    public string $name {\n        get => $this->name;\n        set(string $val) {\n            $this->name = $val;\n        }\n    }\n}"
       case parseProgram "test.php" src of

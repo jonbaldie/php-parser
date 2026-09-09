@@ -276,8 +276,14 @@ prettyVisibility = \case
   Private -> "private"
 
 prettyAttributes :: [AttributeGroup a] -> Doc ann
-prettyAttributes = foldMap (\(AttributeGroup _ attrs) ->
-  "#[" <> hsep (punctuate "," (map prettyAttr attrs)) <> "]" <> line)
+prettyAttributes = foldMap (\attrs -> prettyAttributeGroup attrs <> line)
+
+prettyAttributesInline :: [AttributeGroup a] -> Doc ann
+prettyAttributesInline = hsep . map prettyAttributeGroup
+
+prettyAttributeGroup :: AttributeGroup a -> Doc ann
+prettyAttributeGroup (AttributeGroup _ attrs) =
+  "#[" <> hsep (punctuate "," (map prettyAttr attrs)) <> "]"
   where
     prettyAttr (Attribute _ name args) =
       prettyQualifiedName name <>
@@ -316,8 +322,8 @@ prettyExpr = \case
   ExprNew _ target args ->
     "new " <> prettyNewTarget target <> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   ExprNewAnonClass _ attrs modif args ext impls members ->
-    prettyAttributes attrs <>
-    "new " <> (if classReadonly modif then "readonly " else "") <> "class(" <>
+    "new " <> prettyAttributesInline attrs <>
+    (if classReadonly modif then "readonly " else "") <> "class(" <>
     hsep (punctuate "," (map prettyArg args)) <> ")" <>
     maybe mempty (\e -> " extends " <> prettyQualifiedName e) ext <>
     (if null impls then mempty else " implements " <> hsep (punctuate "," (map prettyQualifiedName impls))) <>
