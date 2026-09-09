@@ -23,6 +23,7 @@ module Language.PHP.Parser.Lexer
   , doubleColon
   -- * Identifiers & Variables
   , identifier
+  , semiReservedIdentifier
   , rawIdentifier
   , variableName
   , qualifiedName
@@ -214,6 +215,15 @@ identifier :: Parser (Ident Span)
 identifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
   tok <- rawIdentifier
   if isKeyword tok
+    then M.empty
+    else pure (\sp -> Ident sp tok)
+
+-- | Identifier in a member-name position (methods, class constants), where PHP
+-- allows semi-reserved keywords. Only @class@ stays reserved there.
+semiReservedIdentifier :: Parser (Ident Span)
+semiReservedIdentifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
+  tok <- rawIdentifier
+  if isKeyword tok && T.toLower tok == "class"
     then M.empty
     else pure (\sp -> Ident sp tok)
 

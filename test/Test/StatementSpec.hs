@@ -5,6 +5,7 @@ module Test.StatementSpec (statementTests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Text (Text)
+import qualified Data.Text as T
 import Language.PHP
 
 statementTests :: TestTree
@@ -385,6 +386,51 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Right stmt -> case stmt of
               StmtStatic _ [(VarName _ "x", Nothing)] -> pure ()
               other -> assertFailure ("Expected StmtStatic, got: " ++ show other)
+      ]
+
+  , testGroup "Issue 21: semi-reserved keywords as method and class constant names"
+      [ testCase "semi-reserved keyword method name in a class" $ do
+          case parseProgram "test.php" "<?php class Foo { public function list() {} }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberMethod md] -> assertEqual "method name" "list" (let Ident _ n = methodName md in n)
+              other -> assertFailure ("Expected one method, got: " ++ show other)
+            other -> assertFailure ("Expected StmtClass, got: " ++ show other)
+
+      , testCase "semi-reserved keyword method name in a trait" $ do
+          assertParsesOk "<?php trait T { public function fn() {} }"
+
+      , testCase "semi-reserved keyword method name in an interface" $ do
+          assertParsesOk "<?php interface I { public function match(); }"
+
+      , testCase "semi-reserved keyword class constant names" $ do
+          case parseProgram "test.php" "<?php class Foo { const DEFAULT = 1; const MATCH = 2; }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberConst c1, MemberConst c2] -> do
+                let names = [n | Ident _ n <- map fst (constItems c1 ++ constItems c2)]
+                assertEqual "constant names" ["DEFAULT", "MATCH"] names
+              other -> assertFailure ("Expected two constants, got: " ++ show other)
+            other -> assertFailure ("Expected StmtClass, got: " ++ show other)
+
+      , testCase "round-trips semi-reserved method and constant names" $ do
+          let src = "<?php\nclass Foo {\n    public function list() {}\n    public function match() {}\n    const DEFAULT = 1;\n    const MATCH = 2;\n}"
+          case parseProgram "test.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> do
+              let printed = prettyPrint ast
+              case parseProgram "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed:\n" ++ T.unpack printed ++ "\nError: " ++ show (formatParseError err2))
+                Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+
+      , testCase "class remains rejected as a method name" $ do
+          assertParsesFail "<?php class Foo { public function class() {} }"
+
+      , testCase "class remains rejected as a class constant name" $ do
+          assertParsesFail "<?php class Foo { const CLASS = 1; }"
+
+      , testCase "top-level function declarations still reject keywords" $ do
+          assertParsesFail "<?php function list() {}"
       ]
   ]
 
