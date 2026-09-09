@@ -111,8 +111,22 @@ statementTests = testGroup "Statement & Declaration Specifications"
       let src = "<?php /** PHPDoc for Service */ class Service {}"
       case parseProgram "test.php" src of
         Left err -> assertFailure (show (formatParseError err))
-        Right (Program (Annotated _ triv) _) -> do
+        Right (Program _ [StmtClass (Annotated _ triv) _]) -> do
           assertBool "trivia contains DocBlock" (any (\case DocBlock _ -> True; _ -> False) triv)
+        other -> assertFailure ("Expected one class declaration, got: " ++ show other)
+
+  , testCase "Associates leading trivia and preserves it in prettyPrint (Issue #48)" $ do
+      let src = "<?php /** first */ class A {} // between\nfunction f() {}"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program root [StmtClass classAnn _, StmtFunction functionAnn _]) -> do
+          assertEqual "program trivia" [] (annTrivia root)
+          assertEqual "class leading docblock" [DocBlock " first "] (annTrivia classAnn)
+          assertEqual "function leading line comment" [CommentLine " between"] (annTrivia functionAnn)
+          let printed = prettyPrint ast
+          assertEqual "prettyPrint emits one docblock" 1 (T.count "/** first */" printed)
+          assertEqual "prettyPrint emits one line comment" 1 (T.count "// between" printed)
+        other -> assertFailure ("Expected class and function declarations, got: " ++ show other)
 
   , testCase "Parse errors report precise source spans" $ do
       let src = "<?php class Invalid { public string ; }"

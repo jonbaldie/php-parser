@@ -1,4 +1,6 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Language.PHP.Pretty
   ( -- * High-level printing functions
@@ -13,6 +15,7 @@ module Language.PHP.Pretty
   , prettyType
   , prettyMember
   , prettyParam
+  , HasLeadingTrivia (..)
   ) where
 
 import Data.Text (Text)
@@ -22,33 +25,57 @@ import Prettyprinter.Render.Text (renderStrict)
 
 import Language.PHP.AST
 
+-- | An annotation may carry comments that precede the annotated node.
+--
+-- The fallback instance keeps the pretty-printer source-compatible with the
+-- existing API, whose AST annotations are intentionally polymorphic.
+class HasLeadingTrivia a where
+  leadingTrivia :: a -> [Trivia]
+
+instance HasLeadingTrivia (Annotated a) where
+  leadingTrivia = annTrivia
+
+instance {-# OVERLAPPABLE #-} HasLeadingTrivia a where
+  leadingTrivia _ = []
+
+prettyLeadingTrivia :: HasLeadingTrivia a => a -> Doc ann -> Doc ann
+prettyLeadingTrivia annotation doc = case leadingTrivia annotation of
+  [] -> doc
+  trivia -> vsep (map prettyTrivia trivia ++ [doc])
+
+prettyTrivia :: Trivia -> Doc ann
+prettyTrivia = \case
+  CommentLine txt -> "//" <> pretty txt
+  CommentBlock txt -> "/*" <> pretty txt <> "*/"
+  DocBlock txt -> "/**" <> pretty txt <> "*/"
+
 -- | Render a complete PHP program to formatted Text.
-prettyPrint :: Program a -> Text
+prettyPrint :: HasLeadingTrivia a => Program a -> Text
 prettyPrint prog = renderStrict (layoutPretty defaultLayoutOptions (prettyProgram prog))
 
 -- | Render a single statement to formatted Text.
-prettyPrintStmt :: Stmt a -> Text
+prettyPrintStmt :: HasLeadingTrivia a => Stmt a -> Text
 prettyPrintStmt stmt = renderStrict (layoutPretty defaultLayoutOptions (prettyStmt stmt))
 
 -- | Render an expression to formatted Text.
-prettyPrintExpr :: Expr a -> Text
+prettyPrintExpr :: HasLeadingTrivia a => Expr a -> Text
 prettyPrintExpr expr = renderStrict (layoutPretty defaultLayoutOptions (prettyExpr expr))
 
 -- | Render a type to formatted Text.
-prettyPrintType :: Type a -> Text
+prettyPrintType :: HasLeadingTrivia a => Type a -> Text
 prettyPrintType typ = renderStrict (layoutPretty defaultLayoutOptions (prettyType typ))
 
 -- | Wadler-Leijen Pretty Document for Program.
-prettyProgram :: Program a -> Doc ann
-prettyProgram (Program _ stmts) = case stmts of
+prettyProgram :: HasLeadingTrivia a => Program a -> Doc ann
+prettyProgram (Program annotation stmts) = prettyLeadingTrivia annotation $ case stmts of
   StmtInlineHtml _ txt : rest ->
     pretty txt <> if null rest then mempty else "<?php" <> line <> line <> vsep (map prettyStmt rest)
   _ ->
     "<?php" <> line <> line <> vsep (map prettyStmt stmts)
 
 -- | Pretty Document for Statements.
-prettyStmt :: Stmt a -> Doc ann
-prettyStmt = \case
+prettyStmt :: HasLeadingTrivia a => Stmt a -> Doc ann
+prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
   StmtExpr _ expr -> prettyExpr expr <> ";"
   StmtBlock _ stmts ->
     "{" <> line <> indent 4 (vsep (map prettyStmt stmts)) <> line <> "}"
@@ -117,13 +144,50 @@ prettyStmt = \case
       " else {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}")
     prettyStaticItem (var, mDef) =
       prettyVarName var <> maybe mempty (\d -> " = " <> prettyExpr d) mDef
-    prettyCase = \case
+    prettyCase switchCase = prettyLeadingTrivia (switchCaseAnnotation switchCase) $ case switchCase of
       SwitchCase _ c ss -> "case " <> prettyExpr c <> ":" <> line <> indent 4 (vsep (map prettyStmt ss))
       SwitchDefault _ ss -> "default:" <> line <> indent 4 (vsep (map prettyStmt ss))
-    prettyCatch (CatchClause _ types mVar body) =
-      " catch (" <> hcat (punctuate "|" (map prettyQualifiedName types)) <>
-      maybe mempty (\v -> " " <> prettyVarName v) mVar <> ") {" <> line <>
-      indent 4 (vsep (map prettyStmt body)) <> line <> "}"
+    prettyCatch catchClause = prettyLeadingTrivia (catchAnnotation catchClause) $ case catchClause of
+      CatchClause _ types mVar body ->
+        " catch (" <> hcat (punctuate "|" (map prettyQualifiedName types)) <>
+        maybe mempty (\v -> " " <> prettyVarName v) mVar <> ") {" <> line <>
+        indent 4 (vsep (map prettyStmt body)) <> line <> "}"
+
+    switchCaseAnnotation = \case
+      SwitchCase annotation _ _ -> annotation
+      SwitchDefault annotation _ -> annotation
+    catchAnnotation (CatchClause annotation _ _ _) = annotation
+
+stmtAnnotation :: Stmt a -> a
+stmtAnnotation = \case
+  StmtExpr a _ -> a
+  StmtBlock a _ -> a
+  StmtIf a _ _ _ _ -> a
+  StmtWhile a _ _ -> a
+  StmtDoWhile a _ _ -> a
+  StmtFor a _ _ _ _ -> a
+  StmtForeach a _ _ _ _ _ -> a
+  StmtSwitch a _ _ -> a
+  StmtBreak a _ -> a
+  StmtContinue a _ -> a
+  StmtReturn a _ -> a
+  StmtThrowStmt a _ -> a
+  StmtTry a _ _ _ -> a
+  StmtNamespace a _ _ -> a
+  StmtUse a _ _ -> a
+  StmtGroupUse a _ _ _ -> a
+  StmtConst a _ -> a
+  StmtFunction a _ -> a
+  StmtClass a _ -> a
+  StmtInterface a _ -> a
+  StmtTrait a _ -> a
+  StmtEnum a _ -> a
+  StmtEcho a _ -> a
+  StmtGlobal a _ -> a
+  StmtStatic a _ -> a
+  StmtInlineHtml a _ -> a
+  StmtHaltCompiler a _ -> a
+  StmtEmpty a -> a
 
 prettyUseType :: UseType -> Doc ann
 prettyUseType = \case
@@ -131,13 +195,13 @@ prettyUseType = \case
   UseFunction -> " function"
   UseConst -> " const"
 
-prettyUseClause :: UseClause a -> Doc ann
-prettyUseClause (UseClause _ name mAlias) =
-  prettyQualifiedName name <> maybe mempty (\(Ident _ a) -> " as " <> pretty a) mAlias
+prettyUseClause :: HasLeadingTrivia a => UseClause a -> Doc ann
+prettyUseClause (UseClause annotation name mAlias) = prettyLeadingTrivia annotation $
+  prettyQualifiedName name <> maybe mempty (\alias -> " as " <> prettyIdent alias) mAlias
 
 -- | Class declarations.
-prettyClassDecl :: ClassDecl a -> Doc ann
-prettyClassDecl (ClassDecl _ attrs modif name mExt impls members) =
+prettyClassDecl :: HasLeadingTrivia a => ClassDecl a -> Doc ann
+prettyClassDecl (ClassDecl annotation attrs modif name mExt impls members) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   (if classFinal modif then "final " else "") <>
   (if classAbstract modif then "abstract " else "") <>
@@ -148,23 +212,23 @@ prettyClassDecl (ClassDecl _ attrs modif name mExt impls members) =
   " {" <> line <> indent 4 (vsep (map prettyMember members)) <> line <> "}"
 
 -- | Interface declarations.
-prettyInterfaceDecl :: InterfaceDecl a -> Doc ann
-prettyInterfaceDecl (InterfaceDecl _ attrs name extends members) =
+prettyInterfaceDecl :: HasLeadingTrivia a => InterfaceDecl a -> Doc ann
+prettyInterfaceDecl (InterfaceDecl annotation attrs name extends members) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   "interface " <> prettyIdent name <>
   (if null extends then mempty else " extends " <> hsep (punctuate "," (map prettyQualifiedName extends))) <>
   " {" <> line <> indent 4 (vsep (map prettyMember members)) <> line <> "}"
 
 -- | Trait declarations.
-prettyTraitDecl :: TraitDecl a -> Doc ann
-prettyTraitDecl (TraitDecl _ attrs name members) =
+prettyTraitDecl :: HasLeadingTrivia a => TraitDecl a -> Doc ann
+prettyTraitDecl (TraitDecl annotation attrs name members) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   "trait " <> prettyIdent name <> " {" <> line <>
   indent 4 (vsep (map prettyMember members)) <> line <> "}"
 
 -- | Enum declarations.
-prettyEnumDecl :: EnumDecl a -> Doc ann
-prettyEnumDecl (EnumDecl _ attrs name mBacked impls members) =
+prettyEnumDecl :: HasLeadingTrivia a => EnumDecl a -> Doc ann
+prettyEnumDecl (EnumDecl annotation attrs name mBacked impls members) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   "enum " <> prettyIdent name <>
   maybe mempty (\b -> ": " <> prettyType b) mBacked <>
@@ -172,7 +236,7 @@ prettyEnumDecl (EnumDecl _ attrs name mBacked impls members) =
   " {" <> line <> indent 4 (vsep (map prettyMember members)) <> line <> "}"
 
 -- | Class Member pretty printing.
-prettyMember :: ClassMember a -> Doc ann
+prettyMember :: HasLeadingTrivia a => ClassMember a -> Doc ann
 prettyMember = \case
   MemberConst c -> prettyConstDecl c
   MemberProperty p -> prettyPropertyDecl p
@@ -180,8 +244,8 @@ prettyMember = \case
   MemberTraitUse tu -> prettyTraitUse tu
   MemberEnumCase ec -> prettyEnumCase ec
 
-prettyConstDecl :: ConstDecl a -> Doc ann
-prettyConstDecl (ConstDecl _ attrs vis isFin mType items) =
+prettyConstDecl :: HasLeadingTrivia a => ConstDecl a -> Doc ann
+prettyConstDecl (ConstDecl annotation attrs vis isFin mType items) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   maybe mempty (\v -> prettyVisibility v <> " ") vis <>
   (if isFin then "final " else "") <>
@@ -189,8 +253,8 @@ prettyConstDecl (ConstDecl _ attrs vis isFin mType items) =
   maybe mempty (\t -> prettyType t <> " ") mType <>
   hsep (punctuate "," (map (\(id', val) -> prettyIdent id' <+> "=" <+> prettyExpr val) items)) <> ";"
 
-prettyPropertyDecl :: PropertyDecl a -> Doc ann
-prettyPropertyDecl (PropertyDecl _ attrs modif mType items hooks) =
+prettyPropertyDecl :: HasLeadingTrivia a => PropertyDecl a -> Doc ann
+prettyPropertyDecl (PropertyDecl annotation attrs modif mType items hooks) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   maybe mempty (\v -> prettyVisibility v <> " ") (propVis modif) <>
   maybe mempty (\wv -> prettyVisibility wv <> "(set) ") (propWriteVis modif) <>
@@ -204,8 +268,8 @@ prettyPropertyDecl (PropertyDecl _ attrs modif mType items hooks) =
     then ";"
     else " {" <> line <> indent 4 (vsep (map prettyHook hooks)) <> line <> "}"
 
-prettyHook :: PropertyHook a -> Doc ann
-prettyHook (PropertyHook _ hookT mParam body) =
+prettyHook :: HasLeadingTrivia a => PropertyHook a -> Doc ann
+prettyHook (PropertyHook annotation hookT mParam body) = prettyLeadingTrivia annotation $
   (case hookT of HookGet -> "get"; HookSet -> "set") <>
   maybe mempty (\(var, mTyp) -> "(" <> maybe mempty (\t -> prettyType t <> " ") mTyp <> prettyVarName var <> ")") mParam <>
   case body of
@@ -213,8 +277,8 @@ prettyHook (PropertyHook _ hookT mParam body) =
     HookBlock ss -> " {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}"
     HookAbstract -> ";"
 
-prettyMethodDecl :: MethodDecl a -> Doc ann
-prettyMethodDecl (MethodDecl _ attrs modif byRef name params retType body) =
+prettyMethodDecl :: HasLeadingTrivia a => MethodDecl a -> Doc ann
+prettyMethodDecl (MethodDecl annotation attrs modif byRef name params retType body) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   maybe mempty (\v -> prettyVisibility v <> " ") (methodVis modif) <>
   (if methodStatic modif then "static " else "") <>
@@ -227,8 +291,8 @@ prettyMethodDecl (MethodDecl _ attrs modif byRef name params retType body) =
     Nothing -> ";"
     Just ss -> " {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}"
 
-prettyParam :: Param a -> Doc ann
-prettyParam (Param _ attrs vis wVis isRo mType byRef isVariadic name mDef) =
+prettyParam :: HasLeadingTrivia a => Param a -> Doc ann
+prettyParam (Param annotation attrs vis wVis isRo mType byRef isVariadic name mDef) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   maybe mempty (\v -> prettyVisibility v <> " ") vis <>
   maybe mempty (\wv -> prettyVisibility wv <> "(set) ") wVis <>
@@ -239,22 +303,22 @@ prettyParam (Param _ attrs vis wVis isRo mType byRef isVariadic name mDef) =
   prettyVarName name <>
   maybe mempty (\d -> " = " <> prettyExpr d) mDef
 
-prettyFunctionDecl :: FunctionDecl a -> Doc ann
-prettyFunctionDecl (FunctionDecl _ attrs byRef name params retType body) =
+prettyFunctionDecl :: HasLeadingTrivia a => FunctionDecl a -> Doc ann
+prettyFunctionDecl (FunctionDecl annotation attrs byRef name params retType body) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   "function " <> (if byRef then "&" else "") <> prettyIdent name <>
   "(" <> hsep (punctuate "," (map prettyParam params)) <> ")" <>
   maybe mempty (\r -> ": " <> prettyType r) retType <>
   " {" <> line <> indent 4 (vsep (map prettyStmt body)) <> line <> "}"
 
-prettyTraitUse :: TraitUse a -> Doc ann
-prettyTraitUse (TraitUse _ names adapts) =
+prettyTraitUse :: HasLeadingTrivia a => TraitUse a -> Doc ann
+prettyTraitUse (TraitUse annotation names adapts) = prettyLeadingTrivia annotation $
   "use " <> hsep (punctuate "," (map prettyQualifiedName names)) <>
   if null adapts
     then ";"
     else " {" <> line <> indent 4 (vsep (map prettyAdaptation adapts)) <> line <> "}"
   where
-    prettyAdaptation = \case
+    prettyAdaptation adaptation = prettyLeadingTrivia (traitAdaptationAnnotation adaptation) $ case adaptation of
       TraitPrecedence _ tr met others ->
         prettyQualifiedName tr <> "::" <> prettyIdent met <+> "insteadof " <>
         hsep (punctuate "," (map prettyQualifiedName others)) <> ";"
@@ -264,8 +328,12 @@ prettyTraitUse (TraitUse _ names adapts) =
         maybe mempty (\v -> " " <> prettyVisibility v) vis <>
         maybe mempty (\n -> " " <> prettyIdent n) mNew <> ";"
 
-prettyEnumCase :: EnumCase a -> Doc ann
-prettyEnumCase (EnumCase _ attrs name mVal) =
+    traitAdaptationAnnotation = \case
+      TraitPrecedence triviaAnn _ _ _ -> triviaAnn
+      TraitAlias triviaAnn _ _ _ _ -> triviaAnn
+
+prettyEnumCase :: HasLeadingTrivia a => EnumCase a -> Doc ann
+prettyEnumCase (EnumCase annotation attrs name mVal) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <> "case " <> prettyIdent name <>
   maybe mempty (\v -> " = " <> prettyExpr v) mVal <> ";"
 
@@ -275,31 +343,31 @@ prettyVisibility = \case
   Protected -> "protected"
   Private -> "private"
 
-prettyAttributes :: [AttributeGroup a] -> Doc ann
+prettyAttributes :: HasLeadingTrivia a => [AttributeGroup a] -> Doc ann
 prettyAttributes = foldMap (\attrs -> prettyAttributeGroup attrs <> line)
 
-prettyAttributesInline :: [AttributeGroup a] -> Doc ann
+prettyAttributesInline :: HasLeadingTrivia a => [AttributeGroup a] -> Doc ann
 prettyAttributesInline = hsep . map prettyAttributeGroup
 
-prettyAttributeGroup :: AttributeGroup a -> Doc ann
-prettyAttributeGroup (AttributeGroup _ attrs) =
+prettyAttributeGroup :: HasLeadingTrivia a => AttributeGroup a -> Doc ann
+prettyAttributeGroup (AttributeGroup annotation attrs) = prettyLeadingTrivia annotation $
   "#[" <> hsep (punctuate "," (map prettyAttr attrs)) <> "]"
   where
-    prettyAttr (Attribute _ name args) =
+    prettyAttr (Attribute attrAnnotation name args) = prettyLeadingTrivia attrAnnotation $
       prettyQualifiedName name <>
       if null args
         then mempty
         else "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
 
-prettyArg :: Arg a -> Doc ann
-prettyArg (Arg _ mName expr isUnpack) =
-  maybe mempty (\(Ident _ n) -> pretty n <> ": ") mName <>
+prettyArg :: HasLeadingTrivia a => Arg a -> Doc ann
+prettyArg (Arg annotation mName expr isUnpack) = prettyLeadingTrivia annotation $
+  maybe mempty (\name -> prettyIdent name <> ": ") mName <>
   (if isUnpack then "..." else "") <>
   prettyExpr expr
 
 -- | Pretty document for PHP Expressions.
-prettyExpr :: Expr a -> Doc ann
-prettyExpr = \case
+prettyExpr :: HasLeadingTrivia a => Expr a -> Doc ann
+prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprVar _ v -> prettyVar v
   ExprLit _ l -> prettyLiteral l
   ExprBinary _ OpPow lhs rhs ->
@@ -357,11 +425,11 @@ prettyExpr = \case
     (if null uses then mempty else " use (" <> hsep (punctuate "," (map (\(v, r) -> (if r then "&" else "") <> prettyVarName v) uses)) <> ")") <>
     maybe mempty (\r -> ": " <> prettyType r) retType <>
     " {" <> line <> indent 4 (vsep (map prettyStmt stmts)) <> line <> "}"
-  ExprArrowFunction _ attrs byRef isStat params retType expr ->
+  ExprArrowFunction _ attrs byRef isStat params retType bodyExpr ->
     prettyAttributes attrs <>
     (if isStat then "static " else "") <> "fn " <> (if byRef then "&" else "") <>
     "(" <> hsep (punctuate "," (map prettyParam params)) <> ")" <>
-    maybe mempty (\r -> ": " <> prettyType r) retType <+> "=> " <> prettyExpr expr
+    maybe mempty (\r -> ": " <> prettyType r) retType <+> "=> " <> prettyExpr bodyExpr
   ExprYield _ mK mV ->
     "yield" <> maybe mempty (\k -> " " <> prettyExpr k <+> "=>") mK <>
     maybe mempty (\v -> " " <> prettyExpr v) mV
@@ -377,7 +445,7 @@ prettyExpr = \case
 -- | Render an expression in an operator-operand position. Assignment
 -- binds more loosely than every operator that can enclose it, so an
 -- operand-position assignment must be parenthesized to survive re-parsing.
-prettySubExpr :: Expr a -> Doc ann
+prettySubExpr :: HasLeadingTrivia a => Expr a -> Doc ann
 prettySubExpr e
   | needsAssignParens e = parens (prettyExpr e)
   | otherwise           = prettyExpr e
@@ -419,7 +487,7 @@ prettyBinOp = \case
   OpPipe -> "|>"
   OpCoalesce -> "??"
 
-prettyUnary :: UnOp -> Expr a -> Doc ann
+prettyUnary :: HasLeadingTrivia a => UnOp -> Expr a -> Doc ann
 prettyUnary op e = case op of
   -- Postfix ++/-- bind tighter than the prefix operators above them, so
   -- the operand takes the same parenthesization as every other postfix
@@ -447,7 +515,7 @@ prettyUnary op e = case op of
 -- | Render the left operand of "**". Exponentiation binds tighter than the
 -- prefix operators and casts, so an unparenthesized "-2 ** 2" reparses as
 -- "-(2 ** 2)"; such an operand must keep its own parentheses.
-prettyPowLhs :: Expr a -> Doc ann
+prettyPowLhs :: HasLeadingTrivia a => Expr a -> Doc ann
 prettyPowLhs e
   | bindsLooserThanPow e = parens (prettyExpr e)
   | otherwise            = prettySubExpr e
@@ -466,12 +534,12 @@ prettyAssignOp = \case
   Nothing -> "="
   Just op -> prettyBinOp op <> "="
 
-prettyCallArgs :: CallArgs a -> Doc ann
+prettyCallArgs :: HasLeadingTrivia a => CallArgs a -> Doc ann
 prettyCallArgs = \case
   ArgsList args -> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   FirstClassCallable -> "(...)"
 
-prettyCallBase :: Expr a -> Doc ann
+prettyCallBase :: HasLeadingTrivia a => Expr a -> Doc ann
 prettyCallBase e
   | needsCallParens e = parens (prettyExpr e)
   | otherwise         = prettyPostfixBase e
@@ -488,7 +556,7 @@ needsCallParens = \case
   ExprThrow {}                 -> True
   _                            -> False
 
-prettyPostfixBase :: Expr a -> Doc ann
+prettyPostfixBase :: HasLeadingTrivia a => Expr a -> Doc ann
 prettyPostfixBase e
   | needsPostfixParens e = parens (prettyExpr e)
   | otherwise            = prettyExpr e
@@ -505,7 +573,7 @@ needsPostfixParens = \case
   ExprThrow {}         -> True
   _                    -> False
 
-prettyNewTarget :: ClassTarget a -> Doc ann
+prettyNewTarget :: HasLeadingTrivia a => ClassTarget a -> Doc ann
 prettyNewTarget = \case
   ClassTargetName qn -> prettyQualifiedName qn
   ClassTargetExpr e
@@ -520,39 +588,44 @@ prettyNewTarget = \case
       ExprStaticPropertyFetch {}   -> True
       _                            -> False
 
-prettyTarget :: ClassTarget a -> Doc ann
+prettyTarget :: HasLeadingTrivia a => ClassTarget a -> Doc ann
 prettyTarget = \case
   ClassTargetName qn -> prettyQualifiedName qn
   ClassTargetExpr e -> case e of
     ExprVar {} -> prettyExpr e
     _          -> parens (prettyExpr e)
 
-prettyMemberName :: MemberName a -> Doc ann
+prettyMemberName :: HasLeadingTrivia a => MemberName a -> Doc ann
 prettyMemberName = \case
   MemberIdent id' -> prettyIdent id'
   MemberExpr e -> case e of
     ExprVar {} -> prettyExpr e
     _          -> "{" <> prettyExpr e <> "}"
 
-prettyConstName :: ClassConstName a -> Doc ann
+prettyConstName :: HasLeadingTrivia a => ClassConstName a -> Doc ann
 prettyConstName = \case
   ConstNameIdent id' -> prettyIdent id'
   ConstNameDynamic e -> "{" <> prettyExpr e <> "}"
 
-prettyArrayItem :: ArrayItem a -> Doc ann
-prettyArrayItem (ArrayItem _ mKey val isUnpack) =
+prettyArrayItem :: HasLeadingTrivia a => ArrayItem a -> Doc ann
+prettyArrayItem (ArrayItem annotation mKey val isUnpack) = prettyLeadingTrivia annotation $
   maybe mempty (\k -> prettyExpr k <+> "=> ") mKey <>
   (if isUnpack then "..." else "") <>
   prettyExpr val
 
-prettyMatchArm :: MatchArm a -> Doc ann
-prettyMatchArm = \case
+prettyMatchArm :: HasLeadingTrivia a => MatchArm a -> Doc ann
+prettyMatchArm arm = prettyLeadingTrivia (matchArmAnnotation arm) $ case arm of
   MatchArm _ conds res ->
     hsep (punctuate "," (map prettyExpr conds)) <+> "=> " <> prettyExpr res
   MatchDefault _ res -> "default => " <> prettyExpr res
 
-prettyLiteral :: Literal a -> Doc ann
-prettyLiteral = \case
+matchArmAnnotation :: MatchArm a -> a
+matchArmAnnotation = \case
+  MatchArm annotation _ _ -> annotation
+  MatchDefault annotation _ -> annotation
+
+prettyLiteral :: HasLeadingTrivia a => Literal a -> Doc ann
+prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case literal of
   LitInt _ _ raw -> pretty raw
   LitFloat _ _ raw -> pretty raw
   LitString _ _ raw -> pretty raw
@@ -567,11 +640,26 @@ prettyLiteral = \case
       StrLit t -> pretty t
       StrExpr e -> "{" <> prettyExpr e <> "}"
 
-prettyVar :: Var a -> Doc ann
-prettyVar = \case
+prettyVar :: HasLeadingTrivia a => Var a -> Doc ann
+prettyVar variable = prettyLeadingTrivia (varAnnotation variable) $ case variable of
   SimpleVar _ vn -> prettyVarName vn
   DynamicVar _ (ExprVar _ innerVar) -> "$" <> prettyVar innerVar
   DynamicVar _ e -> "${" <> prettyExpr e <> "}"
+
+literalAnnotation :: Literal a -> a
+literalAnnotation = \case
+  LitInt annotation _ _ -> annotation
+  LitFloat annotation _ _ -> annotation
+  LitString annotation _ _ -> annotation
+  LitInterpolated annotation _ -> annotation
+  LitHeredoc annotation _ _ _ -> annotation
+  LitBool annotation _ -> annotation
+  LitNull annotation -> annotation
+
+varAnnotation :: Var a -> a
+varAnnotation = \case
+  SimpleVar annotation _ -> annotation
+  DynamicVar annotation _ -> annotation
 
 prettyCastType :: CastType -> Doc ann
 prettyCastType = \case
@@ -590,24 +678,32 @@ prettyInclude = \case
   IncRequire -> "require"
   IncRequireOnce -> "require_once"
 
-prettyIdent :: Ident a -> Doc ann
-prettyIdent (Ident _ name) = pretty name
+prettyIdent :: HasLeadingTrivia a => Ident a -> Doc ann
+prettyIdent (Ident annotation name) = prettyLeadingTrivia annotation (pretty name)
 
-prettyVarName :: VarName a -> Doc ann
-prettyVarName (VarName _ name) = "$" <> pretty name
+prettyVarName :: HasLeadingTrivia a => VarName a -> Doc ann
+prettyVarName (VarName annotation name) = prettyLeadingTrivia annotation ("$" <> pretty name)
 
-prettyQualifiedName :: QualifiedName a -> Doc ann
-prettyQualifiedName (QualifiedName _ kind parts) =
+prettyQualifiedName :: HasLeadingTrivia a => QualifiedName a -> Doc ann
+prettyQualifiedName (QualifiedName annotation kind parts) = prettyLeadingTrivia annotation $
   case kind of
     NameFullyQualified -> "\\" <> pretty (T.intercalate "\\" parts)
     NameRelative -> "namespace\\" <> pretty (T.intercalate "\\" parts)
     _ -> pretty (T.intercalate "\\" parts)
 
 -- | Pretty document for PHP Types (supports DNF, unions, intersections).
-prettyType :: Type a -> Doc ann
-prettyType = \case
+prettyType :: HasLeadingTrivia a => Type a -> Doc ann
+prettyType typ = prettyLeadingTrivia (typeAnnotation typ) $ case typ of
   SimpleType _ qn -> prettyQualifiedName qn
   NullableType _ t -> "?" <> prettyType t
   UnionType _ ts -> hcat (punctuate "|" (map prettyType ts))
   IntersectionType _ ts -> hcat (punctuate "&" (map prettyType ts))
   DNFType _ ts -> parens (hcat (punctuate "&" (map prettyType ts)))
+
+typeAnnotation :: Type a -> a
+typeAnnotation = \case
+  SimpleType a _ -> a
+  NullableType a _ -> a
+  UnionType a _ -> a
+  IntersectionType a _ -> a
+  DNFType a _ -> a
