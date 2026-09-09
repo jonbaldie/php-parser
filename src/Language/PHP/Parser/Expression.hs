@@ -15,7 +15,7 @@ module Language.PHP.Parser.Expression
   ) where
 
 import Control.Applicative ((<|>), optional)
-import Control.Monad (void)
+import Control.Monad (guard, void)
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 import Language.PHP.AST
@@ -376,6 +376,7 @@ parseExprWith pStmt pMember = parseExprRec
 
     parseNew = withSpan $ M.try $ do
       keyword_ "new"
+      attrs <- parseAttributes
       isReadonlyAnon <- (True <$ M.try (keyword "readonly" *> keyword "class")) <|> pure False
       isAnon <- if isReadonlyAnon then pure True else (True <$ keyword "class") <|> pure False
       if isAnon
@@ -386,8 +387,9 @@ parseExprWith pStmt pMember = parseExprRec
           mExtends <- optional (keyword "extends" *> qualifiedName)
           impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
           members <- braces (M.many pMember)
-          pure (\sp -> ExprNewAnonClass sp [] modif args mExtends impls members)
+          pure (\sp -> ExprNewAnonClass sp attrs modif args mExtends impls members)
         else do
+          guard (null attrs)
           target <- parseNewTarget
           mArgs <- optional (parens (parseArgWith parseExprRec `M.sepEndBy` comma))
           let args = maybe [] id mArgs
