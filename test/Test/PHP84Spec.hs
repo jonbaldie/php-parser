@@ -3,6 +3,7 @@
 module Test.PHP84Spec (php84Tests) where
 
 import Control.Monad (forM)
+import qualified Data.Text as T
 import Test.Tasty
 import Test.Tasty.HUnit
 import Language.PHP
@@ -20,8 +21,10 @@ php84Tests = testGroup "PHP 8.4 Specifications"
               case propHooks pd of
                 [hGet, hSet] -> do
                   assertEqual "hook 1 type" HookGet (hookType hGet)
+                  assertBool "hook 1 is not final" (not (hookFinal hGet))
                   assertBool "hook 1 is expression" (case hookBody hGet of HookExpr _ -> True; _ -> False)
                   assertEqual "hook 2 type" HookSet (hookType hSet)
+                  assertBool "hook 2 is not final" (not (hookFinal hSet))
                   assertBool "hook 2 is block" (case hookBody hSet of HookBlock _ -> True; _ -> False)
                   assertBool "hook 2 has param" (case hookParam hSet of Just (VarName _ "value", Just (SimpleType _ _)) -> True; _ -> False)
                 _ -> assertFailure "Expected 2 hooks"
@@ -73,6 +76,32 @@ php84Tests = testGroup "PHP 8.4 Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right prog -> do
           let printed = prettyPrint prog
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right prog2 ->
+              assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+
+  , testCase "property hooks retain final modifiers (Issue #49)" $ do
+      let src = "<?php\nclass C {\n    public string $x {\n        final get => \"x\";\n        final set(string $value) {}\n    }\n}\n"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right prog -> do
+          case prog of
+            Program _ [StmtClass _ cd] -> case classMembers cd of
+              [MemberProperty pd] -> case propHooks pd of
+                [hGet, hSet] -> do
+                  assertEqual "get type" HookGet (hookType hGet)
+                  assertBool "get is final" (hookFinal hGet)
+                  assertEqual "set type" HookSet (hookType hSet)
+                  assertBool "set is final" (hookFinal hSet)
+                _ -> assertFailure "Expected 2 hooks"
+              _ -> assertFailure "Expected MemberProperty"
+            _ -> assertFailure "Expected StmtClass"
+          let printed = prettyPrint prog
+          assertBool ("prettyPrint should retain final get, got: " ++ show printed)
+            ("final get" `T.isInfixOf` printed)
+          assertBool ("prettyPrint should retain final set, got: " ++ show printed)
+            ("final set" `T.isInfixOf` printed)
           case parseProgram "test.php" printed of
             Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
             Right prog2 ->

@@ -633,14 +633,14 @@ parseProperty attrs = withSpan $ do
 -- | PHP 8.4 Property Hook: get => expr; or set(Type $v) { ... }
 parsePropertyHook :: Parser (PropertyHook Span)
 parsePropertyHook = withSpan $ do
-  _ <- optional parseVisibility -- hooks can have visibility e.g. final set => ...
-  _ <- optional (keyword "final")
+  _ <- optional parseVisibility
+  isFinal <- (True <$ keyword "final") <|> pure False
   hookT <- (HookGet <$ keyword "get") <|> (HookSet <$ keyword "set")
   mParam <- if hookT == HookSet
     then optional (parens parseHookParam)
     else pure Nothing
   body <- parseHookBody
-  pure (\sp -> PropertyHook sp hookT mParam body)
+  pure (\sp -> PropertyHook sp isFinal hookT mParam body)
   where
     parseHookParam = do
       typ <- optional parseType
