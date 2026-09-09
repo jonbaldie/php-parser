@@ -117,4 +117,67 @@ prettyTests = testGroup "Pretty Printer Specifications"
       assertEqual "Method call on property has no parens" "$obj->a->foo()" (prettyPrintExpr methodOnProp)
       let arrayOnProp = ExprArrayAccess () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "a"))) (Just (ExprLit () (LitInt () 0 "0")))
       assertEqual "Array access on property has no parens" "$obj->a[0]" (prettyPrintExpr arrayOnProp)
+
+  , testCase "prettyQualifiedName on NameRelative does not duplicate namespace prefix (Issue #18)" $ do
+      case parseExpression "test.php" "namespace\\Foo" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrintExpr ast
+          assertEqual "Prints a single namespace prefix" "namespace\\Foo" printed
+          case parseExpression "test.php" printed of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "prettyQualifiedName on nested NameRelative does not duplicate namespace prefix (Issue #18)" $ do
+      case parseExpression "test.php" "namespace\\Foo\\Bar" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrintExpr ast
+          assertEqual "Prints a single namespace prefix" "namespace\\Foo\\Bar" printed
+          case parseExpression "test.php" printed of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "prettyQualifiedName on NameRelative whose first identifier is namespace (Issue #18)" $ do
+      case parseExpression "test.php" "namespace\\namespace" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrintExpr ast
+          assertEqual "Prints prefix plus identifier namespace" "namespace\\namespace" printed
+          case parseExpression "test.php" printed of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "prettyQualifiedName on constructed NameRelative without namespace in parts (Issue #18)" $ do
+      let expr = ExprConstFetch () (QualifiedName () NameRelative ["Foo"])
+      assertEqual "Prints a single namespace prefix" "namespace\\Foo" (prettyPrintExpr expr)
+      case parseExpression "test.php" (prettyPrintExpr expr) of
+        Left err -> assertFailure (show (formatParseError err))
+        Right reparsed ->
+          assertEqual "Round-trips" expr (stripAnnotations reparsed)
+
+  , testCase "prettyQualifiedName on NameUnqualified is unaffected (Issue #18)" $ do
+      case parseExpression "test.php" "Foo" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrintExpr ast
+          assertEqual "Unqualified name is unchanged" "Foo" printed
+          case parseExpression "test.php" printed of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "prettyQualifiedName on NameFullyQualified is unaffected (Issue #18)" $ do
+      case parseExpression "test.php" "\\Foo\\Bar" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrintExpr ast
+          assertEqual "Fully-qualified name is unchanged" "\\Foo\\Bar" printed
+          case parseExpression "test.php" printed of
+            Left err2 -> assertFailure (show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
   ]
