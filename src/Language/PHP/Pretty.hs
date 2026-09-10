@@ -18,6 +18,7 @@ module Language.PHP.Pretty
   , HasLeadingTrivia (..)
   ) where
 
+import Data.Char (isAlpha)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter
@@ -639,8 +640,23 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitNull _ -> "null"
   where
     prettyPart = \case
-      StrLit t -> pretty t
+      StrLit t -> pretty (escapeInterpText t)
       StrExpr e -> "{" <> prettyExpr e <> "}"
+
+-- | Re-emit the escapes the lexer decoded away in interpolated-string text
+-- parts: a backslash is doubled so it survives re-decoding, and a dollar that
+-- would otherwise reparse as variable interpolation is escaped (Issue #88).
+escapeInterpText :: Text -> Text
+escapeInterpText = T.concat . go
+  where
+    go input = case T.uncons input of
+      Nothing -> []
+      Just ('\\', rest) -> "\\\\" : go rest
+      Just ('$', rest) -> (if startsIdent rest then "\\$" else "$") : go rest
+      Just (c, rest) -> T.singleton c : go rest
+    startsIdent rest = case T.uncons rest of
+      Just (c, _) -> isAlpha c || c == '_' || c >= '\x80'
+      Nothing -> False
 
 prettyVar :: HasLeadingTrivia a => Var a -> Doc ann
 prettyVar variable = prettyLeadingTrivia (varAnnotation variable) $ case variable of

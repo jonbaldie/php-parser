@@ -1003,6 +1003,32 @@ expressionTests = testGroup "Expression Specifications"
               Right e -> pure e
             assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
       ]
+
+  , testGroup "Escaped dollar printing (Issue #88)"
+      [ testCase "literal dollars and backslashes in text parts survive printing" $
+          forM_
+            [ "\"literal \\$name $other\"" :: Text
+            , "\"\\$name $a\""
+            , "\"\\${x} $a\""
+            , "\"\\\\$name $a\""
+            ] $ \src ->
+            case parseExpression "issue88.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right expr -> assertRoundTripExpr expr
+
+      , testCase "escaped dollars reprint escaped, safe dollars stay bare" $ do
+          let printedFor src = do
+                expr <- case parseExpression "issue88.php" src of
+                  Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+                  Right e -> pure e
+                pure (prettyPrintExpr expr)
+          escaped <- printedFor (T.pack "\"literal \\$name $other\"")
+          assertEqual "literal $name reprints as \\$name"
+            (T.pack "\"literal \\$name {$other}\"") escaped
+          safe <- printedFor (T.pack "\"a\\$ $a\"")
+          assertEqual "a $ before a space needs no escape"
+            (T.pack "\"a$ {$a}\"") safe
+      ]
   ]
 
 assertRoundTripExpr :: Expr (Annotated Span) -> Assertion
