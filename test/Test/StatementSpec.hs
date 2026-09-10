@@ -497,6 +497,27 @@ statementTests = testGroup "Statement & Declaration Specifications"
               assertEqual "only the first CRLF is consumed" "\r\nHTML" html
             Right other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
+
+  , testCase "Reject members invalid in enum, class, and interface contexts (Issue #89)" $ do
+      mapM_ assertParsesFail
+        [ "<?php enum E { public int $x; }"
+        , "<?php class C { case X; }"
+        , "<?php interface I { use T; }"
+        , "<?php interface I { public int $x; }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php enum E { case X; }"
+        , "<?php enum E { public function f() {} }"
+        , "<?php enum E { const C = 1; }"
+        , "<?php enum E { use T; }"
+        , "<?php class C { use T; }"
+        , "<?php class C { const C = 1; }"
+        , "<?php class C { public int $x; }"
+        , "<?php trait T2 { public int $x; }"
+        , "<?php interface I { public function f(); }"
+        , "<?php interface I { const C = 1; }"
+        , "<?php interface I { public string $name { get; set; } }"
+        ]
   ]
 
 assertParsesOk :: Text -> Assertion

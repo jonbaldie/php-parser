@@ -13,6 +13,7 @@ module Language.PHP.Parser.Statement
 
 import Control.Applicative ((<|>), optional)
 import Control.Monad (void)
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
@@ -25,7 +26,7 @@ import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, pa
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
-parseExpr = parseExprWithContext parseStmt parseClassMemberInContext
+parseExpr = parseExprWithContext parseStmt (\ro -> parseClassMemberInContext (ClassLikeContext ro))
 
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
 parseProgram :: Parser (Program Span)
@@ -578,16 +579,43 @@ parseParam = withSpan $ do
             loop vis wVis True)
           <|> pure (vis, wVis, isRo)
 
+-- | The enclosing declaration kind in which class members are parsed.
+-- PHP applies different member rules to enums, classes, and interfaces.
+data ClassContext
+  = ClassLikeContext !Bool  -- ^ class, trait, or anonymous class; readonly flag
+  | EnumContext
+  | InterfaceContext
+
 -- | Class member declaration.
 parseClassMember :: Parser (ClassMember Span)
-parseClassMember = parseClassMemberInContext False
+parseClassMember = parseClassMemberInContext (ClassLikeContext False)
 
-parseClassMemberInContext :: Bool -> Parser (ClassMember Span)
-parseClassMemberInContext enclosingReadonly =
-  (MemberConst <$> M.try parseConstDecl)
-  <|> (MemberTraitUse <$> M.try parseTraitUse)
-  <|> (MemberEnumCase <$> M.try parseEnumCase)
-  <|> parseMethodOrProperty enclosingReadonly
+parseClassMemberInContext :: ClassContext -> Parser (ClassMember Span)
+parseClassMemberInContext ctx = do
+  enclosingReadonly <- pure $ case ctx of
+    ClassLikeContext ro -> ro
+    _ -> False
+  member <-
+    (MemberConst <$> M.try parseConstDecl)
+    <|> (MemberTraitUse <$> M.try parseTraitUse)
+    <|> (MemberEnumCase <$> M.try parseEnumCase)
+    <|> parseMethodOrProperty enclosingReadonly
+  member <$ checkMember ctx member
+
+-- | Reject members that PHP forbids in the enclosing declaration kind.
+-- Hooked properties are legal in interfaces (PHP 8.4); bare ones are not.
+checkMember :: ClassContext -> ClassMember Span -> Parser ()
+checkMember ctx member =
+  case (ctx, member) of
+    (EnumContext, MemberEnumCase _) -> pure ()
+    (EnumContext, MemberProperty _) -> forbidden "Enums may not include properties"
+    (InterfaceContext, MemberProperty pd)
+      | null (propHooks pd) -> forbidden "Interfaces may not include properties"
+    (InterfaceContext, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
+    (_, MemberEnumCase _) -> forbidden "Enum cases can only be used inside enum declarations"
+    _ -> pure ()
+  where
+    forbidden msg = M.fancyFailure (S.singleton (M.ErrorFail (T.unpack msg)))
 
 parseMethodOrProperty :: Bool -> Parser (ClassMember Span)
 parseMethodOrProperty enclosingReadonly = do
@@ -722,7 +750,7 @@ parseClass = withSpan $ do
   name <- identifier
   mExtends <- optional (keyword "extends" *> qualifiedName)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many (parseClassMemberInContext (classReadonly modif)))
+  members <- braces (M.many (parseClassMemberInContext (ClassLikeContext (classReadonly modif))))
   pure (\sp -> StmtClass sp (ClassDecl sp attrs modif name mExtends impls members))
 
 -- | Interface declaration.
@@ -731,7 +759,7 @@ parseInterface = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "interface")
   name <- identifier
   extends <- (keyword "extends" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many parseClassMember)
+  members <- braces (M.many (parseClassMemberInContext InterfaceContext))
   pure (\sp -> StmtInterface sp (InterfaceDecl sp attrs name extends members))
 
 -- | Trait declaration.
@@ -739,7 +767,7 @@ parseTrait :: Parser (Stmt Span)
 parseTrait = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "trait")
   name <- identifier
-  members <- braces (M.many parseClassMember)
+  members <- braces (M.many (parseClassMemberInContext (ClassLikeContext False)))
   pure (\sp -> StmtTrait sp (TraitDecl sp attrs name members))
 
 -- | Enum declaration (pure or backed).
@@ -749,5 +777,5 @@ parseEnum = withSpan $ do
   name <- identifier
   mBacked <- optional (colon *> parseType)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many parseClassMember)
+  members <- braces (M.many (parseClassMemberInContext EnumContext))
   pure (\sp -> StmtEnum sp (EnumDecl sp attrs name mBacked impls members))
