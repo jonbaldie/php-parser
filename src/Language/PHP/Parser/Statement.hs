@@ -13,7 +13,7 @@ module Language.PHP.Parser.Statement
 
 import Control.Applicative ((<|>), optional)
 import Control.Monad (void, when)
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Text.Megaparsec as M
@@ -442,6 +442,14 @@ parseAsymmetricWriteVis = M.try $ do
   _ <- symbol "(set)"
   pure vis
 
+-- | Register a custom parse error for a repeated declaration modifier.
+-- Registration (rather than failure) keeps the surrounding modifier loop
+-- composable across backtracking alternatives while still rejecting the
+-- program, mirroring PHP's own diagnostics.
+duplicateModifier :: String -> Parser ()
+duplicateModifier what =
+  M.registerFancyFailure (S.singleton (M.ErrorFail ("Multiple " <> what <> " modifiers are not allowed")))
+
 -- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract, var).
 -- Note: @var@ is an alias for @public@ visibility and cannot be combined with explicit visibility.
 parsePropertyModifier :: Parser PropertyModifier
@@ -450,27 +458,27 @@ parsePropertyModifier = loop Nothing Nothing False False False False
     loop vis wVis isStat isRo isFin isAbs =
       (do
         wv <- parseAsymmetricWriteVis
+        when (isJust wVis) $ duplicateModifier "access type"
         loop vis (Just wv) isStat isRo isFin isAbs)
-      <|> (case vis of
-            Nothing ->
-              (do
-                v <- parseVisibility
-                loop (Just v) wVis isStat isRo isFin isAbs)
-              <|> (do
-                keyword_ "var"
-                loop (Just Public) wVis isStat isRo isFin isAbs)
-            Just _ -> M.empty)
+      <|> (do
+        v <- (parseVisibility <|> (Public <$ keyword_ "var"))
+        when (isJust vis) $ duplicateModifier "access type"
+        loop (Just v) wVis isStat isRo isFin isAbs)
       <|> (do
         keyword_ "static"
+        when isStat $ duplicateModifier "static"
         loop vis wVis True isRo isFin isAbs)
       <|> (do
         keyword_ "readonly"
+        when isRo $ duplicateModifier "readonly"
         loop vis wVis isStat True isFin isAbs)
       <|> (do
         keyword_ "final"
+        when isFin $ duplicateModifier "final"
         loop vis wVis isStat isRo True isAbs)
       <|> (do
         keyword_ "abstract"
+        when isAbs $ duplicateModifier "abstract"
         loop vis wVis isStat isRo isFin True)
       <|> pure (PropertyModifier vis wVis isStat isRo isFin isAbs)
 
@@ -481,15 +489,19 @@ parseMethodModifier = loop Nothing False False False
     loop vis isStat isFin isAbs =
       (do
         v <- parseVisibility
+        when (isJust vis) $ duplicateModifier "access type"
         loop (Just v) isStat isFin isAbs)
       <|> (do
         keyword_ "static"
+        when isStat $ duplicateModifier "static"
         loop vis True isFin isAbs)
       <|> (do
         keyword_ "final"
+        when isFin $ duplicateModifier "final"
         loop vis isStat True isAbs)
       <|> (do
         keyword_ "abstract"
+        when isAbs $ duplicateModifier "abstract"
         loop vis isStat isFin True)
       <|> pure (MethodModifier vis isStat isFin isAbs)
 
@@ -500,12 +512,15 @@ parseClassModifier = loop False False False
     loop isFin isAbs isRo =
       (do
         keyword_ "final"
+        when isFin $ duplicateModifier "final"
         loop True isAbs isRo)
       <|> (do
         keyword_ "abstract"
+        when isAbs $ duplicateModifier "abstract"
         loop isFin True isRo)
       <|> (do
         keyword_ "readonly"
+        when isRo $ duplicateModifier "readonly"
         loop isFin isAbs True)
       <|> pure (ClassModifier isFin isAbs isRo)
 
@@ -516,9 +531,11 @@ parseConstModifier = loop Nothing False
     loop vis isFin =
       (do
         v <- parseVisibility
+        when (isJust vis) $ duplicateModifier "access type"
         loop (Just v) isFin)
       <|> (do
         keyword_ "final"
+        when isFin $ duplicateModifier "final"
         loop vis True)
       <|> pure (vis, isFin)
 
@@ -574,12 +591,15 @@ parseParam = withSpan $ do
         loop vis wVis isRo =
           (do
             wv <- parseAsymmetricWriteVis
+            when (isJust wVis) $ duplicateModifier "access type"
             loop vis (Just wv) isRo)
           <|> (do
             v <- parseVisibility
+            when (isJust vis) $ duplicateModifier "access type"
             loop (Just v) wVis isRo)
           <|> (do
             keyword_ "readonly"
+            when isRo $ duplicateModifier "readonly"
             loop vis wVis True)
           <|> pure (vis, wVis, isRo)
 
