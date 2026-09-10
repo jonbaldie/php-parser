@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.3.0
+## 0.1.4.0
 
 * Reject duplicate declaration modifiers on classes, properties, methods, class constants, and promoted parameters (e.g. `final final class C`, `static static int $x`, `public public function`), and repeated access-type modifiers (`public private`), matching PHP's "Multiple ... modifiers are not allowed" diagnostics (#92).
 
@@ -12,8 +12,15 @@
 
 * Fix `prettyPrintExpr` to re-escape literal dollars and backslashes in interpolated-string text parts, so text like `literal \$name` from a decoded escape does not reparse as variable interpolation (#88).
 
+* Fix double-quoted string escape decoding so complete PHP escape sequences (including numeric escapes) decode, unknown escapes keep their backslash, and nowdoc content is preserved raw (#87).
 * Fix float literal parsing so a mantissa ending in the decimal point followed by an exponent (`1.e2`, `1.e-2`) parses to PHP's value instead of `0.0`, and keep the original source spelling in `LitFloat`'s raw text instead of normalizing it to `1.e+2` (#86).
 * Reject incomplete base-prefixed integer literals (`0x`, `0b`, `0o` with no digits), matching PHP, instead of accepting them as `0` (#85).
+* Fix unterminated heredoc and nowdoc bodies looping forever by requiring the closing label before end of input (#84).
+* Reject property hooks on properties in readonly contexts, matching PHP 8.4 (#96).
+* Fix parsing of semi-reserved enum case names, so keyword-like names such as `New` are accepted (#81).
+
+## 0.1.3.0
+
 * Fix `prettyPrintExpr` to parenthesize `include`/`require` expressions used as postfix bases, so `(include 'f.php')++` and similar round-trip instead of mutating precedence (#67).
 * Fix `parseCloseTag` to consume the whole newline following `?>`, including CRLF and lone CR, so Windows-style newlines do not leak into inline HTML (#53).
 * Fix expression traversal and transformation helpers (`allExprs`, `queryExpr`, `transformExpr`, `queryStmt`, and `transformStmt`) to visit expressions stored in attributes (#52).
