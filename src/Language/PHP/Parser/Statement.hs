@@ -700,7 +700,8 @@ parseEnumCase :: Parser (EnumCase Span)
 parseEnumCase = withSpan $ do
   attrs <- parseAttributes
   keyword_ "case"
-  name <- identifier
+  -- PHP permits semi-reserved keywords such as `new` as enum case names.
+  name <- semiReservedIdentifier
   mVal <- optional (symbol "=" *> parseExpr)
   _ <- semi
   pure (\sp -> EnumCase sp attrs name mVal)

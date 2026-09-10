@@ -68,6 +68,19 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertEqual "case count" 2 (length (enumMembers ed))
         other -> assertFailure ("Backed enum failed: " ++ show other)
 
+  , testCase "String-backed enum parses and round-trips (Issue #81)" $ do
+      let src = "<?php enum State: string { case New = 'new'; }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program _ [StmtEnum _ ed]) -> do
+          assertBool "backed type is string" (case enumBackedType ed of Just (SimpleType _ (QualifiedName _ NameUnqualified ["string"])) -> True; _ -> False)
+          assertEqual "case count" 1 (length (enumMembers ed))
+          let printed = prettyPrint ast
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("Reparsing pretty-printed enum failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right ast2 -> assertEqual "round-trip AST equal" (stripAnnotations ast) (stripAnnotations ast2)
+        other -> assertFailure ("String-backed enum failed: " ++ show other)
+
   , testCase "Non-capturing catch statement" $ do
       let src = "<?php try { doWork(); } catch (NetworkException | TimeoutException) { logError(); }"
       case parseProgram "test.php" src of
