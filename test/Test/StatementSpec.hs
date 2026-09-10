@@ -98,6 +98,19 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php enum E { case X; }"
         ]
 
+  , testCase "Reject try without catch or finally (Issue #91)" $ do
+      mapM_ assertParsesFail
+        [ "<?php try {}"
+        , "<?php try { doWork(); }"
+        , "<?php function f() { try {} }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php try {} catch (E) {}"
+        , "<?php try {} catch (E $e) {}"
+        , "<?php try {} finally {}"
+        , "<?php try {} catch (E) {} finally {}"
+        ]
+
   , testCase "Non-capturing catch statement" $ do
       let src = "<?php try { doWork(); } catch (NetworkException | TimeoutException) { logError(); }"
       case parseProgram "test.php" src of

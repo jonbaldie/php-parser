@@ -12,7 +12,8 @@ module Language.PHP.Parser.Statement
   ) where
 
 import Control.Applicative ((<|>), optional)
-import Control.Monad (void)
+import Control.Monad (void, when)
+import Data.Maybe (isNothing)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Text.Megaparsec as M
@@ -348,13 +349,16 @@ parseSwitchCase = parseDefault <|> parseCase
       stmts <- M.many parseStmt
       pure (\sp -> SwitchCase sp expr stmts)
 
--- | Try-Catch-Finally (supports non-capturing catch).
+-- | Try-Catch-Finally (supports non-capturing catch). PHP requires at least one
+-- @catch@ clause or a @finally@ block.
 parseTry :: Parser (Stmt Span)
 parseTry = withSpan $ do
   keyword_ "try"
   body <- braces (M.many parseStmt)
   catches <- M.many parseCatch
   mFinally <- optional (keyword "finally" *> braces (M.many parseStmt))
+  when (null catches && isNothing mFinally) $
+    fail "cannot use try without catch or finally"
   pure (\sp -> StmtTry sp body catches mFinally)
   where
     parseCatch = withSpan $ do
