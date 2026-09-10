@@ -4,8 +4,11 @@ module Test.ExpressionSpec (expressionTests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Control.Monad (forM_, when)
+import Control.Exception (evaluate)
+import Control.Monad (forM_, unless, when)
 import Data.Text (Text)
+import qualified Data.Text as T
+import System.Timeout (timeout)
 import Language.PHP
 
 expressionTests :: TestTree
@@ -239,6 +242,25 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
           assertEqual "double quoted heredoc content matches" "EOF_MORE" content
         other -> assertFailure ("Double quoted heredoc prefix in body failed: " ++ show other)
+
+  , testCase "Unterminated heredoc or nowdoc terminates with a parse error (Issue #84)" $ do
+      -- The heredoc scanner used to loop forever at end of input. Bound each
+      -- case with an in-process timeout so a regression fails instead of
+      -- hanging the suite; a healthy parse is far faster than this bound.
+      let check :: String -> Maybe (Either ParseError a) -> Assertion
+          check name = \case
+            Nothing -> assertFailure (name ++ ": did not terminate within 2s (Issue #84 loop)")
+            Just (Left err) ->
+              unless (any (T.isInfixOf "heredoc") (errorExpected err)) $
+                assertFailure (name ++ ": error does not mention the heredoc end: "
+                               ++ show (formatParseError err))
+            Just (Right _) -> assertFailure (name ++ ": parsed, but unterminated heredoc must fail")
+      check "heredoc via parseExpression" =<<
+        timeout 2000000 (evaluate (parseExpression "issue84.php" "<<<TAG\ncontent"))
+      check "nowdoc via parseExpression" =<<
+        timeout 2000000 (evaluate (parseExpression "issue84.php" "<<<'TAG'\ncontent"))
+      check "heredoc via parseProgram" =<<
+        timeout 2000000 (evaluate (parseProgram "issue84.php" "<?php $x = <<<TAG\ncontent"))
 
   , testCase "Generators: yield, yield key => val, yield from" $ do
       assertParsesOkExpr "yield"

@@ -493,12 +493,20 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
       other -> other
 
 -- | Heredoc and Nowdoc (including flexible indented syntax).
+--
+-- Only the header (up to and including the opening newline) is guarded by
+-- @M.try@; the body is not. A body failure (an unterminated heredoc, Issue
+-- #84) must propagate without rolling back, so megaparsec reports it as the
+-- furthest error instead of the offset-0 failure of the surrounding
+-- alternatives.
 literalHeredocOrNowdoc :: Parser (Literal Span)
-literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ M.try $ do
-  _ <- C.string "<<<"
-  _ <- many (C.char ' ' <|> C.char '\t')
-  (isNowdoc, tag) <- parseTag
-  _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
+literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
+  (isNowdoc, tag) <- M.try $ do
+    _ <- C.string "<<<"
+    _ <- many (C.char ' ' <|> C.char '\t')
+    t <- parseTag
+    _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
+    pure t
 
   (content, _) <- parseLines tag
   pure (\sp -> LitHeredoc sp tag content isNowdoc)
@@ -527,6 +535,12 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ M.try
           _ <- C.string tag
           pure ("", T.pack lineIndent)
         else do
+          -- At end of input without a closing label, nothing can be consumed
+          -- and the recursion below would never advance: fail with a parse
+          -- error instead of looping (Issue #84).
+          atEof <- M.atEnd
+          when atEof
+            (M.label ("heredoc end (" <> T.unpack tag <> ")") M.empty)
           restOfLine <- M.takeWhileP Nothing (/= '\n')
           _ <- optional (C.char '\n')
           (following, closingIndent) <- parseLines tag
