@@ -111,6 +111,58 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php try {} catch (E) {} finally {}"
         ]
 
+  , testCase "Reject duplicate declaration modifiers (Issue #92)" $ do
+      mapM_ assertParsesFail
+        [ "<?php final final class C {}"
+        , "<?php abstract abstract class C {}"
+        , "<?php readonly readonly class C {}"
+        , "<?php class C { static static int $x; }"
+        , "<?php class C { readonly readonly int $x; }"
+        , "<?php class C { public public int $x; }"
+        , "<?php class C { private(set) private(set) int $x; }"
+        , "<?php class C { var var int $x; }"
+        , "<?php class C { public public function f() {} }"
+        , "<?php class C { static static function f() {} }"
+        , "<?php class C { final final function f() {} }"
+        , "<?php class C { abstract abstract function f() {} }"
+        , "<?php class C { public private function f() {} }"
+        , "<?php class C { public public const X = 1; }"
+        , "<?php class C { final final const X = 1; }"
+        , "<?php class C { public private const X = 1; }"
+        , "<?php class C { public function f(public public int $x) {} }"
+        , "<?php class C { public function f(readonly readonly int $x) {} }"
+        , "<?php class C { public function f(private(set) private(set) int $x) {} }"
+        ]
+      case parseProgram "test.php" "<?php final final class C {}" of
+        Left err -> assertBool
+          "error should name the duplicate modifier"
+          (maybe False (T.isInfixOf "Multiple final modifiers") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php final class C {}"
+        , "<?php abstract class C {}"
+        , "<?php readonly class C {}"
+        , "<?php final readonly class C {}"
+        , "<?php abstract final class D extends C {}"
+        , "<?php class C { public int $x; }"
+        , "<?php class C { public static int $x; }"
+        , "<?php class C { static int $x; }"
+        , "<?php class C { readonly public int $x; }"
+        , "<?php class C { public readonly int $x; }"
+        , "<?php class C { public private(set) int $x; }"
+        , "<?php class C { var int $x; }"
+        , "<?php class C { public function f() {} }"
+        , "<?php class C { static public function f() {} }"
+        , "<?php class C { public static function f() {} }"
+        , "<?php class C { final public function f() {} }"
+        , "<?php class C { abstract public function f(); }"
+        , "<?php class C { public final const X = 1; }"
+        , "<?php class C { final public const X = 1; }"
+        , "<?php class C { private const Y = 2; }"
+        , "<?php class C { public function f(public readonly int $x) {} }"
+        , "<?php class C { public function f(private readonly int $x) {} }"
+        ]
+
   , testCase "Non-capturing catch statement" $ do
       let src = "<?php try { doWork(); } catch (NetworkException | TimeoutException) { logError(); }"
       case parseProgram "test.php" src of
