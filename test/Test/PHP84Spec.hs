@@ -132,6 +132,19 @@ php84Tests = testGroup "PHP 8.4 Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right _ -> pure ()
 
+  , testCase "readonly properties cannot use hooks (Issue #82)" $ do
+      let rejected = [ "<?php readonly class Account { public string $id { get => 'account'; } }"
+                     , "<?php class Account { public readonly string $id { get => 'account'; } }"
+                     ]
+          accepted = "<?php class Account { public string $id { get => 'account'; } }"
+      _ <- forM rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("expected parse failure for: " ++ show src)
+      case parseProgram "test.php" accepted of
+        Left err -> assertFailure (show (formatParseError err))
+        Right _ -> pure ()
+
   , testCase "Asymmetric property visibility public private(set)" $ do
       let src = "<?php class Order { public private(set) string $status; protected private(set) int $id; }"
       case parseProgram "test.php" src of

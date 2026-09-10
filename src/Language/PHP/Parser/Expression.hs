@@ -3,6 +3,7 @@
 module Language.PHP.Parser.Expression
   ( parseExpr
   , parseExprWith
+  , parseExprWithContext
   , parsePrimaryExpr
   , parseArg
   , parseCallArgs
@@ -29,7 +30,12 @@ parseExpr = parseExprWith parseStmtDummy M.empty
 
 -- | Parse expression parameterized by statement and class member parsers.
 parseExprWith :: Parser (Stmt Span) -> Parser (ClassMember Span) -> Parser (Expr Span)
-parseExprWith pStmt pMember = parseExprRec
+parseExprWith pStmt pMember = parseExprWithContext pStmt (const pMember)
+
+-- | Parse an expression with a class member parser that receives the
+-- enclosing class's readonly status for anonymous classes.
+parseExprWithContext :: Parser (Stmt Span) -> (Bool -> Parser (ClassMember Span)) -> Parser (Expr Span)
+parseExprWithContext pStmt pMember = parseExprRec
   where
     parseExprRec = parseLogicalOr
 
@@ -386,7 +392,7 @@ parseExprWith pStmt pMember = parseExprRec
           let args = maybe [] id mArgs
           mExtends <- optional (keyword "extends" *> qualifiedName)
           impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-          members <- braces (M.many pMember)
+          members <- braces (M.many (pMember isReadonlyAnon))
           pure (\sp -> ExprNewAnonClass sp attrs modif args mExtends impls members)
         else do
           guard (null attrs)
