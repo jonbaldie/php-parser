@@ -21,11 +21,11 @@ import Language.PHP.AST
 import Language.PHP.Span (Span)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
-import Language.PHP.Parser.Expression (parseExprWith, parseAttributes, parseAttributeGroup, exprSpan)
+import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
-parseExpr = parseExprWith parseStmt parseClassMember
+parseExpr = parseExprWithContext parseStmt parseClassMemberInContext
 
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
 parseProgram :: Parser (Program Span)
@@ -580,19 +580,22 @@ parseParam = withSpan $ do
 
 -- | Class member declaration.
 parseClassMember :: Parser (ClassMember Span)
-parseClassMember =
+parseClassMember = parseClassMemberInContext False
+
+parseClassMemberInContext :: Bool -> Parser (ClassMember Span)
+parseClassMemberInContext enclosingReadonly =
   (MemberConst <$> M.try parseConstDecl)
   <|> (MemberTraitUse <$> M.try parseTraitUse)
   <|> (MemberEnumCase <$> M.try parseEnumCase)
-  <|> parseMethodOrProperty
+  <|> parseMethodOrProperty enclosingReadonly
 
-parseMethodOrProperty :: Parser (ClassMember Span)
-parseMethodOrProperty = do
+parseMethodOrProperty :: Bool -> Parser (ClassMember Span)
+parseMethodOrProperty enclosingReadonly = do
   attrs <- parseAttributes
   isMethod <- (True <$ M.lookAhead (M.try parseMethodLookAhead)) <|> pure False
   if isMethod
     then MemberMethod <$> parseMethod attrs
-    else MemberProperty <$> parseProperty attrs
+    else MemberProperty <$> parseProperty enclosingReadonly attrs
   where
     parseMethodLookAhead = do
       _ <- parseMethodModifier
@@ -611,17 +614,19 @@ parseMethod attrs = withSpan $ do
   pure (\sp -> MethodDecl sp attrs modif byRef name params retType body)
 
 -- | Property with optional PHP 8.4 hooks and asymmetric visibility.
-parseProperty :: [AttributeGroup Span] -> Parser (PropertyDecl Span)
-parseProperty attrs = withSpan $ do
+parseProperty :: Bool -> [AttributeGroup Span] -> Parser (PropertyDecl Span)
+parseProperty enclosingReadonly attrs = withSpan $ do
   modif <- parsePropertyModifier
   mType <- optional parseType
   firstVar <- variableName
   mFirstVal <- optional (symbol "=" *> parseExpr)
   hasHooks <- (True <$ M.lookAhead (symbol "{")) <|> pure False
   if hasHooks
-    then do
-      hooks <- braces (M.many parsePropertyHook)
-      pure (\sp -> PropertyDecl sp attrs modif mType [(firstVar, mFirstVal)] hooks)
+    then if enclosingReadonly || propReadonly modif
+      then M.empty
+      else do
+        hooks <- braces (M.many parsePropertyHook)
+        pure (\sp -> PropertyDecl sp attrs modif mType [(firstVar, mFirstVal)] hooks)
     else do
       restItems <- M.many (comma *> parseItem)
       _ <- semi
@@ -717,7 +722,7 @@ parseClass = withSpan $ do
   name <- identifier
   mExtends <- optional (keyword "extends" *> qualifiedName)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many parseClassMember)
+  members <- braces (M.many (parseClassMemberInContext (classReadonly modif)))
   pure (\sp -> StmtClass sp (ClassDecl sp attrs modif name mExtends impls members))
 
 -- | Interface declaration.
