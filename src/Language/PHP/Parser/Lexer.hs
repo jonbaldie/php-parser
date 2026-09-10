@@ -336,9 +336,12 @@ literalFloat :: Parser (Literal Span)
 literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
   raw <- parseRawFloat
   let clean = T.filter (/= '_') raw
-  let readStr =
-        (if "." `T.isPrefixOf` clean then ("0" <>) else id) .
-        (if "." `T.isSuffixOf` clean then (<> "0") else id) $ clean
+  -- Haskell's `reads` needs digits on at least one side of a decimal point,
+  -- so pad a mantissa whose last digit before the exponent (or EOF) is a dot.
+  let (mantissa, expPart) = T.break (\c -> c == 'e' || c == 'E') clean
+      padSuffix = if "." `T.isSuffixOf` mantissa then mantissa <> "0" else mantissa
+      readStr =
+        (if "." `T.isPrefixOf` padSuffix then ("0" <>) else id) padSuffix <> expPart
   let val = case reads (T.unpack readStr) of
         [(v, "")] -> v
         _ -> 0.0
@@ -360,9 +363,9 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
 
     parseExp = do
       e <- C.char 'e' <|> C.char 'E'
-      sgn <- (C.char '+' <|> C.char '-') <|> pure '+'
+      sgn <- optional (C.char '+' <|> C.char '-')
       digits <- underscoreDigits1 isDigit
-      pure (T.pack [e, sgn] <> digits)
+      pure (T.cons e (maybe T.empty T.singleton sgn) <> digits)
 
 -- | String literals: single-quoted (raw) or double-quoted (with variable
 -- interpolation). The parser for complex-syntax @{$expr}@ bodies is passed in

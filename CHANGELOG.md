@@ -2,6 +2,7 @@
 
 ## 0.1.3.0
 
+* Fix float literal parsing so a mantissa ending in the decimal point followed by an exponent (`1.e2`, `1.e-2`) parses to PHP's value instead of `0.0`, and keep the original source spelling in `LitFloat`'s raw text instead of normalizing it to `1.e+2` (#86).
 * Reject incomplete base-prefixed integer literals (`0x`, `0b`, `0o` with no digits), matching PHP, instead of accepting them as `0` (#85).
 * Fix `prettyPrintExpr` to parenthesize `include`/`require` expressions used as postfix bases, so `(include 'f.php')++` and similar round-trip instead of mutating precedence (#67).
 * Fix `parseCloseTag` to consume the whole newline following `?>`, including CRLF and lone CR, so Windows-style newlines do not leak into inline HTML (#53).

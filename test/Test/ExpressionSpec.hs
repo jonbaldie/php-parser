@@ -202,6 +202,30 @@ expressionTests = testGroup "Expression Specifications"
             assertEqual ("Value for " ++ show s) expectedVal val
           other -> assertFailure ("Failed on float " ++ show s ++ ": " ++ show other)) floatTests
 
+  , testCase "Float literals with a trailing dot and exponent (Issue #86)" $ do
+      -- Each case: source, PHP's value, and the raw text the AST must keep
+      -- (the original spelling, never a normalized form like "1.e+2").
+      let cases =
+            [ ("1.e2", 100.0, "1.e2")
+            , ("1.e+2", 100.0, "1.e+2")
+            , ("1.e-2", 0.01, "1.e-2")
+            , ("1.E2", 100.0, "1.E2")
+            , ("1_0.e2", 1000.0, "1_0.e2")
+            , ("1e2", 100.0, "1e2")
+            , ("2E3", 2000.0, "2E3")
+            , (".5e2", 50.0, ".5e2")
+            , ("1.5", 1.5, "1.5")
+            , (".5", 0.5, ".5")
+            , ("5.", 5.0, "5.")
+            ]
+      mapM_ (\(s, expectedVal, expectedRaw) ->
+        case parseProgram "test.php" ("<?php return " <> s <> ";") of
+          Left err -> assertFailure ("Failed on float " ++ show s ++ ": " ++ show (formatParseError err))
+          Right (Program _ [StmtReturn _ (Just (ExprLit _ (LitFloat _ val raw)))] ) -> do
+            assertEqual ("Value for " ++ show s) expectedVal val
+            assertEqual ("Raw text for " ++ show s) expectedRaw raw
+          other -> assertFailure ("Expected float " ++ show s ++ ", got: " ++ show other)) cases
+
   , testCase "Incomplete base-prefixed integer literals are rejected (Issue #85)" $ do
       let incomplete = ["0x", "0b", "0o"]
       mapM_ (\s -> case parseProgram "test.php" ("<?php $x = " <> s <> ";") of
