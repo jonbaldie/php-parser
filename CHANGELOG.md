@@ -2,6 +2,7 @@
 
 ## 0.1.3.0
 
+* Reject incomplete base-prefixed integer literals (`0x`, `0b`, `0o` with no digits), matching PHP, instead of accepting them as `0` (#85).
 * Fix `prettyPrintExpr` to parenthesize `include`/`require` expressions used as postfix bases, so `(include 'f.php')++` and similar round-trip instead of mutating precedence (#67).
 * Fix `parseCloseTag` to consume the whole newline following `?>`, including CRLF and lone CR, so Windows-style newlines do not leak into inline HTML (#53).
 * Fix expression traversal and transformation helpers (`allExprs`, `queryExpr`, `transformExpr`, `queryStmt`, and `transformStmt`) to visit expressions stored in attributes (#52).
