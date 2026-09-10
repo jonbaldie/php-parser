@@ -2,6 +2,8 @@
 
 ## 0.1.3.0
 
+* Reject class members that PHP forbids in their enclosing declaration: properties in enums, enum cases outside enums, bare (unhooked) properties and trait use in interfaces, matching PHP 8.4; hooked interface properties remain allowed (#89).
+
 * Fix `prettyPrintExpr` to re-escape literal dollars and backslashes in interpolated-string text parts, so text like `literal \$name` from a decoded escape does not reparse as variable interpolation (#88).
 
 * Fix float literal parsing so a mantissa ending in the decimal point followed by an exponent (`1.e2`, `1.e-2`) parses to PHP's value instead of `0.0`, and keep the original source spelling in `LitFloat`'s raw text instead of normalizing it to `1.e+2` (#86).
