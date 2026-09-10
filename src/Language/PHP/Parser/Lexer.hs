@@ -41,7 +41,7 @@ module Language.PHP.Parser.Lexer
 import Control.Applicative (Alternative (..), optional)
 import Control.Monad (void, when)
 import Control.Monad.State.Strict (State, runState, get, modify', put)
-import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit)
+import Data.Char (digitToInt, isAlpha, isAlphaNum, isDigit, isHexDigit)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -367,6 +367,49 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
       digits <- underscoreDigits1 isDigit
       pure (T.cons e (maybe T.empty T.singleton sgn) <> digits)
 
+decodeDoubleQuotedEscapes :: Text -> Text
+decodeDoubleQuotedEscapes = T.concat . go
+  where
+    go input = case T.uncons input of
+      Nothing -> []
+      Just ('\\', rest) ->
+        let (body, remaining) = takeEscapeBody rest
+        in decodeEscapeBody body : go remaining
+      Just (c, rest) -> T.singleton c : go rest
+
+    takeEscapeBody input = case T.uncons input of
+      Nothing -> (T.empty, T.empty)
+      Just (c, rest)
+        | isOctalDigit c ->
+            let digits = T.take 2 (T.takeWhile isOctalDigit rest)
+            in (T.cons c digits, T.drop (T.length digits) rest)
+        | c == 'x' ->
+            let digits = T.take 2 (T.takeWhile isHexDigit rest)
+            in (T.cons c digits, T.drop (T.length digits) rest)
+        | otherwise -> (T.singleton c, rest)
+
+    decodeEscapeBody body = case body of
+      "n" -> "\n"
+      "r" -> "\r"
+      "t" -> "\t"
+      "v" -> "\v"
+      "e" -> "\ESC"
+      "f" -> "\f"
+      "\\" -> "\\"
+      "$" -> "$"
+      "\"" -> "\""
+      _
+        | not (T.null body) && T.all isOctalDigit body -> numericEscape 8 body
+        | T.length body >= 2 && T.head body == 'x' && T.all isHexDigit (T.tail body) ->
+            numericEscape 16 (T.tail body)
+        | otherwise -> "\\" <> body
+
+    numericEscape base digits =
+      let value = T.foldl' (\acc digit -> acc * base + digitToInt digit) 0 digits
+      in T.singleton (toEnum (value `mod` 256))
+
+    isOctalDigit c = c >= '0' && c <= '7'
+
 -- | String literals: single-quoted (raw) or double-quoted (with variable
 -- interpolation). The parser for complex-syntax @{$expr}@ bodies is passed in
 -- to avoid a module cycle with the expression parser.
@@ -460,11 +503,11 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
     -- the run; a dollar or brace at which interpolation just failed becomes a
     -- one-character literal part below, so the surrounding 'many' retries
     -- interpolation at the next character.
-    literalRun = StrLit . T.pack <$> some litCh
+    literalRun = StrLit . T.concat <$> some litCh
 
     litCh =
-      escapedChar
-      <|> M.satisfy (\c -> c /= '"' && c /= '\\' && c /= '$' && c /= '{')
+      escapedText
+      <|> T.singleton <$> M.satisfy (\c -> c /= '"' && c /= '\\' && c /= '$' && c /= '{')
 
     -- Stray characters that look like interpolation starts but did not parse
     -- as one: a trailing @$@, @$@ before a non-identifier char, or an
@@ -474,7 +517,22 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 
     strayBrace = StrLit . T.singleton <$> C.char '{'
 
-    escapedChar = C.char '\\' *> (unescape <$> M.anySingle)
+    escapedText = do
+      _ <- C.char '\\'
+      body <- M.try octalBody <|> M.try hexBody <|> (T.singleton <$> M.anySingle)
+      pure (decodeDoubleQuotedEscapes (T.cons '\\' body))
+
+    octalBody = do
+      first <- M.satisfy (\c -> c >= '0' && c <= '7')
+      second <- optional (M.satisfy (\c -> c >= '0' && c <= '7'))
+      third <- optional (M.satisfy (\c -> c >= '0' && c <= '7'))
+      pure (T.pack (first : [c | Just c <- [second, third]]))
+
+    hexBody = do
+      _ <- C.char 'x'
+      first <- M.satisfy isHexDigit
+      second <- optional (M.satisfy isHexDigit)
+      pure (T.cons 'x' (T.pack (first : [c | Just c <- [second]])))
 
     -- Merge neighbouring literal chunks left over from backtracking into
     -- single parts, keeping the AST canonical.
@@ -482,18 +540,6 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
       [] -> []
       StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
       p : rest -> p : mergeLiterals rest
-
-    unescape = \case
-      'n' -> '\n'
-      'r' -> '\r'
-      't' -> '\t'
-      'v' -> '\v'
-      'e' -> '\ESC'
-      'f' -> '\f'
-      '\\' -> '\\'
-      '$' -> '$'
-      '"' -> '"'
-      other -> other
 
 -- | Heredoc and Nowdoc (including flexible indented syntax).
 --
@@ -512,7 +558,8 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
     pure t
 
   (content, _) <- parseLines tag
-  pure (\sp -> LitHeredoc sp tag content isNowdoc)
+  let value = if isNowdoc then content else decodeDoubleQuotedEscapes content
+  pure (\sp -> LitHeredoc sp tag value isNowdoc)
   where
     parseTag =
       (do
