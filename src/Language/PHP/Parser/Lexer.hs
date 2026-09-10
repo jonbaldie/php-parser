@@ -278,21 +278,21 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
 
     parseHex = do
       pfx <- M.try (C.char '0' *> (C.char 'x' <|> C.char 'X'))
-      digits <- underscoreDigits isHexDigit
+      digits <- underscoreDigits1 isHexDigit
       let raw = T.pack ['0', pfx] <> digits
       let val = readHexStr (T.filter (/= '_') digits)
       pure (val, raw)
 
     parseBin = do
       pfx <- M.try (C.char '0' *> (C.char 'b' <|> C.char 'B'))
-      digits <- underscoreDigits (\c -> c == '0' || c == '1')
+      digits <- underscoreDigits1 (\c -> c == '0' || c == '1')
       let raw = T.pack ['0', pfx] <> digits
       let val = readBinStr (T.filter (/= '_') digits)
       pure (val, raw)
 
     parseExplicitOctal = do
       pfx <- M.try (C.char '0' *> (C.char 'o' <|> C.char 'O'))
-      digits <- underscoreDigits (\c -> c >= '0' && c <= '7')
+      digits <- underscoreDigits1 (\c -> c >= '0' && c <= '7')
       let raw = T.pack ['0', pfx] <> digits
       let val = readOctStr (T.filter (/= '_') digits)
       pure (val, raw)

@@ -202,6 +202,27 @@ expressionTests = testGroup "Expression Specifications"
             assertEqual ("Value for " ++ show s) expectedVal val
           other -> assertFailure ("Failed on float " ++ show s ++ ": " ++ show other)) floatTests
 
+  , testCase "Incomplete base-prefixed integer literals are rejected (Issue #85)" $ do
+      let incomplete = ["0x", "0b", "0o"]
+      mapM_ (\s -> case parseProgram "test.php" ("<?php $x = " <> s <> ";") of
+        Right r -> assertFailure ("Expected parse error for " ++ show s ++ ", got: " ++ show r)
+        Left _ -> pure ()) incomplete
+
+      let validTests =
+            [ ("0x1", 1)
+            , ("0x7fF", 2047)
+            , ("0b1", 1)
+            , ("0b1010", 10)
+            , ("0o7", 7)
+            , ("0o755", 493)
+            , ("0xFF_FF", 65535)
+            ]
+      mapM_ (\(s, expectedVal) ->
+        case parseExpression "test.php" s of
+          Right (ExprLit _ (LitInt _ val _)) ->
+            assertEqual ("Value for " ++ show s) expectedVal val
+          other -> assertFailure ("Failed on " ++ show s ++ ": " ++ show other)) validTests
+
   , testCase "Heredoc and Nowdoc flexible syntax" $ do
       let hereSrc = "<<<EOF\nHello World\nEOF"
           nowSrc = "<<<'NOW'\nSingle $quoted raw\nNOW"
