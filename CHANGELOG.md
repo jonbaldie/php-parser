@@ -2,6 +2,8 @@
 
 ## 0.1.3.0
 
+* Reject enum backing types other than `int` or `string` (case-insensitive), matching PHP, instead of accepting arbitrary types (#90).
+
 * Reject class members that PHP forbids in their enclosing declaration: properties in enums, enum cases outside enums, bare (unhooked) properties and trait use in interfaces, matching PHP 8.4; hooked interface properties remain allowed (#89).
 
 * Fix `prettyPrintExpr` to re-escape literal dollars and backslashes in interpolated-string text parts, so text like `literal \$name` from a decoded escape does not reparse as variable interpolation (#88).

@@ -775,7 +775,15 @@ parseEnum :: Parser (Stmt Span)
 parseEnum = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "enum")
   name <- identifier
-  mBacked <- optional (colon *> parseType)
+  mBacked <- optional (colon *> parseEnumBackingType)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
   members <- braces (M.many (parseClassMemberInContext EnumContext))
   pure (\sp -> StmtEnum sp (EnumDecl sp attrs name mBacked impls members))
+
+-- | Backed enums must be backed by @int@ or @string@; PHP identifiers match case-insensitively.
+parseEnumBackingType :: Parser (Type Span)
+parseEnumBackingType = M.label "enum backing type" $ lexeme $ withSpan $ M.try $ do
+  tok <- rawIdentifier
+  if T.toLower tok `elem` ["int", "string"]
+    then pure (\sp -> SimpleType sp (QualifiedName sp NameUnqualified [tok]))
+    else M.empty

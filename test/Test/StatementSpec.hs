@@ -81,6 +81,23 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Right ast2 -> assertEqual "round-trip AST equal" (stripAnnotations ast) (stripAnnotations ast2)
         other -> assertFailure ("String-backed enum failed: " ++ show other)
 
+  , testCase "Restrict enum backing types to int or string (Issue #90)" $ do
+      mapM_ assertParsesFail
+        [ "<?php enum E: bool { case X; }"
+        , "<?php enum E: float { case X; }"
+        , "<?php enum E: array { case X; }"
+        , "<?php enum E: ?int { case X; }"
+        , "<?php enum E: int|string { case X; }"
+        , "<?php enum E: \\int { case X; }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php enum E: int { case X; }"
+        , "<?php enum E: string { case X; }"
+        , "<?php enum E: INT { case X; }"
+        , "<?php enum E: String { case X; }"
+        , "<?php enum E { case X; }"
+        ]
+
   , testCase "Non-capturing catch statement" $ do
       let src = "<?php try { doWork(); } catch (NetworkException | TimeoutException) { logError(); }"
       case parseProgram "test.php" src of
