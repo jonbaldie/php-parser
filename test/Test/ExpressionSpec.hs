@@ -862,6 +862,60 @@ expressionTests = testGroup "Expression Specifications"
               assertRoundTripExpr expr
       ]
 
+  , testGroup "Double-quoted string escapes (Issue #87)"
+      [ testCase "decode octal, hexadecimal, and unknown escapes" $ do
+          let quoted body = "\"" <> body <> "\""
+              cases =
+                [ (quoted "\\q", "\\q")
+                , (quoted "\\101", "A")
+                , (quoted "\\10", T.singleton (toEnum 8))
+                , (quoted "\\0", T.singleton (toEnum 0))
+                , (quoted "\\1011", "A1")
+                , (quoted "\\377", T.singleton (toEnum 255))
+                , (quoted "\\x41", "A")
+                , (quoted "\\xFF", T.singleton (toEnum 255))
+                , (quoted "\\x414", "A4")
+                ]
+          forM_ cases $ \(src, expected) ->
+            case parseExpression "issue87.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right (ExprLit _ (LitString _ actual _)) ->
+                assertEqual ("Unescaped value for " ++ show src) expected actual
+              other -> assertFailure (show src ++ ": expected LitString, got " ++ show other)
+
+      , testCase "known single-character escapes stay decoded" $ do
+          let sourceBody = T.pack
+                ['\\', 'n', '\\', 't', '\\', 'r', '\\', 'v', '\\', 'e'
+                , '\\', 'f', '\\', '\\', '\\', '$', '\\', '"']
+              expected = T.pack ['\n', '\t', '\r', '\v', '\ESC', '\f', '\\', '$', '"']
+          case parseExpression "issue87.php" ("\"" <> sourceBody <> "\"") of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitString _ actual _)) ->
+              assertEqual "known escape values" expected actual
+            other -> assertFailure ("Expected LitString, got " ++ show other)
+
+      , testCase "interpolated literal chunks use decoded escape values" $ do
+          case parseExpression "issue87.php" "\"\\101 $name\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrLit "A ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name")))])) -> pure ()
+            other -> assertFailure ("Expected decoded interpolated string, got " ++ show other)
+
+      , testCase "heredoc decodes escapes while nowdoc preserves them" $ do
+          let body = "\\q \\101 \\x41 \\n"
+              heredoc = "<<<EOF\n" <> body <> "\nEOF"
+              nowdoc = "<<<'EOF'\n" <> body <> "\nEOF"
+          case parseExpression "issue87.php" heredoc of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
+              assertEqual "heredoc content" "\\q A A \n" content
+            other -> assertFailure ("Expected heredoc, got " ++ show other)
+          case parseExpression "issue87.php" nowdoc of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitHeredoc _ "EOF" content True)) ->
+              assertEqual "nowdoc content" body content
+            other -> assertFailure ("Expected nowdoc, got " ++ show other)
+      ]
+
   , testGroup "Double-quoted string interpolation (Issue #51)"
       [ testCase "simple variable interpolation parses into LitInterpolated" $ do
           case parseExpression "test.php" "\"hello $name\"" of
