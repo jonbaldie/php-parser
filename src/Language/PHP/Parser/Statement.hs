@@ -20,7 +20,7 @@ import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 
 import Language.PHP.AST
-import Language.PHP.Span (Span)
+import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
 import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith)
@@ -93,10 +93,13 @@ parsePhpAndHtmlChunks = do
       if isShortEcho
         then do
           sc
-          expr <- parseExpr
+          firstExpr <- parseExpr
+          moreExprs <- M.many (comma *> parseExpr)
           _ <- optional semi
           hasClose <- (True <$ M.try parseCloseTag) <|> pure False
-          let echoStmt = StmtEcho (exprSpan expr) [expr]
+          let lastExpr = if null moreExprs then firstExpr else last moreExprs
+              echoSpan = combineSpans (exprSpan firstExpr) (exprSpan lastExpr)
+              echoStmt = StmtEcho echoSpan (firstExpr : moreExprs)
           if hasClose
             then do
               (spHtml, html) <- spanned takeUntilPhpTag

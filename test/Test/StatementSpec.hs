@@ -202,6 +202,13 @@ statementTests = testGroup "Statement & Declaration Specifications"
             StmtInlineHtml _ txt : _ -> assertEqual "starts with html" "<html><body>" txt
             other -> assertFailure ("Expected leading html, got: " ++ show other)
 
+  , testCase "Short echo tag accepts comma-separated expressions (Issue #114)" $ do
+      case parseProgram "test.php" "<?= 1, 2 ?>" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtEcho _ exprs]) ->
+          assertEqual "echo expression count" 2 (length exprs)
+        Right other -> assertFailure ("Expected single echo, got: " ++ show other)
+
   , testCase "Preserves comments and docblocks in trivia" $ do
       let src = "<?php /** PHPDoc for Service */ class Service {}"
       case parseProgram "test.php" src of
