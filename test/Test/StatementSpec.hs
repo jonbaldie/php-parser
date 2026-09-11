@@ -295,6 +295,43 @@ statementTests = testGroup "Statement & Declaration Specifications"
           [StmtIf _ _ [_] [(_, [_])] (Just [_])] -> pure ()
           other -> assertFailure ("Unexpected if AST: " ++ show other)
 
+  , testCase "Alternative syntax control structures (Issue #107)" $ do
+      mapM_ assertParsesOk
+        [ "<?php if ($x): echo 1; endif;"
+        , "<?php if ($x): echo 1; elseif ($y): echo 2; else: echo 3; endif;"
+        , "<?php if ($x): echo 1; else if ($y): echo 2; else: echo 3; endif;"
+        , "<?php while ($x): echo 1; endwhile;"
+        , "<?php for ($i = 0; $i < 10; $i++): echo $i; endfor;"
+        , "<?php foreach ($xs as $k => $v): echo $v; endforeach;"
+        , "<?php foreach ($xs as &$v): echo $v; endforeach;"
+        , "<?php switch ($x): case 1: echo 1; break; case 2: echo 2; break; default: echo 3; endswitch;"
+        , "<?php IF ($x): echo 1; ENDIF;"
+        ]
+      case parseProgram "test.php" "<?php if ($x): echo 1; elseif ($y): echo 2; else: echo 3; endif;" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtIf _ _ [_] [(_, [_])] (Just [_])]) -> pure ()
+        other -> assertFailure ("Unexpected if AST: " ++ show other)
+      assertParsesOk "<?php foreach ($xs as $x): if ($x): echo 1; endif; endforeach;"
+      assertParsesOk "<?php while ($a): if ($b): echo 1; else: echo 2; endif; endwhile;"
+      assertParsesOk "<h1>Title</h1>\n<?php if ($x): ?>\n<p>Yes</p>\n<?php endif; ?>\n"
+      let alts =
+            [ "<?php if ($x): echo 1; endif;"
+            , "<?php if ($x): echo 1; elseif ($y): echo 2; else: echo 3; endif;"
+            , "<?php while ($x): echo 1; endwhile;"
+            , "<?php for ($i = 0; $i < 10; $i++): echo $i; endfor;"
+            , "<?php foreach ($xs as $k => $v): echo $v; endforeach;"
+            , "<?php switch ($x): case 1: echo 1; break; default: echo 2; endswitch;"
+            ]
+      mapM_ (\src -> do
+              ast <- case parseProgram "test.php" src of
+                Left err -> assertFailure (show (formatParseError err))
+                Right ast -> pure ast
+              let printed = prettyPrint ast
+              case parseProgram "test.php" printed of
+                Left err -> assertFailure ("Reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+                Right ast2 -> assertEqual "round-trip AST equal" (stripAnnotations ast) (stripAnnotations ast2))
+            alts
+
   , testCase "Issue 24 reproducer: relative namespace statements" $ do
       assertParsesOk "<?php namespace\\Foo::bar();"
       assertParsesOk "<?php namespace\\func();"

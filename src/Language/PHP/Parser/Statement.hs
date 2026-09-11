@@ -245,16 +245,30 @@ parseThrowStmt = withSpan $ do
   _ <- statementTerminator
   pure (\sp -> StmtThrowStmt sp expr)
 
--- | If statement (supports if (...) ... elseif (...) ... else ...).
+-- | If statement (supports if (...) ... elseif (...) ... else ...),
+-- including the alternative (colon/keyword) syntax.
 parseIf :: Parser (Stmt Span)
 parseIf = withSpan $ do
   keyword_ "if"
   cond <- parens parseExpr
-  thenStmts <- parseStmtBody
-  elifs <- M.many parseElseIf
-  mElse <- optional parseElse
-  pure (\sp -> StmtIf sp cond thenStmts elifs mElse)
+  altBranch cond <|> braceBranch cond
   where
+    -- if (c): ... elseif (c2): ... else: ... endif;
+    altBranch cond = do
+      colon
+      thens <- parseAltBody
+      elifs <- M.many parseAltElseIf
+      mElse <- optional parseAltElse
+      keyword_ "endif"
+      _ <- semi
+      pure (\sp -> StmtIf sp cond thens elifs mElse)
+    -- if (c) ... elseif (c2) ... else ...
+    braceBranch cond = do
+      thenStmts <- parseStmtBody
+      elifs <- M.many parseElseIf
+      mElse <- optional parseElse
+      pure (\sp -> StmtIf sp cond thenStmts elifs mElse)
+
     parseElseIf = do
       keyword_ "elseif" <|> M.try (keyword_ "else" *> keyword_ "if")
       c <- parens parseExpr
@@ -265,17 +279,76 @@ parseIf = withSpan $ do
       keyword_ "else"
       parseStmtBody
 
+    parseAltElseIf = do
+      keyword_ "elseif" <|> M.try (keyword_ "else" *> keyword_ "if")
+      c <- parens parseExpr
+      colon
+      body <- parseAltBody
+      pure (c, body)
+
+    parseAltElse = do
+      keyword_ "else"
+      colon
+      parseAltBody
+
     parseStmtBody =
       (braces (M.many parseStmt))
       <|> ((\s -> [s]) <$> parseStmt)
 
--- | While loop.
+-- | Body of an alternative-syntax control structure: statements possibly
+-- interleaved with inline HTML chunks, ending just before the terminator
+-- keyword (endif/endwhile/...). The @many@ stops at any token no statement
+-- can start with; terminator keywords are reserved words, so they halt it.
+parseAltBody :: Parser [Stmt Span]
+parseAltBody = concat <$> M.many parseAltBodyElement
+
+parseAltBodyElement :: Parser [Stmt Span]
+parseAltBodyElement =
+  parseAltHtmlChunk
+  <|> parseAltOpenTagChunk
+  <|> parseAltShortEchoChunk
+  <|> ((\s -> [s]) <$> parseStmt)
+  where
+    -- ?> html <?php / <?= — must be reopened by a PHP chunk to continue.
+    parseAltHtmlChunk = do
+      isClose <- (True <$ M.try parseCloseTag) <|> pure False
+      if not isClose
+        then M.empty
+        else do
+          (sp, html) <- spanned takeUntilPhpTag
+          pure (if null html then [] else [StmtInlineHtml sp (T.pack html)])
+    -- Reopening tag after an inline HTML chunk.
+    parseAltOpenTagChunk = do
+      isOpen <- (True <$ M.try parseOpenTag) <|> pure False
+      if not isOpen
+        then M.empty
+        else pure []
+    parseAltShortEchoChunk = do
+      isEcho <- (True <$ M.try (C.string "<?=")) <|> pure False
+      if not isEcho
+        then M.empty
+        else do
+          sc
+          expr <- parseExpr
+          _ <- optional semi
+          pure [StmtEcho (exprSpan expr) [expr]]
+
+-- | While loop, including the alternative (colon/keyword) syntax.
 parseWhile :: Parser (Stmt Span)
 parseWhile = withSpan $ do
   keyword_ "while"
   cond <- parens parseExpr
-  body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
-  pure (\sp -> StmtWhile sp cond body)
+  altBranch cond <|> braceBranch cond
+  where
+    altBranch cond = do
+      colon
+      body <- parseAltBody
+      keyword_ "endwhile"
+      _ <- semi
+      pure (\sp -> StmtWhile sp cond body)
+    braceBranch cond = do
+      body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+      pure (\sp -> StmtWhile sp cond body)
 
 -- | Do-While loop.
 parseDoWhile :: Parser (Stmt Span)
@@ -287,7 +360,7 @@ parseDoWhile = withSpan $ do
   _ <- semi
   pure (\sp -> StmtDoWhile sp body cond)
 
--- | For loop.
+-- | For loop, including the alternative (colon/keyword) syntax.
 parseFor :: Parser (Stmt Span)
 parseFor = withSpan $ do
   keyword_ "for"
@@ -298,10 +371,19 @@ parseFor = withSpan $ do
   _ <- semi
   incrs <- parseExpr `M.sepBy` comma
   _ <- symbol ")"
-  body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
-  pure (\sp -> StmtFor sp inits conds incrs body)
+  altBranch inits conds incrs <|> braceBranch inits conds incrs
+  where
+    altBranch inits conds incrs = do
+      colon
+      body <- parseAltBody
+      keyword_ "endfor"
+      _ <- semi
+      pure (\sp -> StmtFor sp inits conds incrs body)
+    braceBranch inits conds incrs = do
+      body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+      pure (\sp -> StmtFor sp inits conds incrs body)
 
--- | Foreach loop.
+-- | Foreach loop, including the alternative (colon/keyword) syntax.
 parseForeach :: Parser (Stmt Span)
 parseForeach = withSpan $ do
   keyword_ "foreach"
@@ -323,31 +405,52 @@ parseForeach = withSpan $ do
           pure (Just kOrV, v, byRef)
         else pure (Nothing, kOrV, False)
   _ <- symbol ")"
-  body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
-  pure (\sp -> StmtForeach sp arr mKey val byRef body)
+  altBranch arr mKey val byRef <|> braceBranch arr mKey val byRef
+  where
+    altBranch arr mKey val byRef = do
+      colon
+      body <- parseAltBody
+      keyword_ "endforeach"
+      _ <- semi
+      pure (\sp -> StmtForeach sp arr mKey val byRef body)
+    braceBranch arr mKey val byRef = do
+      body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+      pure (\sp -> StmtForeach sp arr mKey val byRef body)
 
--- | Switch statement.
+-- | Switch statement, including the alternative (colon/keyword) syntax.
 parseSwitch :: Parser (Stmt Span)
 parseSwitch = withSpan $ do
   keyword_ "switch"
   expr <- parens parseExpr
-  cases <- braces (M.many parseSwitchCase)
-  pure (\sp -> StmtSwitch sp expr cases)
+  braceBranch expr <|> altBranch expr
+  where
+    braceBranch expr = do
+      cases <- braces (M.many parseSwitchCase)
+      pure (\sp -> StmtSwitch sp expr cases)
+    altBranch expr = do
+      colon
+      cases <- concat <$> M.many ((\c -> [c]) <$> parseSwitchCaseWith parseAltBody)
+      keyword_ "endswitch"
+      _ <- semi
+      pure (\sp -> StmtSwitch sp expr cases)
 
 parseSwitchCase :: Parser (SwitchCase Span)
-parseSwitchCase = parseDefault <|> parseCase
+parseSwitchCase = parseSwitchCaseWith (M.many parseStmt)
+
+parseSwitchCaseWith :: Parser [Stmt Span] -> Parser (SwitchCase Span)
+parseSwitchCaseWith parseBody = parseDefault <|> parseCase
   where
     parseDefault = withSpan $ do
       keyword_ "default"
       _ <- colon <|> semi
-      stmts <- M.many parseStmt
+      stmts <- parseBody
       pure (\sp -> SwitchDefault sp stmts)
 
     parseCase = withSpan $ do
       keyword_ "case"
       expr <- parseExpr
       _ <- colon <|> semi
-      stmts <- M.many parseStmt
+      stmts <- parseBody
       pure (\sp -> SwitchCase sp expr stmts)
 
 -- | Try-Catch-Finally (supports non-capturing catch). PHP requires at least one
