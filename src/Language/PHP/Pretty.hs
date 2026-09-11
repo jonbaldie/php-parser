@@ -461,9 +461,10 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprThrow _ e -> "throw " <> prettyExpr e
   ExprConstFetch _ qn -> prettyQualifiedName qn
 
--- | Render an expression in an operator-operand position. Assignment
--- binds more loosely than every operator that can enclose it, so an
--- operand-position assignment must be parenthesized to survive re-parsing.
+-- | Render an expression in an operator-operand position. Assignment,
+-- yield, yield from, arrow functions, throw, and include bind more loosely
+-- than every operator that can enclose them, so an operand-position construct
+-- must be parenthesized to survive re-parsing.
 prettySubExpr :: HasLeadingTrivia a => Expr a -> Doc ann
 prettySubExpr e
   | needsAssignParens e = parens (prettyExpr e)
@@ -471,8 +472,13 @@ prettySubExpr e
 
 needsAssignParens :: Expr a -> Bool
 needsAssignParens = \case
-  ExprAssign {} -> True
-  _             -> False
+  ExprAssign {}        -> True
+  ExprYield {}         -> True
+  ExprYieldFrom {}     -> True
+  ExprArrowFunction {} -> True
+  ExprThrow {}         -> True
+  ExprInclude {}       -> True
+  _                    -> False
 
 prettyBinOp :: BinOp -> Doc ann
 prettyBinOp = \case
