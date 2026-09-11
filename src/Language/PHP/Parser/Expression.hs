@@ -12,6 +12,8 @@ module Language.PHP.Parser.Expression
   , parseAttributes
   , parseAttributeGroup
   , parseAttribute
+  , parseLiteral
+  , parseLiteralWith
   , exprSpan
   ) where
 
@@ -508,24 +510,8 @@ parseExprWithContext pStmt pMember = parseExprRec
         parseBraced = braces parseExprRec
 
     parseLiteralExpr = withSpan $ do
-      lit <- parseLit
+      lit <- parseLiteralWith parseExprRec
       pure (\sp -> ExprLit sp lit)
-      where
-        parseLit =
-          literalFloat
-          <|> literalInt
-          <|> literalString parseExprRec
-          <|> literalHeredocOrNowdoc
-          <|> parseBool
-          <|> parseNull
-
-        parseBool = withSpan $ do
-          val <- (True <$ keyword "true") <|> (False <$ keyword "false")
-          pure (\sp -> LitBool sp val)
-
-        parseNull = withSpan $ do
-          keyword_ "null"
-          pure (\sp -> LitNull sp)
 
     parseBinaryLeft next ops = do
       lhs <- next
@@ -543,6 +529,28 @@ parseExprWithContext pStmt pMember = parseExprRec
 -- | Primary expression parser exposed to public / tests.
 parsePrimaryExpr :: Parser (Expr Span)
 parsePrimaryExpr = parseExpr
+
+-- | Parse a literal using a custom expression parser for string interpolations.
+parseLiteralWith :: Parser (Expr Span) -> Parser (Literal Span)
+parseLiteralWith pExpr =
+  literalFloat
+  <|> literalInt
+  <|> literalString pExpr
+  <|> literalHeredocOrNowdoc
+  <|> parseBool
+  <|> parseNull
+  where
+    parseBool = withSpan $ do
+      val <- (True <$ keyword "true") <|> (False <$ keyword "false")
+      pure (\sp -> LitBool sp val)
+
+    parseNull = withSpan $ do
+      keyword_ "null"
+      pure (\sp -> LitNull sp)
+
+-- | Parse a literal using default expression parser.
+parseLiteral :: Parser (Literal Span)
+parseLiteral = parseLiteralWith parseExpr
 
 -- | Single call argument using expression parser.
 parseArg :: Parser (Arg Span)

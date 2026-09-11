@@ -263,6 +263,11 @@ transformStmt f = \case
   StmtStatic a items ->
     let items' = map (\(v, me) -> (v, fmap (transformExpr f) me)) items
     in StmtStatic a items'
+  StmtDeclare a dirs mBody ->
+    StmtDeclare a dirs (fmap (map (transformStmt f)) mBody)
+  StmtGoto a lbl -> StmtGoto a lbl
+  StmtLabel a lbl -> StmtLabel a lbl
+  StmtUnset a es -> StmtUnset a (map (transformExpr f) es)
   StmtInlineHtml a t -> StmtInlineHtml a t
   StmtHaltCompiler a t -> StmtHaltCompiler a t
   StmtEmpty a -> StmtEmpty a
@@ -410,6 +415,10 @@ queryStmt q = \case
   StmtEcho _ es -> foldMap (queryExpr q) es
   StmtGlobal _ es -> foldMap (queryExpr q) es
   StmtStatic _ items -> foldMap (maybe mempty (queryExpr q) . snd) items
+  StmtDeclare _ _ mBody -> maybe mempty (foldMap (queryStmt q)) mBody
+  StmtGoto _ _ -> mempty
+  StmtLabel _ _ -> mempty
+  StmtUnset _ es -> foldMap (queryExpr q) es
   StmtInlineHtml _ _ -> mempty
   StmtHaltCompiler _ _ -> mempty
   StmtEmpty _ -> mempty
@@ -465,6 +474,7 @@ foldStmt q s = q s <> case s of
   StmtInterface _ id' -> foldMap (foldClassMember q) (ifaceMembers id')
   StmtTrait _ td -> foldMap (foldClassMember q) (traitMembers td)
   StmtEnum _ ed -> foldMap (foldClassMember q) (enumMembers ed)
+  StmtDeclare _ _ mBody -> maybe mempty (foldMap (foldStmt q)) mBody
   _ -> mempty
 
 -- | Fold statements contained in class members.

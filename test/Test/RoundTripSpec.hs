@@ -198,6 +198,13 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           Right reparsed ->
             assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testCase "Round-trip declare, goto/label, and unset constructs (Issue #108)" $ do
+      assertRoundTrips "<?php declare(strict_types=1); function f() {}"
+      assertRoundTrips "<?php declare(ticks=1) { echo 'x'; }"
+      assertRoundTrips "<?php goto end; end:"
+      assertRoundTrips "<?php unset($a, $b['k']);"
+      assertRoundTrips "<?php declare(ticks=1, encoding='UTF-8');"
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr
@@ -302,6 +309,10 @@ genStmtSized n
       , StmtReturn () <$> oneof [pure Nothing, Just <$> genExprSized 0]
       , pure (StmtBreak () Nothing)
       , pure (StmtContinue () Nothing)
+      , pure (StmtGoto () (Ident () "label1"))
+      , pure (StmtLabel () (Ident () "label1"))
+      , pure (StmtUnset () [ExprVar () (SimpleVar () (VarName () "x"))])
+      , pure (StmtDeclare () [DeclareDirective () (Ident () "strict_types") (LitInt () 1 "1")] Nothing)
       ]
   | otherwise = oneof
       [ StmtExpr () <$> genExprSized 1

@@ -56,6 +56,9 @@ The library exposes an expressive, parameterized Abstract Syntax Tree (AST) that
 40. As a developer, I want the parser to offer parsing at different granularities (e.g., full program, individual statements, and standalone expressions), so that interactive tools and REPLs can parse partial snippets.
 41. As a library consumer, I want clean, comprehensive Haddock documentation and idiomatic exports, so that the library is intuitive to integrate and use.
 42. As a test author, I want property-based generators (QuickCheck / Hedgehog) for AST nodes, so that I can fuzz and property-test downstream tools.
+43. As a developer, I want the parser to support `declare(...)` directive statements (both file-level declarations and block-scoped declarations), so that execution directives like `strict_types`, `ticks`, and `encoding` are represented in the AST.
+44. As a developer, I want the parser to support `goto` statements and label statements (e.g., `goto end;` and `end:`), so that jump instructions and destination labels are captured in the AST.
+45. As a developer, I want the parser to support `unset(...)` statements with multiple variable and array targets, so that variable unsetting operations are preserved in the AST.
 
 ## Implementation Decisions
 

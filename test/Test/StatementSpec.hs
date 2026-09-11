@@ -701,6 +701,44 @@ statementTests = testGroup "Statement & Declaration Specifications"
       case parseProgram "test.php" "<?php\necho 'fine';\n$b = 2 +;\n" of
         Left err -> assertBool "formatted location" ("test.php:3:9: error: unexpected \";\"" `T.isPrefixOf` formatParseError err)
         Right _ -> assertFailure "Expected parse failure but parse succeeded"
+
+  , testCase "Parser rejects declare, goto/label, and unset() constructs (Issue #108)" $ do
+      -- 1. declare statement (directive list)
+      assertParsesOk "<?php declare(strict_types=1);"
+      case parseProgram "test.php" "<?php declare(strict_types=1); function f() {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (LitInt _ val _)] Nothing, StmtFunction _ _]) -> do
+          assertEqual "directive name" "strict_types" name
+          assertEqual "directive value" 1 val
+        other -> assertFailure ("Unexpected AST for declare statement: " ++ show other)
+
+      case parseProgram "test.php" "<?php declare(ticks=1) { echo 'x'; }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (LitInt _ val _)] (Just [StmtEcho _ _])]) -> do
+          assertEqual "directive name" "ticks" name
+          assertEqual "directive value" 1 val
+        other -> assertFailure ("Unexpected AST for block declare: " ++ show other)
+
+      case parseProgram "test.php" "<?php declare(ticks=1): echo 'x'; enddeclare;" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (LitInt _ val _)] (Just [StmtEcho _ _])]) -> do
+          assertEqual "directive name" "ticks" name
+          assertEqual "directive value" 1 val
+        other -> assertFailure ("Unexpected AST for alt declare: " ++ show other)
+
+      -- 2. goto and label statements
+      case parseProgram "test.php" "<?php goto end; end:" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtGoto _ (Ident _ gName), StmtLabel _ (Ident _ lName)]) -> do
+          assertEqual "goto label name" "end" gName
+          assertEqual "target label name" "end" lName
+        other -> assertFailure ("Unexpected AST for goto/label: " ++ show other)
+
+      -- 3. unset statement
+      case parseProgram "test.php" "<?php unset($a, $b['k']);" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtUnset _ [ExprVar _ _, ExprArrayAccess _ _ _]]) -> pure ()
+        other -> assertFailure ("Unexpected AST for unset: " ++ show other)
   ]
 
 

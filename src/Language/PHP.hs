@@ -97,6 +97,7 @@ module Language.PHP
   , IncludeType (..)
   , UseType (..)
   , UseClause (..)
+  , DeclareDirective (..)
   , Trivia (..)
   , Annotated (..)
   , getAnnotation
