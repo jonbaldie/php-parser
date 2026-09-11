@@ -651,6 +651,19 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php interface enum {}"
       assertParsesOk "<?php trait enum {}"
       assertParsesOk "<?php enum resource {}"
+
+  , testCase "Parse error spans locate the failure (Issue #106)" $ do
+      -- Failure on line 3
+      assertErrorAt "<?php\necho 'fine';\n$b = 2 +;\n" (3, 9, 27) (3, 10, 28) (Just "\";\"")
+      -- Mid-line failure: found token must not run past the newline
+      assertErrorAt "<?php $a = ;\necho 'ok';" (1, 12, 11) (1, 13, 12) (Just "\";\"")
+      -- Multiline call list, failure on line 3
+      assertErrorAt "<?php foo(1,\n  2,\n  );;; }" (3, 8, 25) (3, 9, 26) (Just "\"}\"")
+      -- Unterminated block comment fails at end of input
+      assertErrorAt "<?php /* never closed" (1, 22, 21) (1, 22, 21) (Just "end of input")
+      case parseProgram "test.php" "<?php\necho 'fine';\n$b = 2 +;\n" of
+        Left err -> assertBool "formatted location" ("test.php:3:9: error: unexpected \";\"" `T.isPrefixOf` formatParseError err)
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
   ]
 
 
@@ -662,4 +675,13 @@ assertParsesOk src = case parseProgram "test.php" src of
 assertParsesFail :: Text -> Assertion
 assertParsesFail src = case parseProgram "test.php" src of
   Left _ -> pure ()
+  Right _ -> assertFailure "Expected parse failure but parse succeeded"
+
+assertErrorAt :: Text -> (Int, Int, Int) -> (Int, Int, Int) -> Maybe Text -> Assertion
+assertErrorAt src start end found = case parseProgram "test.php" src of
+  Left err -> do
+    let pos p = (posLine p, posColumn p, posOffset p)
+    assertEqual "span start" start (pos (spanStart (errorSpan err)))
+    assertEqual "span end" end (pos (spanEnd (errorSpan err)))
+    assertEqual "found" found (errorFound err)
   Right _ -> assertFailure "Expected parse failure but parse succeeded"

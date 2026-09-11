@@ -12,10 +12,12 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Set as Set
+import Data.Char (isSpace)
 import Text.Megaparsec
   ( ParseErrorBundle (..)
   , PosState (..)
   , SourcePos (..)
+  , reachOffsetNoLine
   , unPos
   )
 import qualified Text.Megaparsec.Error as MPE
@@ -53,32 +55,48 @@ formatParseError ParseError{..} =
   in loc <> msg <> ctx
 
 -- | Convert a Megaparsec error bundle into our structured ParseError.
+--
+-- The span starts at the error's own offset (not the bundle's initial
+-- position) and ends just after the offending token, if there is one.
 fromMegaparsecError :: ParseErrorBundle Text Void -> ParseError
 fromMegaparsecError (ParseErrorBundle (err :| _) pst) =
-  let sourcePos = pstateSourcePos pst
-      line = unPos (sourceLine sourcePos)
-      col = unPos (sourceColumn sourcePos)
-      file = sourceName sourcePos
-      offset = pstateOffset pst
-      sp = Language.PHP.Span.SourcePos file line col offset
-      span' = Language.PHP.Span.Span sp sp
+  let offset = MPE.errorOffset err
       (found, expected, custom) = extractMPE err
+      endOffset = offset + maybe 0 foundLength found
+      posAt o =
+        let sourcePos = pstateSourcePos (reachOffsetNoLine o pst)
+        in Language.PHP.Span.SourcePos
+             (sourceName sourcePos)
+             (unPos (sourceLine sourcePos))
+             (unPos (sourceColumn sourcePos))
+             o
   in ParseError
-      { errorSpan     = span'
-      , errorExpected = expected
-      , errorFound    = found
+      { errorSpan     = Language.PHP.Span.Span (posAt offset) (posAt endOffset)
+      , errorExpected = map showErrorItem (Set.toList expected)
+      , errorFound    = fmap showErrorItem found
       , errorContext  = []
       , errorCustom   = custom
       }
   where
     extractMPE = \case
-      MPE.TrivialError _ f es ->
-        let f' = fmap showErrorItem f
-            es' = map showErrorItem (Set.toList es)
-        in (f', es', Nothing)
+      MPE.TrivialError _ f es -> (fmap trimFound f, es, Nothing)
       MPE.FancyError _ customSet ->
         let msgs = [T.pack m | MPE.ErrorFail m <- Set.toList customSet]
-        in (Nothing, [], if null msgs then Nothing else Just (T.intercalate "; " msgs))
+        in (Nothing, Set.empty, if null msgs then Nothing else Just (T.intercalate "; " msgs))
+
+    -- Megaparsec sizes the unexpected chunk to the longest expected
+    -- string, so it can run past the offending token (e.g. ";\ne").
+    -- Keep only the chunk up to the first whitespace.
+    trimFound :: MPE.ErrorItem Char -> MPE.ErrorItem Char
+    trimFound = \case
+      MPE.Tokens (c :| cs) | not (isSpace c) -> MPE.Tokens (c :| takeWhile (not . isSpace) cs)
+      MPE.Tokens (c :| _) -> MPE.Tokens (c :| [])
+      item -> item
+
+    foundLength :: MPE.ErrorItem Char -> Int
+    foundLength = \case
+      MPE.Tokens ts -> length (toList ts)
+      _ -> 0
 
     showErrorItem :: MPE.ErrorItem Char -> Text
     showErrorItem = \case
