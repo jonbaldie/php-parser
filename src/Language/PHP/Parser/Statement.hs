@@ -63,11 +63,12 @@ takeUntilPhpTag = do
       c <- M.anySingle
       (c :) <$> takeUntilPhpTag
 
+-- | Parse an opening tag, excluding the whitespace and comments after it,
+-- so callers can backtrack over the tag without hiding errors in that trivia.
 parseOpenTag :: Parser ()
-parseOpenTag = do
-  _ <- (M.try (C.string "<?php") *> (void C.space1 <|> void (C.char '\n') <|> void M.eof))
-       <|> (C.string "<?" *> M.notFollowedBy (C.char '=') *> M.notFollowedBy (C.string "php") *> sc)
-  sc
+parseOpenTag =
+  (M.try (C.string "<?php") *> (void C.space1 <|> void (C.char '\n') <|> void M.eof))
+    <|> (C.string "<?" *> M.notFollowedBy (C.char '=') *> M.notFollowedBy (C.string "php"))
 
 parseCloseTag :: Parser ()
 parseCloseTag = do
@@ -109,7 +110,7 @@ parsePhpAndHtmlChunks = do
         else do
           isOpenTag <- (True <$ M.try parseOpenTag) <|> pure False
           if isOpenTag
-            then parsePhpAndHtmlChunks
+            then sc *> parsePhpAndHtmlChunks
             else do
               isClose <- (True <$ M.try parseCloseTag) <|> pure False
               if isClose
