@@ -134,6 +134,14 @@ prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
   StmtGlobal _ vars -> "global " <> hsep (punctuate "," (map prettyExpr vars)) <> ";"
   StmtStatic _ items ->
     "static " <> hsep (punctuate "," (map prettyStaticItem items)) <> ";"
+  StmtDeclare _ dirs mBody ->
+    "declare(" <> hsep (punctuate "," (map prettyDeclareDirective dirs)) <> ")" <>
+    case mBody of
+      Nothing -> ";"
+      Just ss -> " {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}"
+  StmtGoto _ label -> "goto " <> prettyIdent label <> ";"
+  StmtLabel _ label -> prettyIdent label <> ":"
+  StmtUnset _ targets -> "unset(" <> hsep (punctuate "," (map prettyExpr targets)) <> ");"
   StmtInlineHtml _ txt -> "?>" <> pretty txt <> "<?php"
   StmtHaltCompiler _ txt -> "__halt_compiler();" <> pretty txt
   StmtEmpty _ -> ";"
@@ -158,6 +166,11 @@ prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
       SwitchCase annotation _ _ -> annotation
       SwitchDefault annotation _ -> annotation
     catchAnnotation (CatchClause annotation _ _ _) = annotation
+
+prettyDeclareDirective :: HasLeadingTrivia a => DeclareDirective a -> Doc ann
+prettyDeclareDirective (DeclareDirective annotation name val) =
+  prettyLeadingTrivia annotation $
+    prettyIdent name <> "=" <> prettyLiteral val
 
 stmtAnnotation :: Stmt a -> a
 stmtAnnotation = \case
@@ -186,6 +199,10 @@ stmtAnnotation = \case
   StmtEcho a _ -> a
   StmtGlobal a _ -> a
   StmtStatic a _ -> a
+  StmtDeclare a _ _ -> a
+  StmtGoto a _ -> a
+  StmtLabel a _ -> a
+  StmtUnset a _ -> a
   StmtInlineHtml a _ -> a
   StmtHaltCompiler a _ -> a
   StmtEmpty a -> a

@@ -23,7 +23,7 @@ import Language.PHP.AST
 import Language.PHP.Span (Span)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
-import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan)
+import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
@@ -151,9 +151,68 @@ parseStmt =
   <|> parseContinue
   <|> parseReturn
   <|> parseThrowStmt
+  <|> parseDeclare
+  <|> parseGoto
+  <|> parseUnset
   <|> parseEmptyStmt
   <|> M.try parseHaltCompiler
+  <|> parseLabel
   <|> parseExprStmt
+
+-- | Declare directive statement: declare(...) ; or declare(...) { ... } or declare(...): ... enddeclare;
+parseDeclare :: Parser (Stmt Span)
+parseDeclare = withSpan $ do
+  keyword_ "declare"
+  directives <- parens (parseDeclareDirective `M.sepEndBy1` comma)
+  bodyBranch directives
+  where
+    parseDeclareDirective = withSpan $ do
+      name <- identifier
+      _ <- symbol "="
+      val <- parseLiteralWith parseExpr
+      pure (\sp -> DeclareDirective sp name val)
+
+    bodyBranch dirs =
+      -- Semicolon or close tag (e.g. declare(strict_types=1);)
+      (statementTerminator *> pure (\sp -> StmtDeclare sp dirs Nothing))
+      -- Alternative syntax (declare(...): ... enddeclare;)
+      <|> (do
+        _ <- colon
+        stmts <- parseAltBody
+        keyword_ "enddeclare"
+        _ <- semi
+        pure (\sp -> StmtDeclare sp dirs (Just stmts)))
+      -- Brace block (declare(...) { ... })
+      <|> (do
+        stmts <- braces (M.many parseStmt)
+        pure (\sp -> StmtDeclare sp dirs (Just stmts)))
+      -- Single statement (declare(...) stmt)
+      <|> (do
+        s <- parseStmt
+        pure (\sp -> StmtDeclare sp dirs (Just [s])))
+
+-- | Goto statement: goto label;
+parseGoto :: Parser (Stmt Span)
+parseGoto = withSpan $ do
+  keyword_ "goto"
+  lbl <- identifier
+  _ <- statementTerminator
+  pure (\sp -> StmtGoto sp lbl)
+
+-- | Label statement: label:
+parseLabel :: Parser (Stmt Span)
+parseLabel = withSpan $ M.try $ do
+  lbl <- identifier
+  _ <- lexeme (C.char ':' <* M.notFollowedBy (C.char ':'))
+  pure (\sp -> StmtLabel sp lbl)
+
+-- | Unset statement: unset($a, $b['k']);
+parseUnset :: Parser (Stmt Span)
+parseUnset = withSpan $ do
+  keyword_ "unset"
+  targets <- parens (parseExpr `M.sepEndBy1` comma)
+  _ <- statementTerminator
+  pure (\sp -> StmtUnset sp targets)
 
 -- | Halt compilation and capture the remainder of the file as payload.
 parseHaltCompiler :: Parser (Stmt Span)

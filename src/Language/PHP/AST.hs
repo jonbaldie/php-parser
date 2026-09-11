@@ -50,6 +50,7 @@ module Language.PHP.AST
   , IncludeType (..)
   , UseType (..)
   , UseClause (..)
+  , DeclareDirective (..)
   , Trivia (..)
   , Annotated (..)
   , getAnnotation
@@ -510,10 +511,21 @@ data Stmt a
   | StmtEcho !a ![Expr a]
   | StmtGlobal !a ![Expr a]
   | StmtStatic !a ![(VarName a, Maybe (Expr a))]
+  | StmtDeclare !a ![DeclareDirective a] !(Maybe [Stmt a])
+  | StmtGoto !a !(Ident a)
+  | StmtLabel !a !(Ident a)
+  | StmtUnset !a ![Expr a]
   | StmtInlineHtml !a !Text
   | StmtHaltCompiler !a !Text
   | StmtEmpty !a
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
+
+-- | Declare directive (e.g. strict_types=1, ticks=1, encoding='UTF-8').
+data DeclareDirective a = DeclareDirective
+  { declareDirectiveAnn   :: !a
+  , declareDirectiveName  :: !(Ident a)
+  , declareDirectiveValue :: !(Literal a)
+  } deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 -- | Top-level PHP program.
 data Program a = Program !a ![Stmt a]
