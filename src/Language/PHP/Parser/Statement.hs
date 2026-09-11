@@ -255,7 +255,7 @@ parseIf = withSpan $ do
   where
     -- if (c): ... elseif (c2): ... else: ... endif;
     altBranch cond = do
-      colon
+      _ <- colon
       thens <- parseAltBody
       elifs <- M.many parseAltElseIf
       mElse <- optional parseAltElse
@@ -282,13 +282,13 @@ parseIf = withSpan $ do
     parseAltElseIf = do
       keyword_ "elseif" <|> M.try (keyword_ "else" *> keyword_ "if")
       c <- parens parseExpr
-      colon
+      _ <- colon
       body <- parseAltBody
       pure (c, body)
 
     parseAltElse = do
       keyword_ "else"
-      colon
+      _ <- colon
       parseAltBody
 
     parseStmtBody =
@@ -341,7 +341,7 @@ parseWhile = withSpan $ do
   altBranch cond <|> braceBranch cond
   where
     altBranch cond = do
-      colon
+      _ <- colon
       body <- parseAltBody
       keyword_ "endwhile"
       _ <- semi
@@ -374,7 +374,7 @@ parseFor = withSpan $ do
   altBranch inits conds incrs <|> braceBranch inits conds incrs
   where
     altBranch inits conds incrs = do
-      colon
+      _ <- colon
       body <- parseAltBody
       keyword_ "endfor"
       _ <- semi
@@ -408,7 +408,7 @@ parseForeach = withSpan $ do
   altBranch arr mKey val byRef <|> braceBranch arr mKey val byRef
   where
     altBranch arr mKey val byRef = do
-      colon
+      _ <- colon
       body <- parseAltBody
       keyword_ "endforeach"
       _ <- semi
@@ -428,7 +428,7 @@ parseSwitch = withSpan $ do
       cases <- braces (M.many parseSwitchCase)
       pure (\sp -> StmtSwitch sp expr cases)
     altBranch expr = do
-      colon
+      _ <- colon
       cases <- concat <$> M.many ((\c -> [c]) <$> parseSwitchCaseWith parseAltBody)
       keyword_ "endswitch"
       _ <- semi
