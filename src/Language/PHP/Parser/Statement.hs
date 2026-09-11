@@ -65,8 +65,8 @@ takeUntilPhpTag = do
 
 parseOpenTag :: Parser ()
 parseOpenTag = do
-  _ <- M.try (C.string "<?php" *> (void C.space1 <|> void (C.char '\n') <|> void M.eof <|> sc))
-       <|> (C.string "<?" *> M.notFollowedBy (C.char '=') *> sc)
+  _ <- (M.try (C.string "<?php") *> (void C.space1 <|> void (C.char '\n') <|> void M.eof))
+       <|> (C.string "<?" *> M.notFollowedBy (C.char '=') *> M.notFollowedBy (C.string "php") *> sc)
   sc
 
 parseCloseTag :: Parser ()
