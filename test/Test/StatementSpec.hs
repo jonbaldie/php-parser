@@ -609,6 +609,48 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php\r\n$x = 1;"
       assertParsesOk "<?php\t$x = 1;"
       assertParsesOk "<?php"
+
+  , testCase "Reject reserved type and literal names as class names (Issue #94)" $ do
+      -- Built-in type names
+      assertParsesFail "<?php class int {}"
+      assertParsesFail "<?php class float {}"
+      assertParsesFail "<?php class string {}"
+      assertParsesFail "<?php class bool {}"
+      assertParsesFail "<?php class void {}"
+      assertParsesFail "<?php class iterable {}"
+      assertParsesFail "<?php class object {}"
+      assertParsesFail "<?php class mixed {}"
+      assertParsesFail "<?php class never {}"
+      -- Literal names
+      assertParsesFail "<?php class true {}"
+      assertParsesFail "<?php class false {}"
+      assertParsesFail "<?php class null {}"
+      -- Contextual names
+      assertParsesFail "<?php class self {}"
+      assertParsesFail "<?php class parent {}"
+      assertParsesFail "<?php class static {}"
+      -- Case-insensitivity checks
+      assertParsesFail "<?php class Int {}"
+      assertParsesFail "<?php class TRUE {}"
+      assertParsesFail "<?php class Self {}"
+      assertParsesFail "<?php class STATIC {}"
+      -- Other class-like declarations
+      assertParsesFail "<?php interface int {}"
+      assertParsesFail "<?php interface true {}"
+      assertParsesFail "<?php interface self {}"
+      assertParsesFail "<?php trait int {}"
+      assertParsesFail "<?php trait true {}"
+      assertParsesFail "<?php trait self {}"
+      assertParsesFail "<?php enum int {}"
+      assertParsesFail "<?php enum true {}"
+      assertParsesFail "<?php enum self {}"
+      -- PHP-legal context-sensitive and soft-reserved names still pass
+      assertParsesOk "<?php class enum {}"
+      assertParsesOk "<?php class resource {}"
+      assertParsesOk "<?php class numeric {}"
+      assertParsesOk "<?php interface enum {}"
+      assertParsesOk "<?php trait enum {}"
+      assertParsesOk "<?php enum resource {}"
   ]
 
 

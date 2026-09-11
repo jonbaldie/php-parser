@@ -771,7 +771,7 @@ parseClass = withSpan $ do
     modif <- parseClassModifier
     keyword_ "class"
     pure (attrs, modif)
-  name <- identifier
+  name <- declarationIdentifier
   mExtends <- optional (keyword "extends" *> qualifiedName)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
   members <- braces (M.many (parseClassMemberInContext (ClassLikeContext (classReadonly modif))))
@@ -781,7 +781,7 @@ parseClass = withSpan $ do
 parseInterface :: Parser (Stmt Span)
 parseInterface = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "interface")
-  name <- identifier
+  name <- declarationIdentifier
   extends <- (keyword "extends" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
   members <- braces (M.many (parseClassMemberInContext InterfaceContext))
   pure (\sp -> StmtInterface sp (InterfaceDecl sp attrs name extends members))
@@ -790,7 +790,7 @@ parseInterface = withSpan $ do
 parseTrait :: Parser (Stmt Span)
 parseTrait = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "trait")
-  name <- identifier
+  name <- declarationIdentifier
   members <- braces (M.many (parseClassMemberInContext (ClassLikeContext False)))
   pure (\sp -> StmtTrait sp (TraitDecl sp attrs name members))
 
@@ -798,7 +798,7 @@ parseTrait = withSpan $ do
 parseEnum :: Parser (Stmt Span)
 parseEnum = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "enum")
-  name <- identifier
+  name <- declarationIdentifier
   mBacked <- optional (colon *> parseEnumBackingType)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
   members <- braces (M.many (parseClassMemberInContext EnumContext))
