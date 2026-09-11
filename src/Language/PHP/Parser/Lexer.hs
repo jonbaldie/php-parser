@@ -341,9 +341,9 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
       pure (val, raw)
 
     parseDecOrLegacyOctal = do
-      d0 <- C.digitChar
-      rest <- underscoreDigits isDigit
-      let raw = T.cons d0 rest
+      raw <- underscoreDigits1 isDigit
+      let d0 = T.head raw
+      let rest = T.tail raw
       let clean = T.filter (/= '_') raw
       -- Check if float follows (decimal point or exponent)
       isFloat <- (True <$ M.lookAhead (C.char '.' <|> C.char 'e' <|> C.char 'E')) <|> pure False
@@ -364,15 +364,14 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
     readBinStr s = T.foldl' (\acc c -> acc * 2 + if c == '1' then 1 else 0) 0 s
 
 underscoreDigits :: (Char -> Bool) -> Parser Text
-underscoreDigits pred' = do
-  let charP = M.satisfy pred' <|> (C.char '_' <* M.lookAhead (M.satisfy pred'))
-  T.pack <$> many charP
+underscoreDigits pred' = maybe "" id <$> optional (underscoreDigits1 pred')
 
 underscoreDigits1 :: (Char -> Bool) -> Parser Text
 underscoreDigits1 pred' = do
   c <- M.satisfy pred'
-  rest <- underscoreDigits pred'
-  pure (T.cons c rest)
+  let charP = M.satisfy pred' <|> (C.char '_' <* M.lookAhead (M.satisfy pred'))
+  rest <- many charP
+  pure (T.pack (c : rest))
 
 -- | Float literals: decimal point, exponent, underscores.
 literalFloat :: Parser (Literal Span)

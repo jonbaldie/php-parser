@@ -226,6 +226,41 @@ expressionTests = testGroup "Expression Specifications"
             assertEqual ("Raw text for " ++ show s) expectedRaw raw
           other -> assertFailure ("Expected float " ++ show s ++ ", got: " ++ show other)) cases
 
+  , testCase "Float literal parser rejects tokens starting with an underscore as float literals (Issue #113)" $ do
+      case parseProgram "test.php" "<?php _1e2();" of
+        Right (Program _ [StmtExpr _ (ExprCall _ (ExprConstFetch _ (QualifiedName _ NameUnqualified ["_1e2"])) _)]) -> pure ()
+        other -> assertFailure ("Expected call to identifier _1e2, got: " ++ show other)
+
+      case parseProgram "test.php" "<?php $x = 1._0;" of
+        Left _ -> pure ()
+        Right other -> assertFailure ("Expected parse error for 1._0, got: " ++ show other)
+
+      case parseProgram "test.php" "<?php $x = _1.0;" of
+        Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "x"))) (ExprBinary _ OpConcat (ExprConstFetch _ (QualifiedName _ NameUnqualified ["_1"])) (ExprLit _ (LitInt _ 0 "0"))))]) -> pure ()
+        other -> assertFailure ("Expected $x = _1 . 0, got: " ++ show other)
+
+      let validFloats =
+            [ ("1_000.5", 1000.5, "1_000.5")
+            , ("1e10", 1e10, "1e10")
+            , ("0.5", 0.5, "0.5")
+            , ("1.5e-3", 1.5e-3, "1.5e-3")
+            , ("1_0.0", 10.0, "1_0.0")
+            ]
+      mapM_ (\(s, expectedVal, expectedRaw) ->
+        case parseProgram "test.php" ("<?php return " <> s <> ";") of
+          Left err -> assertFailure ("Failed on valid float " ++ show s ++ ": " ++ show (formatParseError err))
+          Right (Program _ [StmtReturn _ (Just (ExprLit _ (LitFloat _ val raw)))] ) -> do
+            assertEqual ("Value for " ++ show s) expectedVal val
+            assertEqual ("Raw text for " ++ show s) expectedRaw raw
+          other -> assertFailure ("Expected float " ++ show s ++ ", got: " ++ show other)) validFloats
+
+      case parseProgram "test.php" "<?php return 1_000;" of
+        Left err -> assertFailure ("Failed on valid int 1_000: " ++ show (formatParseError err))
+        Right (Program _ [StmtReturn _ (Just (ExprLit _ (LitInt _ val raw)))] ) -> do
+          assertEqual "Value for 1_000" 1000 val
+          assertEqual "Raw text for 1_000" "1_000" raw
+        other -> assertFailure ("Expected int 1_000, got: " ++ show other)
+
   , testCase "Incomplete base-prefixed integer literals are rejected (Issue #85)" $ do
       let incomplete = ["0x", "0b", "0o"]
       mapM_ (\s -> case parseProgram "test.php" ("<?php $x = " <> s <> ";") of
