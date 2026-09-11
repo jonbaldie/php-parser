@@ -53,6 +53,13 @@ prettyTests = testGroup "Pretty Printer Specifications"
           let printed = prettyPrintExpr ast
           assertBool "Printed contains |>" ("|>" `T.isInfixOf` printed)
 
+  , testCase "Pretty print interpolated string with escaped double quotes (Issue #111)" $ do
+      case parseExpression "test.php" "\"hello \\\"world\\\" $x\"" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrintExpr ast
+          assertEqual "Escapes double quotes in output" "\"hello \\\"world\\\" {$x}\"" printed
+
   , testCase "prettyPrintExpr on ExprCall with property fetch parenthesizes callee" $ do
       let expr = ExprCall () (ExprPropertyFetch () (ExprVar () (SimpleVar () (VarName () "obj"))) (MemberIdent (Ident () "prop"))) (ArgsList [])
       let printed = prettyPrintExpr expr

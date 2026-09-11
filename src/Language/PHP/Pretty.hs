@@ -661,7 +661,8 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
       StrExpr e -> "{" <> prettyExpr e <> "}"
 
 -- | Re-emit the escapes the lexer decoded away in interpolated-string text
--- parts: a backslash is doubled so it survives re-decoding, and a dollar that
+-- parts: a backslash is doubled so it survives re-decoding, double quotes are
+-- escaped so they don't terminate the string (Issue #111), and a dollar that
 -- would otherwise reparse as variable interpolation is escaped (Issue #88).
 escapeInterpText :: Text -> Text
 escapeInterpText = T.concat . go
@@ -669,6 +670,7 @@ escapeInterpText = T.concat . go
     go input = case T.uncons input of
       Nothing -> []
       Just ('\\', rest) -> "\\\\" : go rest
+      Just ('"', rest) -> "\\\"" : go rest
       Just ('$', rest) -> (if startsIdent rest then "\\$" else "$") : go rest
       Just (c, rest) -> T.singleton c : go rest
     startsIdent rest = case T.uncons rest of

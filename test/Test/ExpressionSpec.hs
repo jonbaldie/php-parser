@@ -1029,6 +1029,42 @@ expressionTests = testGroup "Expression Specifications"
           assertEqual "a $ before a space needs no escape"
             (T.pack "\"a$ {$a}\"") safe
       ]
+
+  , testGroup "Escaped double quotes in interpolated strings (Issue #111)"
+      [ testCase "escaped double quotes in interpolated text survive printing and round-trip (minimal)" $ do
+          let src = "\"\\\"$x\"" :: Text
+          case parseExpression "issue111.php" src of
+            Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+            Right expr -> assertRoundTripExpr expr
+      , testCase "escaped double quotes reprint escaped (minimal)" $ do
+          case parseExpression "issue111.php" "\"\\\"$x\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr ->
+              assertEqual "escaped double quotes reprint as \\\""
+                "\"\\\"{$x}\"" (prettyPrintExpr expr)
+      , testCase "user reported reproducer round-trips" $ do
+          let src = "\"hello \\\"world\\\" $x\"" :: Text
+          case parseExpression "issue111.php" src of
+            Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+            Right expr -> assertRoundTripExpr expr
+      , testCase "user reported reproducer reprints escaped" $ do
+          case parseExpression "issue111.php" "\"hello \\\"world\\\" $x\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr ->
+              assertEqual "escaped double quotes reprint as \\\""
+                "\"hello \\\"world\\\" {$x}\"" (prettyPrintExpr expr)
+      , testCase "interpolated strings with combinations of escaped double quotes, dollars, and backslashes" $ do
+          forM_
+            [ "\"hello \\\"world\\\" \\$name \\\\ $x\"" :: Text
+            , "\"\\\"\\\\\\\" \\$x $y\""
+            , "\"\\\\\\\"$x\""
+            , "\"\\\"$x\\\"\""
+            , "\"a \\\" b \\$c \\\\ d $e\""
+            ] $ \src ->
+            case parseExpression "issue111.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right expr -> assertRoundTripExpr expr
+      ]
   ]
 
 assertRoundTripExpr :: Expr (Annotated Span) -> Assertion

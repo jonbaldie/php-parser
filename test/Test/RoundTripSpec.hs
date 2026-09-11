@@ -205,6 +205,13 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php unset($a, $b['k']);"
       assertRoundTrips "<?php declare(ticks=1, encoding='UTF-8');"
 
+  , testCase "Round-trip interpolated strings containing escaped double quotes (Issue #111)" $ do
+      assertRoundTrips "<?php \"hello \\\"world\\\" $x\";"
+      assertRoundTrips "<?php \"\\\"$x\";"
+      assertRoundTrips "<?php \"\\\\\\\"$x\";"
+      assertRoundTrips "<?php \"\\\"$x\\\"\";"
+      assertRoundTrips "<?php \"a \\\" b \\$c \\\\ d $e\";"
+
   , testCase "Round-trip transformed closures and arrow functions with captures and parameters (Issue #109)" $ do
       let src = "<?php\n$f = function ($a) use ($b, &$c) {\n    return (($a + $b) + $c);\n};\n$g = fn ($x) => ($x + $y);\n"
       case parseProgram "test.php" src of
