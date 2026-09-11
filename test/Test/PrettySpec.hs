@@ -324,4 +324,64 @@ prettyTests = testGroup "Pretty Printer Specifications"
       let lit = ExprLit () (LitString () "f.php" "'f.php'")
       assertEqual "Top-level include has no outer parens" "include 'f.php'"
         (prettyPrintExpr (ExprInclude () IncInclude lit))
+
+  , testCase "prettyPrintExpr on operator operands parenthesizes yield, yield from, arrow function, throw, and include (Issue #112)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+          litOne = ExprLit () (LitInt () 1 "1")
+          litTwo = ExprLit () (LitInt () 2 "2")
+          yieldExpr = ExprYield () Nothing (Just varX)
+          yieldFromExpr = ExprYieldFrom () varX
+          arrowExpr = ExprArrowFunction () [] False False [] Nothing varX
+          throwExpr = ExprThrow () varX
+          incExpr = ExprInclude () IncInclude (ExprLit () (LitString () "a.php" "'a.php'"))
+          constructs = [ ("yield", yieldExpr, "yield $x")
+                       , ("yield from", yieldFromExpr, "yield from $x")
+                       , ("arrow function", arrowExpr, "fn () => $x")
+                       , ("throw", throwExpr, "throw $x")
+                       , ("include", incExpr, "include 'a.php'")
+                       ]
+      mapM_ (\(name, construct, raw) -> do
+        -- Binary operands
+        let binLhs = ExprBinary () OpAdd construct litOne
+        let binRhs = ExprBinary () OpAdd litOne construct
+        assertEqual (name ++ " binary lhs has parens") (T.pack ("((" ++ raw ++ ") + 1)")) (prettyPrintExpr binLhs)
+        assertEqual (name ++ " binary rhs has parens") (T.pack ("(1 + (" ++ raw ++ "))")) (prettyPrintExpr binRhs)
+
+        -- Unary operand
+        let unExpr = ExprUnary () OpBoolNot construct
+        assertEqual (name ++ " unary operand has parens") (T.pack ("!(" ++ raw ++ ")")) (prettyPrintExpr unExpr)
+
+        -- Ternary operands
+        let ternCond = ExprTernary () construct (Just litOne) litTwo
+        let ternThen = ExprTernary () litOne (Just construct) litTwo
+        let ternElse = ExprTernary () litOne (Just litTwo) construct
+        assertEqual (name ++ " ternary cond has parens") (T.pack ("((" ++ raw ++ ") ? 1 : 2)")) (prettyPrintExpr ternCond)
+        assertEqual (name ++ " ternary then has parens") (T.pack ("(1 ? (" ++ raw ++ ") : 2)")) (prettyPrintExpr ternThen)
+        assertEqual (name ++ " ternary else has parens") (T.pack ("(1 ? 2 : (" ++ raw ++ "))")) (prettyPrintExpr ternElse)
+
+        -- Null coalesce operands
+        let coalLhs = ExprNullCoalesce () construct litTwo
+        let coalRhs = ExprNullCoalesce () litOne construct
+        assertEqual (name ++ " coalesce lhs has parens") (T.pack ("((" ++ raw ++ ") ?? 2)")) (prettyPrintExpr coalLhs)
+        assertEqual (name ++ " coalesce rhs has parens") (T.pack ("(1 ?? (" ++ raw ++ "))")) (prettyPrintExpr coalRhs)
+        ) constructs
+
+  , testCase "prettyPrintExpr and prettyPrintStmt on top-level and statement-level constructs do not over-parenthesize (Issue #112)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+          yieldExpr = ExprYield () Nothing (Just varX)
+          yieldFromExpr = ExprYieldFrom () varX
+          arrowExpr = ExprArrowFunction () [] False False [] Nothing varX
+          throwExpr = ExprThrow () varX
+          incExpr = ExprInclude () IncInclude (ExprLit () (LitString () "a.php" "'a.php'"))
+          constructs = [ ("yield", yieldExpr, "yield $x")
+                       , ("yield from", yieldFromExpr, "yield from $x")
+                       , ("arrow function", arrowExpr, "fn () => $x")
+                       , ("throw", throwExpr, "throw $x")
+                       , ("include", incExpr, "include 'a.php'")
+                       ]
+      mapM_ (\(name, construct, raw) -> do
+        assertEqual (name ++ " top-level expr has no outer parens") (T.pack raw) (prettyPrintExpr construct)
+        assertEqual (name ++ " statement level has no outer parens") (T.pack (raw ++ ";")) (prettyPrintStmt (StmtExpr () construct))
+        ) constructs
   ]
+

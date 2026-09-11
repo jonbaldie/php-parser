@@ -233,6 +233,41 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
                 (stripAnnotations transformed)
                 (stripAnnotations reparsed)
 
+  , testCase "Round-trip yield, yield from, arrow function, throw, and include in operator operand positions (Issue #112)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+          litOne = ExprLit () (LitInt () 1 "1")
+          litTwo = ExprLit () (LitInt () 2 "2")
+          litThree = ExprLit () (LitInt () 3 "3")
+          yieldExpr = ExprYield () Nothing (Just varX)
+          yieldFromExpr = ExprYieldFrom () varX
+          arrowExpr = ExprArrowFunction () [] False False [] Nothing varX
+          throwExpr = ExprThrow () varX
+          incExpr = ExprInclude () IncInclude (ExprLit () (LitString () "a.php" "'a.php'"))
+          constructs = [ ("yield", yieldExpr)
+                       , ("yield from", yieldFromExpr)
+                       , ("arrow function", arrowExpr)
+                       , ("throw", throwExpr)
+                       , ("include", incExpr)
+                       ]
+      forM_ constructs $ \(cName, construct) -> do
+        let contexts =
+              [ ("binary lhs", ExprBinary () OpAdd construct litTwo)
+              , ("binary rhs", ExprBinary () OpAdd litTwo construct)
+              , ("unary operand", ExprUnary () OpBoolNot construct)
+              , ("ternary condition", ExprTernary () construct (Just litTwo) litThree)
+              , ("ternary then", ExprTernary () litOne (Just construct) litThree)
+              , ("ternary else", ExprTernary () litOne (Just litTwo) construct)
+              , ("coalesce lhs", ExprNullCoalesce () construct litTwo)
+              , ("coalesce rhs", ExprNullCoalesce () litOne construct)
+              ]
+        forM_ contexts $ \(posName, ctx) -> do
+          let testLabel = cName ++ " in " ++ posName
+              printed = prettyPrintExpr ctx
+          case parseExpression "test.php" printed of
+            Left err -> assertFailure (testLabel ++ ": printed output does not parse: "
+                                       ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+            Right reparsed ->
+              assertEqual (testLabel ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
