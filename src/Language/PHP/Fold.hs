@@ -30,6 +30,19 @@ mapAnnotation :: Functor f => (a -> b) -> f a -> f b
 mapAnnotation = fmap
 
 -- | Bottom-up transformation of expressions.
+--
+-- Traverses expressions recursively. Closure use-clause variable bindings
+-- (@function () use ($var, &$ref) { ... }@) capture variables from the
+-- enclosing scope and are rewritten in lockstep with body occurrences when
+-- transformed via 'transformExpr', preserving by-reference flags.
+--
+-- Parameter bindings (in functions, methods, closures, and arrow functions)
+-- define new formal parameters rather than referencing outer scope variables;
+-- parameter declarations ('Param') are not rewritten by 'transformExpr' or
+-- reported as variable occurrences by 'queryExpr' (though expressions inside
+-- parameter attributes and parameter default values are traversed). Scope-aware
+-- alpha-renaming of formal parameters is intentionally beyond the scope of
+-- this syntax-directed fold.
 transformExpr :: (Expr a -> Expr a) -> Expr a -> Expr a
 transformExpr f = f . \case
   ExprVar a v -> case v of
@@ -129,8 +142,12 @@ transformExpr f = f . \case
   ExprClosure a attrs byRef isStatic params uses retType stmts ->
     let attrs' = map (transformAttributeGroup f) attrs
         params' = map (transformParam f) params
+        uses' = map (\(vn@(VarName va _), r) ->
+          case f (ExprVar va (SimpleVar va vn)) of
+            ExprVar _ (SimpleVar _ newVn) -> (newVn, r)
+            _                             -> (vn, r)) uses
         stmts' = map (transformStmt f) stmts
-    in ExprClosure a attrs' byRef isStatic params' uses retType stmts'
+    in ExprClosure a attrs' byRef isStatic params' uses' retType stmts'
   ExprArrowFunction a attrs byRef isStatic params retType expr ->
     let attrs' = map (transformAttributeGroup f) attrs
         params' = map (transformParam f) params
@@ -291,6 +308,10 @@ queryParam q p =
   maybe mempty (queryExpr q) (paramDefault p)
 
 -- | Monoidal query over expressions.
+--
+-- Closure use-clause bindings (@use ($var, &$ref)@) are traversed as variable
+-- references to enclosing scope variables, allowing queries such as 'allVariables'
+-- to surface both closure capture bindings and body occurrences.
 queryExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
 queryExpr q expr = q expr <> case expr of
   ExprVar _ v -> case v of
@@ -343,9 +364,10 @@ queryExpr q expr = q expr <> case expr of
     queryExpr q subject <> foldMap (\case
       MatchArm _ conds res -> foldMap (queryExpr q) conds <> queryExpr q res
       MatchDefault _ res -> queryExpr q res) arms
-  ExprClosure _ attrs _ _ params _ _ stmts ->
+  ExprClosure _ attrs _ _ params uses _ stmts ->
     foldMap (queryAttributeGroup q) attrs <>
     foldMap (queryParam q) params <>
+    foldMap (\(vn@(VarName va _), _) -> queryExpr q (ExprVar va (SimpleVar va vn))) uses <>
     foldMap (queryStmt q) stmts
   ExprArrowFunction _ attrs _ _ params _ body ->
     foldMap (queryAttributeGroup q) attrs <>

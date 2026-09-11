@@ -205,6 +205,28 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php unset($a, $b['k']);"
       assertRoundTrips "<?php declare(ticks=1, encoding='UTF-8');"
 
+  , testCase "Round-trip transformed closures and arrow functions with captures and parameters (Issue #109)" $ do
+      let src = "<?php\n$f = function ($a) use ($b, &$c) {\n    return (($a + $b) + $c);\n};\n$g = fn ($x) => ($x + $y);\n"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure ("Initial parse failed: " ++ show (formatParseError err))
+        Right (Program ann stmts) -> do
+          let transformed = Program ann (map (transformStmt (\case
+                ExprVar a (SimpleVar sv (VarName vn "b")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "newB"))
+                ExprVar a (SimpleVar sv (VarName vn "c")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "newC"))
+                ExprVar a (SimpleVar sv (VarName vn "y")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "newY"))
+                e -> e)) stmts)
+              printed = prettyPrint transformed
+          case parseProgram "test.php" printed of
+            Left err2 -> assertFailure ("Reparse failed on transformed printed output:\n" ++ T.unpack printed ++ "\nError: " ++ show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Transformed AST round-trips cleanly"
+                (stripAnnotations transformed)
+                (stripAnnotations reparsed)
+
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr

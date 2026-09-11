@@ -163,6 +163,65 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             ["renamedA", "b", "c"]
             varsAfter
         Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+  , testCase "allVariables and transformExpr handle closure use-clause variables (Issue #109)" $ do
+      let src = "function () use ($fn) { return $fn(2); }"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts use-clause variable and body variable"
+            ["fn", "fn"]
+            (allVariables expr)
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "fn")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "zz_fn"))
+                e -> e) expr
+          assertEqual "Renamed use-clause and body variables"
+            ["zz_fn", "zz_fn"]
+            (allVariables renamed)
+          assertEqual "Pretty printed closure preserves renamed capture binding"
+            "function () use ($zz_fn) {\n    return $zz_fn(2);\n}"
+            (prettyPrintExpr renamed)
+
+  , testCase "transformExpr preserves by-ref flag on closure captures (Issue #109)" $ do
+      let src = "function ($arg) use ($val, &$ref) { return $arg + $val + $ref; }"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts use-clause captures and body variables"
+            ["val", "ref", "arg", "val", "ref"]
+            (allVariables expr)
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "ref")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "newRef"))
+                ExprVar a (SimpleVar sv (VarName vn "val")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "newVal"))
+                e -> e) expr
+          assertEqual "Renamed variables retain use and body occurrences"
+            ["newVal", "newRef", "arg", "newVal", "newRef"]
+            (allVariables renamed)
+          assertEqual "Pretty printed closure preserves by-ref ampersand on renamed capture"
+            "function ($arg) use ($newVal, &$newRef) {\n    return (($arg + $newVal) + $newRef);\n}"
+            (prettyPrintExpr renamed)
+
+  , testCase "transformExpr and allVariables on arrow functions with outer variables (Issue #109)" $ do
+      let src = "fn($param) => $param + $outer"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Arrow function reports body variable occurrences"
+            ["param", "outer"]
+            (allVariables expr)
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "outer")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedOuter"))
+                e -> e) expr
+          assertEqual "Renamed outer variable in arrow function body"
+            ["param", "renamedOuter"]
+            (allVariables renamed)
+          assertEqual "Pretty printed arrow function output"
+            "fn ($param) => ($param + $renamedOuter)"
+            (prettyPrintExpr renamed)
   ]
 
 foldReturns :: Stmt a -> [Bool]
