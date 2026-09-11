@@ -600,7 +600,17 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php interface I { const C = 1; }"
         , "<?php interface I { public string $name { get; set; } }"
         ]
+
+  , testCase "Require separator after long opening tag (Issue #93)" $ do
+      assertParsesFail "<?php$x = 1;"
+      assertParsesFail "<?phpphpinfo();"
+      assertParsesOk "<?php $x = 1;"
+      assertParsesOk "<?php\n$x = 1;"
+      assertParsesOk "<?php\r\n$x = 1;"
+      assertParsesOk "<?php\t$x = 1;"
+      assertParsesOk "<?php"
   ]
+
 
 assertParsesOk :: Text -> Assertion
 assertParsesOk src = case parseProgram "test.php" src of
