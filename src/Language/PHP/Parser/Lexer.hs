@@ -23,10 +23,13 @@ module Language.PHP.Parser.Lexer
   , doubleColon
   -- * Identifiers & Variables
   , identifier
+  , declarationIdentifier
   , semiReservedIdentifier
   , rawIdentifier
   , variableName
   , qualifiedName
+  , isReservedClassName
+  , reservedClassNames
   -- * Keywords
   , keyword
   , keyword_
@@ -226,11 +229,51 @@ phpKeywords =
   , "use", "var", "while", "xor", "yield"
   ]
 
+-- | Check if text is a reserved class-like declaration name.
+-- PHP disallows built-in types, literal names, and contextual names as class,
+-- interface, trait, or enum names.
+isReservedClassName :: Text -> Bool
+isReservedClassName w = T.toLower w `elem` reservedClassNames
+
+-- | List of names reserved by PHP as class, interface, trait, or enum declaration identifiers.
+reservedClassNames :: [Text]
+reservedClassNames =
+  [ -- Built-in type names
+    "int"
+  , "float"
+  , "bool"
+  , "string"
+  , "void"
+  , "iterable"
+  , "object"
+  , "mixed"
+  , "never"
+  , "array"
+  , "callable"
+    -- Literal names
+  , "true"
+  , "false"
+  , "null"
+    -- Contextual names
+  , "self"
+  , "parent"
+  , "static"
+  ]
+
 -- | Non-keyword identifier.
 identifier :: Parser (Ident Span)
 identifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
   tok <- rawIdentifier
   if isKeyword tok
+    then M.empty
+    else pure (\sp -> Ident sp tok)
+
+-- | Identifier for class, interface, trait, and enum declarations.
+-- PHP disallows keywords as well as reserved type, literal, and contextual names.
+declarationIdentifier :: Parser (Ident Span)
+declarationIdentifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
+  tok <- rawIdentifier
+  if isKeyword tok || isReservedClassName tok
     then M.empty
     else pure (\sp -> Ident sp tok)
 
