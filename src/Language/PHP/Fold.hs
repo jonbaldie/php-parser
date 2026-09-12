@@ -43,12 +43,18 @@ mapAnnotation = fmap
 -- parameter attributes and parameter default values are traversed). Scope-aware
 -- alpha-renaming of formal parameters is intentionally beyond the scope of
 -- this syntax-directed fold.
+--
+-- Subexpressions embedded within interpolated strings ('LitInterpolated') are
+-- recursively rewritten.
 transformExpr :: (Expr a -> Expr a) -> Expr a -> Expr a
 transformExpr f = f . \case
   ExprVar a v -> case v of
     DynamicVar va e -> ExprVar a (DynamicVar va (transformExpr f e))
     SimpleVar {} -> ExprVar a v
-  ExprLit a l -> ExprLit a l
+  ExprLit a l -> case l of
+    LitInterpolated la parts ->
+      ExprLit a (LitInterpolated la (map (transformStringPart f) parts))
+    _ -> ExprLit a l
   ExprBinary a op e1 e2 -> ExprBinary a op (transformExpr f e1) (transformExpr f e2)
   ExprUnary a op e -> ExprUnary a op (transformExpr f e)
   ExprAssign a mOp e1 e2 -> ExprAssign a mOp (transformExpr f e1) (transformExpr f e2)
@@ -162,6 +168,12 @@ transformExpr f = f . \case
   ExprInclude a inc e -> ExprInclude a inc (transformExpr f e)
   ExprThrow a e -> ExprThrow a (transformExpr f e)
   ExprConstFetch a qn -> ExprConstFetch a qn
+
+-- | Transform string part in interpolated string.
+transformStringPart :: (Expr a -> Expr a) -> StringPart a -> StringPart a
+transformStringPart f = \case
+  StrLit t -> StrLit t
+  StrExpr e -> StrExpr (transformExpr f e)
 
 -- | Transform attribute group recursively.
 transformAttributeGroup :: (Expr a -> Expr a) -> AttributeGroup a -> AttributeGroup a
@@ -310,17 +322,28 @@ queryParam q p =
   foldMap (queryAttributeGroup q) (paramAttrs p) <>
   maybe mempty (queryExpr q) (paramDefault p)
 
+-- | Query string part in interpolated string.
+queryStringPart :: Monoid m => (Expr a -> m) -> StringPart a -> m
+queryStringPart q = \case
+  StrLit _ -> mempty
+  StrExpr e -> queryExpr q e
+
 -- | Monoidal query over expressions.
 --
 -- Closure use-clause bindings (@use ($var, &$ref)@) are traversed as variable
 -- references to enclosing scope variables, allowing queries such as 'allVariables'
 -- to surface both closure capture bindings and body occurrences.
+--
+-- Subexpressions embedded within interpolated strings ('LitInterpolated') are
+-- recursively queried.
 queryExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
 queryExpr q expr = q expr <> case expr of
   ExprVar _ v -> case v of
     DynamicVar _ e -> queryExpr q e
     SimpleVar {} -> mempty
-  ExprLit _ _ -> mempty
+  ExprLit _ l -> case l of
+    LitInterpolated _ parts -> foldMap (queryStringPart q) parts
+    _ -> mempty
   ExprBinary _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
   ExprUnary _ _ e -> queryExpr q e
   ExprAssign _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
