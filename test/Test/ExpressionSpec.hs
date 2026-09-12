@@ -73,6 +73,23 @@ expressionTests = testGroup "Expression Specifications"
               _ -> assertFailure "Unexpected arm structure"
           other -> assertFailure ("Expected ExprMatch, got: " ++ show other)
 
+  , testCase "Match arm condition list with trailing comma (Issue #115)" $ do
+      let src = "match ($x) { 1, 2, => 'val' }"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> case expr of
+          ExprMatch _ _ [MatchArm _ conds _] ->
+            assertEqual "condition count" 2 (length conds)
+          other -> assertFailure ("Expected two-condition match arm, got: " ++ show other)
+      forM_ [ "match ($x) { 1, 2 => 'val' }"
+            , "match ($x) { 1 => 'val' }"
+            , "match ($x) { default => 'd' }"
+            , "match ($x) { 1, 2, => 'val', 3, => 'three', default => 'd' }"
+            ] $ \okSrc ->
+        case parseExpression "test.php" okSrc of
+          Left err -> assertFailure (show okSrc ++ ": " ++ show (formatParseError err))
+          Right _ -> pure ()
+
   , testCase "First-class callable syntax: strlen(...) and $obj->method(...)" $ do
       let src1 = "strlen(...)"
           src2 = "$this->process(...)"
