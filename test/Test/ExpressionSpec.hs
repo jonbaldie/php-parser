@@ -20,6 +20,42 @@ expressionTests = testGroup "Expression Specifications"
           assertEqual "trivia is empty block comment" [CommentBlock ""] triv
         other -> assertFailure ("Expected integer 1, got: " ++ show other)
 
+  , testCase "instanceof precedence and round trips (Issue #141)" $ do
+      let cases =
+            [ ("addition", "$x instanceof Foo + 1", \case
+                ExprBinary _ OpAdd (ExprBinary _ OpInstanceof _ _) _ -> True
+                _ -> False)
+            , ("multiplication", "$x instanceof Foo * 2", \case
+                ExprBinary _ OpMul (ExprBinary _ OpInstanceof _ _) _ -> True
+                _ -> False)
+            , ("concatenation", "$x instanceof Foo . 'bar'", \case
+                ExprBinary _ OpConcat (ExprBinary _ OpInstanceof _ _) _ -> True
+                _ -> False)
+            , ("shift", "$x instanceof Foo << 1", \case
+                ExprBinary _ OpShiftLeft (ExprBinary _ OpInstanceof _ _) _ -> True
+                _ -> False)
+            , ("pipe", "$x instanceof Foo |> trim", \case
+                ExprBinary _ OpPipe (ExprBinary _ OpInstanceof _ _) _ -> True
+                _ -> False)
+            , ("equality", "$x instanceof Foo == true", \case
+                ExprBinary _ OpEq (ExprBinary _ OpInstanceof _ _) _ -> True
+                _ -> False)
+            ]
+      forM_ cases $ \(name, src, matches) ->
+        case parseExpression "instanceof.php" src of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right expr -> do
+            assertBool (name ++ ": instanceof precedence") (matches expr)
+            let printed = prettyPrintExpr expr
+            case parseExpression "instanceof.php" printed of
+              Left err -> assertFailure (name ++ ": pretty output does not parse: "
+                                         ++ T.unpack printed ++ "\n"
+                                         ++ show (formatParseError err))
+              Right reparsed ->
+                assertEqual (name ++ ": pretty-print round trip")
+                  (stripAnnotations expr)
+                  (stripAnnotations reparsed)
+
   , testCase "Successful AST spans report input offsets (Issue #47)" $ do
       case parseExpression "offsets.php" "  $a + $b" of
         Left err -> assertFailure (show (formatParseError err))

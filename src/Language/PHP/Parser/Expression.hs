@@ -197,7 +197,6 @@ parseExprWithContext pStmt pMember = parseExprRec
       , (void (symbol ">="), OpGte)
       , (void (lexeme (M.try (C.char '<' <* M.notFollowedBy (C.char '<' <|> C.char '=' <|> C.char '>')))), OpLt)
       , (void (lexeme (M.try (C.char '>' <* M.notFollowedBy (C.char '>' <|> C.char '=')))), OpGt)
-      , (void (keyword "instanceof"), OpInstanceof)
       ]
 
     parsePipe = parseBinaryLeft parseShift [ (void (symbol "|>"), OpPipe) ]
@@ -213,7 +212,13 @@ parseExprWithContext pStmt pMember = parseExprRec
       , (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=')))), OpConcat)
       ]
 
-    parseMulDivMod = parseBinaryLeft parseExponentiation
+    -- @instanceof@ binds below unary operators and exponentiation, but above
+    -- multiplicative, additive, shift, pipe, and comparison operators.
+    parseInstanceof = parseBinaryLeft parseExponentiation
+      [ (void (keyword "instanceof"), OpInstanceof)
+      ]
+
+    parseMulDivMod = parseBinaryLeft parseInstanceof
       [ (void (lexeme (M.try (C.char '*' <* M.notFollowedBy (C.char '*' <|> C.char '=')))), OpMul)
       , (void (lexeme (M.try (C.char '/' <* M.notFollowedBy (C.char '/' <|> C.char '*' <|> C.char '=')))), OpDiv)
       , (void (lexeme (M.try (C.char '%' <* M.notFollowedBy (C.char '=')))), OpMod)
