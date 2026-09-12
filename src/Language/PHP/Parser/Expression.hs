@@ -596,11 +596,9 @@ parseArgWith pExpr = withSpan $ do
 
 -- | Call arguments list: (arg1, arg2) or first-class callable (...)
 parseCallArgs :: Parser (CallArgs Span)
-parseCallArgs = parens $ do
-  isCallable <- (True <$ symbol "...") <|> pure False
-  if isCallable
-    then pure FirstClassCallable
-    else ArgsList <$> (parseArg `M.sepEndBy` comma)
+parseCallArgs = parens $
+  (FirstClassCallable <$ M.try (symbol "..." <* M.lookAhead (symbol ")")))
+  <|> (ArgsList <$> (parseArg `M.sepEndBy` comma))
 
 -- | Match arm using expression parser.
 parseMatchArm :: Parser (MatchArm Span)

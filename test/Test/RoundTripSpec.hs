@@ -345,6 +345,15 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
             Right reparsed ->
               assertEqual (testLabel ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testCase "Round-trip calls with leading argument unpacking (Issue #137)" $ do
+      assertRoundTrips "<?php foo(...$args);"
+      assertRoundTrips "<?php $obj->m(...$args);"
+      assertRoundTrips "<?php Foo::m(...$args);"
+      assertRoundTrips "<?php foo(...$args, name: 1);"
+      assertRoundTrips "<?php strlen(...);"
+      assertRoundTrips "<?php $obj->method(...);"
+      assertRoundTrips "<?php Config::load(...);"
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr
