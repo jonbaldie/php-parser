@@ -233,23 +233,17 @@ parseExprWithContext pStmt pMember = parseExprRec
         cloneWith = M.try $ parens $ do
           obj <- parseExprRec
           _ <- comma
-          payload <- parseCloneWithPayload
-          pure (\sp -> ExprClone sp obj (Just payload))
+          mPayload <- optional parseCloneWithPayload
+          _ <- optional comma
+          pure (\sp -> ExprClone sp obj mPayload)
 
         cloneOperand = do
           obj <- parseUnary
           pure (\sp -> ExprClone sp obj Nothing)
 
         parseCloneWithPayload = do
-          _ <- optional (keyword "with" *> colon)
-          items <- brackets (parseClonePair `M.sepEndBy` comma)
-          pure items
-
-        parseClonePair = do
-          k <- parseExprRec
-          _ <- symbol "=>"
-          v <- parseExprRec
-          pure (k, v)
+          _ <- optional (M.try (keyword "with" *> colon))
+          parseExprRec
 
     parsePostfix = do
       base <- parsePrimary
