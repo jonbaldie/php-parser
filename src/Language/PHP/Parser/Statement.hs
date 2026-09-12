@@ -861,13 +861,17 @@ parseProperty enclosingReadonly attrs = withSpan $ do
 -- belongs to the enclosing property declaration.
 parsePropertyHook :: Parser (PropertyHook Span)
 parsePropertyHook = withSpan $ do
+  attrs <- parseAttributes
   isFinal <- (True <$ keyword "final") <|> pure False
+  byRef <- (True <$ symbol "&") <|> pure False
   hookT <- (HookGet <$ keyword "get") <|> (HookSet <$ keyword "set")
+  when (byRef && hookT == HookSet) $
+    M.fancyFailure (S.singleton (M.ErrorFail "Only get property hooks may return by reference"))
   mParam <- if hookT == HookSet
     then optional (parens parseHookParam)
     else pure Nothing
   body <- parseHookBody
-  pure (\sp -> PropertyHook sp isFinal hookT mParam body)
+  pure (\sp -> PropertyHook sp attrs isFinal byRef hookT mParam body)
   where
     parseHookParam = do
       typ <- optional parseType

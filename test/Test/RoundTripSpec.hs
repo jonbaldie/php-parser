@@ -28,6 +28,19 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\nclass Hooked {\n    public string $name {\n        get => $this->raw;\n        set(string $v) {\n            $this->raw = $v;\n        }\n    }\n}"
       assertRoundTrips src
 
+  , testCase "Round-trip attributed and by-reference property hooks (Issue #116)" $ do
+      let src = "<?php\nclass Hooked {\n    public string $name {\n        #[Example]\n        get => $this->raw;\n        final &get => $this->raw;\n    }\n}"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right prog -> do
+          let printed = prettyPrint prog
+          assertBool "prettyPrint should retain hook attributes" ("#[Example]" `T.isInfixOf` printed)
+          assertBool "prettyPrint should retain by-reference get" ("&get" `T.isInfixOf` printed)
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right prog2 ->
+              assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+
   , testCase "Round-trip PHP 8.5 pipe operator" $ do
       let src = "<?php\n$result = (($x |> 'trim') |> 'strtolower');"
       assertRoundTrips src
