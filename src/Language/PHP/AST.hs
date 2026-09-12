@@ -438,6 +438,7 @@ data UseClause a = UseClause
   { useClauseAnn   :: !a
   , useClauseName  :: !(QualifiedName a)
   , useClauseAlias :: !(Maybe (Ident a))
+  , useClauseType  :: !(Maybe UseType)
   } deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 -- | String part for interpolated strings.

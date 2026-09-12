@@ -583,14 +583,24 @@ parseUse = M.try parseGroupUse <|> parseNormalUse
       ut <- parseUseType
       prefix <- qualifiedName
       _ <- symbol "\\"
-      clauses <- braces (parseUseClause `M.sepEndBy1` comma)
+      clauses <- braces (parseGroupUseClause `M.sepEndBy1` comma)
       _ <- semi
       pure (\sp -> StmtGroupUse sp ut prefix clauses)
 
-    parseUseClause = withSpan $ do
+    parseClauseType =
+      (Just UseFunction <$ keyword "function")
+      <|> (Just UseConst <$ keyword "const")
+      <|> pure Nothing
+
+    parseUseClause = parseUseClauseWith (pure Nothing)
+
+    parseGroupUseClause = parseUseClauseWith parseClauseType
+
+    parseUseClauseWith typeParser = withSpan $ do
+      mType <- typeParser
       qn <- qualifiedName
       mAlias <- optional (keyword "as" *> identifier)
-      pure (\sp -> UseClause sp qn mAlias)
+      pure (\sp -> UseClause sp qn mAlias mType)
 
 
 

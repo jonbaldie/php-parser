@@ -61,6 +61,12 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\nuse Foo\\{Bar, Baz,};\n"
       assertRoundTrips src
 
+  , testCase "Round-trip mixed-kind grouped use imports (Issue #140)" $ do
+      assertRoundTrips "<?php\nuse Foo\\{function bar, const BAZ, Qux};\n"
+      assertRoundTrips "<?php\nuse Foo\\{Bar, function baz};\n"
+      assertRoundTrips "<?php\nuse function Foo\\{bar, baz};\n"
+      assertRoundTrips "<?php\nuse const Foo\\{BAR, BAZ};\n"
+
   , testCase "Round-trip attribute groups with trailing comma" $ do
       let src = "<?php\n#[Attr1, Attr2,]\nclass Foo {\n    #[Attr,]\n    public int $x;\n}\n"
       assertRoundTrips src

@@ -386,6 +386,38 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php use Foo\\{Bar, Baz};"
       assertParsesFail "<?php use Foo,;"
 
+  , testCase "Issue 140: mixed-kind grouped use imports" $ do
+      let src = "<?php use Foo\\{function bar, const BAZ, Qux};"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program _ [StmtGroupUse _ ut prefix clauses]) -> do
+          assertEqual "group use type" UseNormal ut
+          assertEqual "prefix" (QualifiedName () NameUnqualified ["Foo"]) (stripAnnotations prefix)
+          case map stripAnnotations clauses of
+            [ UseClause () (QualifiedName () NameUnqualified ["bar"]) Nothing (Just UseFunction)
+              , UseClause () (QualifiedName () NameUnqualified ["BAZ"]) Nothing (Just UseConst)
+              , UseClause () (QualifiedName () NameUnqualified ["Qux"]) Nothing Nothing
+              ] -> pure ()
+            other -> assertFailure ("Expected mixed-kind clauses, got: " ++ show other)
+          let printed = prettyPrint ast
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("Reparsing pretty-printed mixed-kind use failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right ast2 -> assertEqual "round-trip AST equal" (stripAnnotations ast) (stripAnnotations ast2)
+        other -> assertFailure ("Expected StmtGroupUse, got: " ++ show other)
+
+      case parseProgram "test.php" "<?php use Foo\\{Bar, function baz};" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtGroupUse _ UseNormal _ clauses]) ->
+          case map stripAnnotations clauses of
+            [ UseClause () (QualifiedName () NameUnqualified ["Bar"]) Nothing Nothing
+              , UseClause () (QualifiedName () NameUnqualified ["baz"]) Nothing (Just UseFunction)
+              ] -> pure ()
+            other -> assertFailure ("Expected class then function clauses, got: " ++ show other)
+        other -> assertFailure ("Expected StmtGroupUse, got: " ++ show other)
+
+      assertParsesOk "<?php use function Foo\\{bar, baz};"
+      assertParsesOk "<?php use const Foo\\{BAR, BAZ};"
+
   , testCase "Issue 32 reproducer: parseAttributeGroup with trailing commas" $ do
       assertParsesOk "<?php #[Attr,] class Foo {}"
       assertParsesOk "<?php #[Attr1, Attr2,] function bar() {}"
