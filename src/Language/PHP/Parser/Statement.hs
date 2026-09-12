@@ -751,16 +751,38 @@ parseFunction = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "function" <* M.notFollowedBy (symbol "("))
   byRef <- (True <$ symbol "&") <|> pure False
   name <- identifier
-  params <- parens (parseParam `M.sepEndBy` comma)
+  params <- parens (parseParamInContext NonConstructorParam `M.sepEndBy` comma)
   retType <- parseReturnType
   body <- braces (M.many parseStmt)
   pure (\sp -> StmtFunction sp (FunctionDecl sp attrs byRef name params retType body))
 
+-- | Promoted parameter context for validating parameter modifiers.
+data ParamContext
+  = ConstructorParam
+  | AbstractConstructorParam
+  | NonConstructorParam
+  deriving (Eq, Show)
+
+-- | Whether a parameter declares promoted property modifiers.
+isPromotedParam :: Param a -> Bool
+isPromotedParam p = isJust (paramVis p) || isJust (paramWriteVis p) || paramReadonly p
+
 -- | Parameter parsing (supports constructor property promotion & asymmetric visibility).
 parseParam :: Parser (Param Span)
-parseParam = withSpan $ do
+parseParam = parseParamInContext ConstructorParam
+
+parseParamInContext :: ParamContext -> Parser (Param Span)
+parseParamInContext pCtx = withSpan $ do
   attrs <- parseAttributes
   (vis, wVis, isRo) <- parseParamModifiers
+  let isPromoted = isJust vis || isJust wVis || isRo
+  when isPromoted $ case pCtx of
+    NonConstructorParam ->
+      modifierError "Cannot declare promoted property outside a constructor"
+    AbstractConstructorParam ->
+      modifierError "Cannot declare promoted property in an abstract constructor"
+    ConstructorParam ->
+      pure ()
   typ <- optional parseType
   byRef <- (True <$ symbol "&") <|> pure False
   isVariadic <- (True <$ symbol "...") <|> pure False
@@ -791,6 +813,7 @@ data ClassContext
   = ClassLikeContext !Bool  -- ^ class, trait, or anonymous class; readonly flag
   | EnumContext
   | InterfaceContext
+  deriving (Eq, Show)
 
 -- | Class member declaration.
 parseClassMember :: Parser (ClassMember Span)
@@ -805,7 +828,7 @@ parseClassMemberInContext ctx = do
     (MemberConst <$> M.try parseConstDecl)
     <|> (MemberTraitUse <$> M.try parseTraitUse)
     <|> (MemberEnumCase <$> M.try parseEnumCase)
-    <|> parseMethodOrProperty enclosingReadonly
+    <|> parseMethodOrProperty ctx enclosingReadonly
   member <$ checkMember ctx member
 
 -- | Reject members that PHP forbids in the enclosing declaration kind.
@@ -815,6 +838,8 @@ checkMember ctx member =
   case (ctx, member) of
     (EnumContext, MemberEnumCase _) -> pure ()
     (EnumContext, MemberProperty _) -> forbidden "Enums may not include properties"
+    (EnumContext, MemberMethod md)
+      | any isPromotedParam (methodParams md) -> forbidden "Enums may not include properties"
     (InterfaceContext, MemberProperty pd)
       | null (propHooks pd) -> forbidden "Interfaces may not include properties"
     (InterfaceContext, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
@@ -823,12 +848,12 @@ checkMember ctx member =
   where
     forbidden msg = M.fancyFailure (S.singleton (M.ErrorFail (T.unpack msg)))
 
-parseMethodOrProperty :: Bool -> Parser (ClassMember Span)
-parseMethodOrProperty enclosingReadonly = do
+parseMethodOrProperty :: ClassContext -> Bool -> Parser (ClassMember Span)
+parseMethodOrProperty ctx enclosingReadonly = do
   attrs <- parseAttributes
   isMethod <- (True <$ M.lookAhead (M.try parseMethodLookAhead)) <|> pure False
   if isMethod
-    then MemberMethod <$> parseMethod attrs
+    then MemberMethod <$> parseMethod ctx attrs
     else MemberProperty <$> parseProperty enclosingReadonly attrs
   where
     parseMethodLookAhead = do
@@ -836,13 +861,20 @@ parseMethodOrProperty enclosingReadonly = do
       _ <- optional (symbol "&")
       keyword_ "function"
 
-parseMethod :: [AttributeGroup Span] -> Parser (MethodDecl Span)
-parseMethod attrs = withSpan $ do
+parseMethod :: ClassContext -> [AttributeGroup Span] -> Parser (MethodDecl Span)
+parseMethod ctx attrs = withSpan $ do
   modif <- parseMethodModifier
   keyword_ "function"
   byRef <- (True <$ symbol "&") <|> pure False
   name <- semiReservedIdentifier
-  params <- parens (parseParam `M.sepEndBy` comma)
+  let Ident _ nameText = name
+      isCtor = T.toLower nameText == "__construct"
+      isAbs = methodAbstract modif || ctx == InterfaceContext
+      paramCtx
+        | not isCtor = NonConstructorParam
+        | isAbs      = AbstractConstructorParam
+        | otherwise  = ConstructorParam
+  params <- parens (parseParamInContext paramCtx `M.sepEndBy` comma)
   retType <- parseReturnType
   body <- (semi *> pure Nothing) <|> (Just <$> braces (M.many parseStmt))
   pure (\sp -> MethodDecl sp attrs modif byRef name params retType body)
