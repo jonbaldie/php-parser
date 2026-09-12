@@ -214,8 +214,14 @@ prettyUseType = \case
   UseConst -> " const"
 
 prettyUseClause :: HasLeadingTrivia a => UseClause a -> Doc ann
-prettyUseClause (UseClause annotation name mAlias) = prettyLeadingTrivia annotation $
-  prettyQualifiedName name <> maybe mempty (\alias -> " as " <> prettyIdent alias) mAlias
+prettyUseClause (UseClause annotation name mAlias mType) = prettyLeadingTrivia annotation $
+  prettyClauseUseType mType <> prettyQualifiedName name <> maybe mempty (\alias -> " as " <> prettyIdent alias) mAlias
+
+prettyClauseUseType :: Maybe UseType -> Doc ann
+prettyClauseUseType = \case
+  Just UseFunction -> "function "
+  Just UseConst -> "const "
+  _ -> mempty
 
 -- | Class declarations.
 prettyClassDecl :: HasLeadingTrivia a => ClassDecl a -> Doc ann

@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Support mixed-kind grouped `use` imports (`use Foo\{function bar, const BAZ, Qux}`), recording an optional clause-level `useClauseType` on `UseClause` and pretty-printing per-clause `function`/`const` keywords (#140).
+
 * Add support for by-reference array items in square-bracket array literals and `array(...)` constructs (`[&$a]`, `array(&$a)`, `['k' => &$v]`), tracking by-reference items via `itemByRef :: !Bool` in `ArrayItem`, pretty-printing `&` before values, and preserving by-reference elements in AST traversals and round-tripping (#139).
 
 * Add support for by-reference assignment (`$a =& $b`, `$a = &$b`, `$a =& foo()`), represented in the AST as `ExprAssignRef a (Expr a) (Expr a)` and printed as `$a =& $b`; the source must be variable-like, so `$a =& new Foo()` and `$a =& 1` remain syntax errors as in PHP (#138).
