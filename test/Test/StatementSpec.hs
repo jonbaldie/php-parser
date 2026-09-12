@@ -143,7 +143,7 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php abstract class C {}"
         , "<?php readonly class C {}"
         , "<?php final readonly class C {}"
-        , "<?php abstract final class D extends C {}"
+        , "<?php abstract class D extends C {}"
         , "<?php class C { public int $x; }"
         , "<?php class C { public static int $x; }"
         , "<?php class C { static int $x; }"
@@ -161,6 +161,39 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class C { private const Y = 2; }"
         , "<?php class C { public function f(public readonly int $x) {} }"
         , "<?php class C { public function f(private readonly int $x) {} }"
+        ]
+
+  , testCase "Reject mutually exclusive declaration modifiers (Issue #128)" $ do
+      mapM_ assertParsesFail
+        [ "<?php final abstract class C {}"
+        , "<?php abstract final class C {}"
+        , "<?php abstract final readonly class C {}"
+        , "<?php class C { final abstract function f(); }"
+        , "<?php class C { abstract final function f(); }"
+        , "<?php class C { public final abstract function f(); }"
+        , "<?php class C { public static readonly int $x; }"
+        , "<?php class C { public readonly static int $x; }"
+        , "<?php class C { static readonly int $x; }"
+        ]
+      case parseProgram "test.php" "<?php final abstract class C {}" of
+        Left err -> assertBool
+          "error should name the conflicting modifiers"
+          (maybe False (T.isInfixOf "final and abstract") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class C { public static readonly int $x; }" of
+        Left err -> assertBool
+          "error should name the conflicting modifiers"
+          (maybe False (T.isInfixOf "static and readonly") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php final class C {}"
+        , "<?php abstract class C {}"
+        , "<?php final readonly class C {}"
+        , "<?php abstract readonly class C {}"
+        , "<?php class C { final public function f() {} }"
+        , "<?php abstract class C { abstract public function f(); }"
+        , "<?php class C { public static int $x; }"
+        , "<?php class C { public readonly int $x; }"
         ]
 
   , testCase "Non-capturing catch statement" $ do

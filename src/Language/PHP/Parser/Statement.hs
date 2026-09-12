@@ -613,8 +613,18 @@ parseAsymmetricWriteVis = M.try $ do
 -- composable across backtracking alternatives while still rejecting the
 -- program, mirroring PHP's own diagnostics.
 duplicateModifier :: String -> Parser ()
-duplicateModifier what =
-  M.registerFancyFailure (S.singleton (M.ErrorFail ("Multiple " <> what <> " modifiers are not allowed")))
+duplicateModifier what = modifierError ("Multiple " <> what <> " modifiers are not allowed")
+
+-- | Register a custom parse error for a pair of modifiers PHP forbids together,
+-- such as @final abstract@ on a class or method and @static readonly@ on a
+-- property. Naming the pair (rather than the modifier just read) keeps the
+-- diagnostic identical whichever order the two were written in.
+conflictingModifiers :: String -> String -> Parser ()
+conflictingModifiers this that =
+  modifierError ("Cannot combine the " <> this <> " and " <> that <> " modifiers")
+
+modifierError :: String -> Parser ()
+modifierError = M.registerFancyFailure . S.singleton . M.ErrorFail
 
 -- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract, var).
 -- Note: @var@ is an alias for @public@ visibility and cannot be combined with explicit visibility.
@@ -633,10 +643,12 @@ parsePropertyModifier = loop Nothing Nothing False False False False
       <|> (do
         keyword_ "static"
         when isStat $ duplicateModifier "static"
+        when isRo $ conflictingModifiers "static" "readonly"
         loop vis wVis True isRo isFin isAbs)
       <|> (do
         keyword_ "readonly"
         when isRo $ duplicateModifier "readonly"
+        when isStat $ conflictingModifiers "static" "readonly"
         loop vis wVis isStat True isFin isAbs)
       <|> (do
         keyword_ "final"
@@ -664,10 +676,12 @@ parseMethodModifier = loop Nothing False False False
       <|> (do
         keyword_ "final"
         when isFin $ duplicateModifier "final"
+        when isAbs $ conflictingModifiers "final" "abstract"
         loop vis isStat True isAbs)
       <|> (do
         keyword_ "abstract"
         when isAbs $ duplicateModifier "abstract"
+        when isFin $ conflictingModifiers "final" "abstract"
         loop vis isStat isFin True)
       <|> pure (MethodModifier vis isStat isFin isAbs)
 
@@ -679,10 +693,12 @@ parseClassModifier = loop False False False
       (do
         keyword_ "final"
         when isFin $ duplicateModifier "final"
+        when isAbs $ conflictingModifiers "final" "abstract"
         loop True isAbs isRo)
       <|> (do
         keyword_ "abstract"
         when isAbs $ duplicateModifier "abstract"
+        when isFin $ conflictingModifiers "final" "abstract"
         loop isFin True isRo)
       <|> (do
         keyword_ "readonly"
