@@ -511,42 +511,8 @@ parseExprWithContext pStmt pMember = parseExprRec
 
     parseListLit = withSpan $ do
       keyword_ "list"
-      items <- parens parseListItems
+      items <- parens (parseArrayItemWith parseExprRec `M.sepEndBy` comma)
       pure (\sp -> ExprList sp items)
-
-    parseListItems = do
-      isClose <- (True <$ M.lookAhead (symbol ")")) <|> pure False
-      if isClose
-        then pure []
-        else do
-          firstItem <- parseListItemFirst
-          restItems <- parseListItemRest
-          pure (firstItem : restItems)
-      where
-        parseListItemFirst = parseOmittedSlot <|> parseArrayItemWith parseExprRec
-          where
-            parseOmittedSlot = do
-              _ <- M.lookAhead comma
-              withSpan (pure (\sp -> ArrayItemEmpty sp))
-
-        parseListItemRest = do
-          hasComma <- (True <$ comma) <|> pure False
-          if not hasComma
-            then pure []
-            else do
-              isClose <- (True <$ M.lookAhead (symbol ")")) <|> pure False
-              if isClose
-                then pure []
-                else do
-                  item <- parseListItemNext
-                  rest <- parseListItemRest
-                  pure (item : rest)
-
-        parseListItemNext = parseOmittedSlot <|> parseArrayItemWith parseExprRec
-          where
-            parseOmittedSlot = do
-              _ <- M.lookAhead comma
-              withSpan (pure (\sp -> ArrayItemEmpty sp))
 
     parseVariableExpr = withSpan $ do
       v <- parseVar
@@ -650,20 +616,26 @@ parseArrayItem :: Parser (ArrayItem Span)
 parseArrayItem = parseArrayItemWith parseExpr
 
 parseArrayItemWith :: Parser (Expr Span) -> Parser (ArrayItem Span)
-parseArrayItemWith pExpr = withSpan $ do
-  isSpread <- (True <$ symbol "...") <|> pure False
-  if isSpread
-    then do
-      expr <- pExpr
-      pure (\sp -> ArrayItem sp Nothing expr True)
-    else do
-      kOrV <- pExpr
-      isArrow <- (True <$ symbol "=>") <|> pure False
-      if isArrow
+parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
+  where
+    parseOmittedSlot = do
+      _ <- M.lookAhead comma
+      withSpan (pure (\sp -> ArrayItemEmpty sp))
+
+    parseItem = withSpan $ do
+      isSpread <- (True <$ symbol "...") <|> pure False
+      if isSpread
         then do
-          v <- pExpr
-          pure (\sp -> ArrayItem sp (Just kOrV) v False)
-        else pure (\sp -> ArrayItem sp Nothing kOrV False)
+          expr <- pExpr
+          pure (\sp -> ArrayItem sp Nothing expr True)
+        else do
+          kOrV <- pExpr
+          isArrow <- (True <$ symbol "=>") <|> pure False
+          if isArrow
+            then do
+              v <- pExpr
+              pure (\sp -> ArrayItem sp (Just kOrV) v False)
+            else pure (\sp -> ArrayItem sp Nothing kOrV False)
 
 -- | Attributes #[ ... ]
 parseAttributes :: Parser [AttributeGroup Span]

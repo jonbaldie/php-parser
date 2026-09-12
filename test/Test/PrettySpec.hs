@@ -445,6 +445,9 @@ prettyTests = testGroup "Pretty Printer Specifications"
             , ("omitted slot", ExprList () [itemA, itemEmpty, itemB], "list($a, , $b)")
             , ("leading omitted slot", ExprList () [itemEmpty, itemB], "list(, $b)")
             , ("assignment target", ExprAssign () Nothing (ExprList () [itemA, itemB]) varArr, "list($a, $b) = $arr")
+            , ("array omitted slot", ExprArray () [itemA, itemEmpty, itemB], "[$a, , $b]")
+            , ("array leading omitted slot", ExprArray () [itemEmpty, itemB], "[, $b]")
+            , ("array destructuring assignment", ExprAssign () Nothing (ExprArray () [itemA, itemEmpty, itemB]) varArr, "[$a, , $b] = $arr")
             ]
       mapM_ (\(name, expr, expected) -> do
         let printed = prettyPrintExpr expr
