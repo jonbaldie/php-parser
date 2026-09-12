@@ -129,9 +129,9 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class C { public public const X = 1; }"
         , "<?php class C { final final const X = 1; }"
         , "<?php class C { public private const X = 1; }"
-        , "<?php class C { public function f(public public int $x) {} }"
-        , "<?php class C { public function f(readonly readonly int $x) {} }"
-        , "<?php class C { public function f(private(set) private(set) int $x) {} }"
+        , "<?php class C { public function __construct(public public int $x) {} }"
+        , "<?php class C { public function __construct(readonly readonly int $x) {} }"
+        , "<?php class C { public function __construct(private(set) private(set) int $x) {} }"
         ]
       case parseProgram "test.php" "<?php final final class C {}" of
         Left err -> assertBool
@@ -159,8 +159,8 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class C { public final const X = 1; }"
         , "<?php class C { final public const X = 1; }"
         , "<?php class C { private const Y = 2; }"
-        , "<?php class C { public function f(public readonly int $x) {} }"
-        , "<?php class C { public function f(private readonly int $x) {} }"
+        , "<?php class C { public function __construct(public readonly int $x) {} }"
+        , "<?php class C { public function __construct(private readonly int $x) {} }"
         ]
 
   , testCase "Reject mutually exclusive declaration modifiers (Issue #128)" $ do
@@ -840,6 +840,57 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Right (Program _ [StmtForeach _ _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ _) False]) False]) False [StmtEcho _ _]]) -> pure ()
             other -> assertFailure ("Unexpected AST for foreach alt syntax with nested array destructuring: " ++ show other)
       ]
+  , testCase "Reject promoted property modifiers on non-constructors (Issue #129)" $ do
+      mapM_ assertParsesFail
+        [ "<?php function foo(public int $x) {}"
+        , "<?php function foo(protected int $x) {}"
+        , "<?php function foo(private int $x) {}"
+        , "<?php function foo(readonly int $x) {}"
+        , "<?php function foo(public readonly int $x) {}"
+        , "<?php function foo(public private(set) int $x) {}"
+        , "<?php function __construct(public int $x) {}"
+        , "<?php class C { public function bar(public int $x) {} }"
+        , "<?php class C { public function bar(protected int $x) {} }"
+        , "<?php class C { public function bar(private int $x) {} }"
+        , "<?php class C { public function bar(readonly int $x) {} }"
+        , "<?php class C { public function bar(public private(set) int $x) {} }"
+        , "<?php trait T { public function bar(public int $x) {} }"
+        , "<?php enum E { public function bar(public int $x) {} }"
+        , "<?php enum E { public function __construct(public int $x) {} }"
+        , "<?php interface I { public function bar(public int $x); }"
+        , "<?php interface I { public function __construct(public int $x); }"
+        , "<?php abstract class C { abstract public function __construct(public int $x); }"
+        , "<?php $o = new class { public function bar(public int $x) {} };"
+        ]
+      case parseProgram "test.php" "<?php function foo(public int $x) {}" of
+        Left err -> assertBool
+          "error should reject promoted properties outside constructors"
+          (maybe False (T.isInfixOf "Cannot declare promoted property outside a constructor") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class C { public function bar(public int $x) {} }" of
+        Left err -> assertBool
+          "error should reject promoted properties outside constructors"
+          (maybe False (T.isInfixOf "Cannot declare promoted property outside a constructor") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php abstract class C { abstract public function __construct(public int $x); }" of
+        Left err -> assertBool
+          "error should reject promoted properties in abstract constructors"
+          (maybe False (T.isInfixOf "Cannot declare promoted property in an abstract constructor") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php interface I { public function __construct(public int $x); }" of
+        Left err -> assertBool
+          "error should reject promoted properties in interface constructors"
+          (maybe False (T.isInfixOf "Cannot declare promoted property in an abstract constructor") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php function foo(int $x, string $y = 'default') {}"
+        , "<?php class C { public function bar(int $x, string $y = 'default') {} }"
+        , "<?php class C { public function __construct(public string $name, private readonly int $age = 18) {} }"
+        , "<?php class C { public function __Construct(public string $name) {} }"
+        , "<?php trait T { public function __construct(public string $name) {} }"
+        , "<?php $o = new class { public function __construct(public string $name) {} };"
+        , "<?php abstract class C { public function __construct(public string $name) {} }"
+        ]
   ]
 
 
