@@ -244,6 +244,78 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           assertEqual "Pretty printed arrow function output"
             "fn ($param) => ($param + $renamedOuter)"
             (prettyPrintExpr renamed)
+
+  , testCase "allVariables, allExprs, and transformExpr traverse interpolated strings (Issue #122)" $ do
+      let src = "\"hello $name {$foo}\""
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts variables inside interpolated string"
+            ["name", "foo"]
+            (allVariables expr)
+          assertEqual "Extracts all expressions (outer literal and inner expressions)"
+            3
+            (length (allExprs expr))
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "name")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamed"))
+                e -> e) expr
+          assertEqual "Renamed variables inside interpolated string"
+            ["renamed", "foo"]
+            (allVariables renamed)
+          assertEqual "Pretty printed transformed interpolated string"
+            "\"hello {$renamed} {$foo}\""
+            (prettyPrintExpr renamed)
+
+  , testCase "allVariables and transformExpr handle complex expressions in interpolated strings (Issue #122)" $ do
+      let src = "\"prefix {$user->name} {$calc($a + $b)} suffix\""
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts all variables from complex expressions in string"
+            ["user", "calc", "a", "b"]
+            (allVariables expr)
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "a")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "alpha"))
+                e -> e) expr
+          assertEqual "Renamed nested variable inside interpolated string expression"
+            ["user", "calc", "alpha", "b"]
+            (allVariables renamed)
+
+  , testCase "queryStmt and transformStmt traverse interpolated strings in statements (Issue #122)" $ do
+      let src = "<?php echo \"Hello, $user! Welcome to {$site->title}.\";"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [stmt]) -> do
+          let vars = queryStmt (\case
+                ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
+                _ -> []) stmt
+          assertEqual "Extracts variables from interpolated string in echo statement"
+            ["user", "site"]
+            vars
+          let transformed = transformStmt (\case
+                ExprVar a (SimpleVar sv (VarName vn "user")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "guest"))
+                e -> e) stmt
+          let varsAfter = queryStmt (\case
+                ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
+                _ -> []) transformed
+          assertEqual "Variables renamed in echo statement interpolated string"
+            ["guest", "site"]
+            varsAfter
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+  , testCase "non-interpolated literals remain atomic terminal nodes (Issue #122)" $ do
+      let src = "42 + 3.14 + 'plain string' + true + null"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Non-interpolated literals have no variables"
+            []
+            (allVariables expr)
+          let exprCount = length (allExprs expr)
+          assertBool "Counts outer and literal expressions" (exprCount > 0)
   ]
 
 foldReturns :: Stmt a -> [Bool]

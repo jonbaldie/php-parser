@@ -250,6 +250,25 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
                 (stripAnnotations transformed)
                 (stripAnnotations reparsed)
 
+  , testCase "Round-trip transformed interpolated strings (Issue #122)" $ do
+      let src = "<?php\n$msg = \"hello $name {$foo}\";\n"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure ("Initial parse failed: " ++ show (formatParseError err))
+        Right (Program ann stmts) -> do
+          let transformed = Program ann (map (transformStmt (\case
+                ExprVar a (SimpleVar sv (VarName vn "name")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedName"))
+                ExprVar a (SimpleVar sv (VarName vn "foo")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedFoo"))
+                e -> e)) stmts)
+              printed = prettyPrint transformed
+          case parseProgram "test.php" printed of
+            Left err2 -> assertFailure ("Reparse failed on transformed printed output:\n" ++ T.unpack printed ++ "\nError: " ++ show (formatParseError err2))
+            Right reparsed ->
+              assertEqual "Transformed AST round-trips cleanly"
+                (stripAnnotations transformed)
+                (stripAnnotations reparsed)
+
   , testCase "Round-trip yield, yield from, arrow function, throw, and include in operator operand positions (Issue #112)" $ do
       let varX = ExprVar () (SimpleVar () (VarName () "x"))
           litOne = ExprLit () (LitInt () 1 "1")
