@@ -109,6 +109,31 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprStaticCall _ _ _ FirstClassCallable) -> pure ()
         other -> assertFailure ("Expected static FirstClassCallable, got: " ++ show other)
 
+  , testCase "Leading argument unpacking in calls (Issue #137)" $ do
+      let src1 = "foo(...$args)"
+          src2 = "$obj->m(...$args)"
+          src3 = "Foo::m(...$args)"
+          src4 = "foo(...$args, name: 1)"
+      case parseExpression "test.php" src1 of
+        Left err -> assertFailure ("src1 failed: " ++ show (formatParseError err))
+        Right (ExprCall _ _ (ArgsList [Arg _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "args"))) True])) -> pure ()
+        other -> assertFailure ("Expected unpacked call arg, got: " ++ show other)
+
+      case parseExpression "test.php" src2 of
+        Left err -> assertFailure ("src2 failed: " ++ show (formatParseError err))
+        Right (ExprMethodCall _ _ _ (ArgsList [Arg _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "args"))) True])) -> pure ()
+        other -> assertFailure ("Expected unpacked method call arg, got: " ++ show other)
+
+      case parseExpression "test.php" src3 of
+        Left err -> assertFailure ("src3 failed: " ++ show (formatParseError err))
+        Right (ExprStaticCall _ _ _ (ArgsList [Arg _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "args"))) True])) -> pure ()
+        other -> assertFailure ("Expected unpacked static call arg, got: " ++ show other)
+
+      case parseExpression "test.php" src4 of
+        Left err -> assertFailure ("src4 failed: " ++ show (formatParseError err))
+        Right (ExprCall _ _ (ArgsList [Arg _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "args"))) True, Arg _ (Just (Ident _ "name")) (ExprLit _ (LitInt _ 1 _)) False])) -> pure ()
+        other -> assertFailure ("Expected mixed args with unpack, got: " ++ show other)
+
   , testCase "Named arguments in function calls: foo(name: $val, count: 42)" $ do
       let src = "render(template: 'home.php', cache: false, timeout: 30)"
       case parseExpression "test.php" src of

@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Fix `parseCallArgs` to disambiguate first-class callable syntax `foo(...)` from leading argument unpacking `foo(...$args)`, allowing argument unpacking as the first call argument (#137).
+
 * Fix PHP 8.5 clone-with syntax to accept arbitrary expressions (such as variables, function calls, and array expressions) and optional trailing commas for modification payloads, with or without the named `with:` parameter, representing the payload in AST as `ExprClone a (Expr a) (Maybe (Expr a))` (#131).
 
 * Reject member dereferencing (`->`, `?->`, `::`, `[`) directly on an unparenthesized `new` over a named class (`new Service->process()`), matching PHP 8.4's requirement for call parentheses before dereferencing; anonymous classes (`new class {}->method()`) and `new` with call arguments remain dereferenceable (#130).
