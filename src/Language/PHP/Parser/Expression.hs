@@ -587,7 +587,7 @@ parseMatchArmWith pExpr = withSpan $ do
       body <- pExpr
       pure (\sp -> MatchDefault sp body)
     else do
-      conds <- pExpr `M.sepBy1` comma
+      conds <- pExpr `M.sepEndBy1` comma
       _ <- symbol "=>"
       body <- pExpr
       pure (\sp -> MatchArm sp conds body)

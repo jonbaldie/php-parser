@@ -20,6 +20,10 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\n$res = match ($val) {\n    1, 2 => 'low',\n    default => 'high'\n};"
       assertRoundTrips src
 
+  , testCase "Round-trip match arm with trailing comma in condition list (Issue #115)" $ do
+      let src = "<?php\n$res = match ($val) {\n    1, 2, => 'low',\n    default => 'high'\n};"
+      assertRoundTrips src
+
   , testCase "Round-trip PHP 8.4 property hooks" $ do
       let src = "<?php\nclass Hooked {\n    public string $name {\n        get => $this->raw;\n        set(string $v) {\n            $this->raw = $v;\n        }\n    }\n}"
       assertRoundTrips src
