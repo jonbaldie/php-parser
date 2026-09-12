@@ -95,6 +95,7 @@ module Language.PHP
   , UnOp (..)
   , CastType (..)
   , IncludeType (..)
+  , ExitKind (..)
   , UseType (..)
   , UseClause (..)
   , DeclareDirective (..)

@@ -55,6 +55,27 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             "print ($renamed + $other)"
             (prettyPrintExpr transformed)
 
+  , testCase "allExprs, allVariables, and transformExpr traverse exit status (Issue #124)" $ do
+      case parseExpression "test.php" "die($value . $other)" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Variables inside die" ["value", "other"] (allVariables expr)
+          assertEqual "Counts die and its status expressions" 4 (length (allExprs expr))
+          let transformed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "value")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamed"))
+                e -> e) expr
+          assertEqual "Renames variables inside die" ["renamed", "other"] (allVariables transformed)
+          assertEqual "Pretty prints transformed die expression"
+            "die(($renamed . $other))"
+            (prettyPrintExpr transformed)
+
+      case parseExpression "test.php" "exit" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Statusless exit holds no variables" [] (allVariables expr)
+          assertEqual "Counts the statusless exit alone" 1 (length (allExprs expr))
+
   , testCase "queryStmt counts total expressions in a block" $ do
       let src = "if ($cond) { $x = 1; return $x + 2; }"
       case parseStatement "test.php" src of

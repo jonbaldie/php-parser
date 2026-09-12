@@ -18,7 +18,7 @@ module Language.PHP.Parser.Expression
   ) where
 
 import Control.Applicative ((<|>), optional)
-import Control.Monad (guard, void)
+import Control.Monad (guard, join, void)
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 import Language.PHP.AST
@@ -365,6 +365,7 @@ parseExprWithContext pStmt pMember = parseExprRec
       <|> parseIsset
       <|> parseEmpty
       <|> parseEval
+      <|> parseExit
       <|> parseConstFetch
       <|> parens parseExprRec
 
@@ -382,6 +383,13 @@ parseExprWithContext pStmt pMember = parseExprRec
       keyword_ "eval"
       expr <- parens parseExprRec
       pure (\sp -> ExprEval sp expr)
+
+    -- @exit@ and @die@ take an optional parenthesized status, so @exit@ and
+    -- @exit()@ are the same statusless construct.
+    parseExit = withSpan $ do
+      kind <- (ExitExit <$ keyword "exit") <|> (ExitDie <$ keyword "die")
+      mStatus <- optional (parens (optional parseExprRec))
+      pure (\sp -> ExprExit sp kind (join mStatus))
 
     parseConstFetch = withSpan $ do
       qn <- parseClassName

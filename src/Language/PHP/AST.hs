@@ -48,6 +48,7 @@ module Language.PHP.AST
   , UnOp (..)
   , CastType (..)
   , IncludeType (..)
+  , ExitKind (..)
   , UseType (..)
   , UseClause (..)
   , DeclareDirective (..)
@@ -413,6 +414,12 @@ data IncludeType
   | IncRequireOnce
   deriving (Eq, Ord, Show, Generic)
 
+-- | Which spelling of the script-termination construct was written.
+data ExitKind
+  = ExitExit
+  | ExitDie
+  deriving (Eq, Ord, Show, Generic)
+
 -- | Use import type.
 data UseType
   = UseNormal
@@ -483,6 +490,7 @@ data Expr a
   | ExprEval !a !(Expr a)
   | ExprInclude !a !IncludeType !(Expr a)
   | ExprPrint !a !(Expr a)
+  | ExprExit !a !ExitKind !(Maybe (Expr a))
   | ExprThrow !a !(Expr a)
   | ExprConstFetch !a !(QualifiedName a)
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
@@ -568,5 +576,6 @@ getAnnotation = \case
   ExprEval a _                 -> a
   ExprInclude a _ _            -> a
   ExprPrint a _                -> a
+  ExprExit a _ _               -> a
   ExprThrow a _                -> a
   ExprConstFetch a _           -> a

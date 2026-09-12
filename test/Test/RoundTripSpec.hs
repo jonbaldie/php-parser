@@ -102,6 +102,19 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php $ok ? print 'yes' : print 'no';"
       assertRoundTrips "<?php print 1 and $ok;"
 
+  , testCase "Round-trip exit and die language constructs (Issue #124)" $ do
+      assertRoundTrips "<?php exit;"
+      assertRoundTrips "<?php exit();"
+      assertRoundTrips "<?php exit(0);"
+      assertRoundTrips "<?php exit('msg');"
+      assertRoundTrips "<?php die;"
+      assertRoundTrips "<?php die();"
+      assertRoundTrips "<?php die(1);"
+      assertRoundTrips "<?php die(\"err\");"
+      assertRoundTrips "<?php $x = exit(1);"
+      assertRoundTrips "<?php $file or die('fail');"
+      assertRoundTrips "<?php $ok ? exit(0) : die(1);"
+
   , testCase "Round-trip yield, arrow function, and throw in postfix positions (Issue #22)" $ do
       let yieldX = ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))
           arrow = ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))
