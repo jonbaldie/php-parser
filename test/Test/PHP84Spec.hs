@@ -215,6 +215,25 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             pure ()
           other -> assertFailure ("Expected ExprClassConstFetch on ExprNew, got: " ++ show other)
 
+  , testCase "rejects member dereferencing on unparenthesized new (Issue #130)" $ do
+      let assertRejects label src = case parseExpression "test.php" src of
+            Left _ -> pure ()
+            Right expr -> assertFailure (label ++ " should be a parse error, got: " ++ show expr)
+      assertRejects "method call" "new Service->process()"
+      assertRejects "chained method call" "new Service->a->b()"
+      assertRejects "class constant fetch" "new Service::CONST"
+      assertRejects "array dereference" "new Service[$key]"
+
+  , testCase "new without parentheses parses only with call parens or wrapping parens (Issue #130)" $ do
+      let assertParses label src = case parseExpression "test.php" src of
+            Left err -> assertFailure (label ++ " failed: " ++ show (formatParseError err))
+            Right _ -> pure ()
+      assertParses "call parens then method" "new Service()->process()"
+      assertParses "call parens then constant" "new Config()::KEY"
+      assertParses "call parens then array" "new Service()[$key]"
+      assertParses "wrapped in parens" "(new Service)->process()"
+      assertParses "wrapped in parens, no args anywhere" "(new Service)->prop"
+
   , testCase "New with arguments method call chain: new Client($host, $port)->connect()->send('ping')" $ do
       let src = "new Client($host, $port)->connect()->send('ping')"
       case parseExpression "test.php" src of

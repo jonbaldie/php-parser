@@ -420,8 +420,17 @@ parseExprWithContext pStmt pMember = parseExprRec
           guard (null attrs)
           target <- parseNewTarget
           mArgs <- optional (parens (parseArgWith parseExprRec `M.sepEndBy` comma))
-          let args = maybe [] id mArgs
-          pure (\sp -> ExprNew sp target args)
+          case mArgs of
+            Nothing -> do
+              -- An unparenthesized @new@ over a named class is not
+              -- dereferenceable in PHP: @new Foo->bar@ is a syntax error,
+              -- while @new Foo()->bar@ is valid (Issue #130). Anonymous
+              -- classes @new class { ... }@ are terminated by their braces
+              -- and may be dereferenced without call parentheses.
+              _ <- M.notFollowedBy
+                (M.lookAhead (symbol "->" <|> symbol "?->" <|> doubleColon <|> symbol "["))
+              pure (\sp -> ExprNew sp target [])
+            Just args -> pure (\sp -> ExprNew sp target args)
       where
         parseNewTarget =
           (ClassTargetExpr <$> parens parseExprRec)
