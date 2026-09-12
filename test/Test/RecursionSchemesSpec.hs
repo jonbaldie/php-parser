@@ -164,6 +164,28 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             varsAfter
         Right other -> assertFailure ("Expected one statement, got: " ++ show other)
 
+  , testCase "queryStmt and transformStmt traverse property hook attributes (Issue #116)" $ do
+      let src = "<?php class C { public int $x { #[HookAttr($old)] get => $value; } }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [stmt]) -> do
+          let varsInStmt = queryStmt (\case
+                ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
+                _ -> []) stmt
+          assertEqual "Extracts variables from hook attributes and body"
+            ["old", "value"]
+            varsInStmt
+          let transformed = transformStmt (\case
+                ExprVar a (SimpleVar sv (VarName vn "old")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedOld"))
+                e -> e) stmt
+          assertEqual "Variables renamed in hook attributes"
+            ["renamedOld", "value"]
+            (queryStmt (\case
+              ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
+              _ -> []) transformed)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
   , testCase "allVariables and transformExpr handle closure use-clause variables (Issue #109)" $ do
       let src = "function () use ($fn) { return $fn(2); }"
       case parseExpression "test.php" src of

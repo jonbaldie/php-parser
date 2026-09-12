@@ -190,7 +190,10 @@ transformClassMember f = \case
   MemberProperty p ->
     let attrs' = map (transformAttributeGroup f) (propAttrs p)
         items' = map (\(n, me) -> (n, fmap (transformExpr f) me)) (propItems p)
-        hooks' = map (\h -> h { hookBody = transformHookBody f (hookBody h) }) (propHooks p)
+        hooks' = map (\h -> h
+          { hookAttrs = map (transformAttributeGroup f) (hookAttrs h)
+          , hookBody = transformHookBody f (hookBody h)
+          }) (propHooks p)
     in MemberProperty p { propAttrs = attrs', propItems = items', propHooks = hooks' }
   MemberMethod m ->
     let attrs' = map (transformAttributeGroup f) (methodAttrs m)
@@ -451,10 +454,12 @@ queryClassMember q = \case
   MemberProperty p ->
     foldMap (queryAttributeGroup q) (propAttrs p) <>
     foldMap (maybe mempty (queryExpr q) . snd) (propItems p) <>
-    foldMap (\h -> case hookBody h of
-      HookExpr e -> queryExpr q e
-      HookBlock ss -> foldMap (queryStmt q) ss
-      HookAbstract -> mempty) (propHooks p)
+    foldMap (\h ->
+      foldMap (queryAttributeGroup q) (hookAttrs h) <>
+      case hookBody h of
+        HookExpr e -> queryExpr q e
+        HookBlock ss -> foldMap (queryStmt q) ss
+        HookAbstract -> mempty) (propHooks p)
   MemberMethod m ->
     foldMap (queryAttributeGroup q) (methodAttrs m) <>
     foldMap (queryParam q) (methodParams m) <>

@@ -31,6 +31,28 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberProperty"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "by-reference and attributed property hooks (Issue #116)" $ do
+      let assertParses label src = case parseProgram "test.php" src of
+            Left err -> assertFailure (label ++ " failed: " ++ show (formatParseError err))
+            Right _ -> pure ()
+      assertParses "by-reference get hook" "<?php class Foo { public int $x { &get => 1; } }"
+      assertParses "final by-reference get hook" "<?php class Foo { public int $x { final &get => 1; } }"
+      assertParses "attributed get hook" "<?php class Foo { public int $x { #[Example] get => 1; } }"
+      case parseProgram "test.php" "<?php class Foo { public int $x { #[Example] final &get => 1; } }" of
+        Left err -> assertFailure ("combined hook modifiers failed: " ++ show (formatParseError err))
+        Right (Program _ [StmtClass _ (ClassDecl _ _ _ _ _ _ [MemberProperty pd])]) ->
+          case propHooks pd of
+            [hook] -> do
+              assertEqual "hook attributes" 1 (length (hookAttrs hook))
+              assertBool "hook is final" (hookFinal hook)
+              assertBool "hook is by-reference" (hookByRef hook)
+              assertEqual "hook type" HookGet (hookType hook)
+            _ -> assertFailure "Expected one property hook"
+        Right _ -> assertFailure "Expected one class property"
+      case parseProgram "test.php" "<?php class Foo { public int $x { &set => 1; } }" of
+        Left _ -> pure ()
+        Right _ -> assertFailure "by-reference set hook should be rejected"
+
   , testCase "bodyless property hooks parse in interfaces and abstract classes (Issue #6)" $ do
       -- Interface: hooks with no bodies, each terminated by a semicolon.
       let ifaceSrc = "<?php interface HasName { public string $name { get; set; } }"

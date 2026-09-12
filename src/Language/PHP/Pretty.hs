@@ -287,8 +287,10 @@ prettyPropertyDecl (PropertyDecl annotation attrs modif mType items hooks) = pre
     else " {" <> line <> indent 4 (vsep (map prettyHook hooks)) <> line <> "}"
 
 prettyHook :: HasLeadingTrivia a => PropertyHook a -> Doc ann
-prettyHook (PropertyHook annotation isFinal hookT mParam body) = prettyLeadingTrivia annotation $
+prettyHook (PropertyHook annotation attrs isFinal byRef hookT mParam body) = prettyLeadingTrivia annotation $
+  prettyAttributes attrs <>
   (if isFinal then "final " else "") <>
+  (if byRef then "&" else "") <>
   (case hookT of HookGet -> "get"; HookSet -> "set") <>
   maybe mempty (\(var, mTyp) -> "(" <> maybe mempty (\t -> prettyType t <> " ") mTyp <> prettyVarName var <> ")") mParam <>
   case body of
