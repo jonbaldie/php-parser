@@ -58,6 +58,7 @@ transformExpr f = f . \case
   ExprBinary a op e1 e2 -> ExprBinary a op (transformExpr f e1) (transformExpr f e2)
   ExprUnary a op e -> ExprUnary a op (transformExpr f e)
   ExprAssign a mOp e1 e2 -> ExprAssign a mOp (transformExpr f e1) (transformExpr f e2)
+  ExprAssignRef a e1 e2 -> ExprAssignRef a (transformExpr f e1) (transformExpr f e2)
   ExprTernary a cond tExpr fExpr ->
     ExprTernary a (transformExpr f cond) (fmap (transformExpr f) tExpr) (transformExpr f fExpr)
   ExprNullCoalesce a e1 e2 -> ExprNullCoalesce a (transformExpr f e1) (transformExpr f e2)
@@ -364,6 +365,7 @@ queryExpr q expr = q expr <> case expr of
   ExprBinary _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
   ExprUnary _ _ e -> queryExpr q e
   ExprAssign _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
+  ExprAssignRef _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
   ExprTernary _ cond tExpr fExpr ->
     queryExpr q cond <> maybe mempty (queryExpr q) tExpr <> queryExpr q fExpr
   ExprNullCoalesce _ e1 e2 -> queryExpr q e1 <> queryExpr q e2

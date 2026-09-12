@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Add support for by-reference assignment (`$a =& $b`, `$a = &$b`, `$a =& foo()`), represented in the AST as `ExprAssignRef a (Expr a) (Expr a)` and printed as `$a =& $b`; the source must be variable-like, so `$a =& new Foo()` and `$a =& 1` remain syntax errors as in PHP (#138).
+
 * Fix `parseCallArgs` to disambiguate first-class callable syntax `foo(...)` from leading argument unpacking `foo(...$args)`, allowing argument unpacking as the first call argument (#137).
 
 * Fix PHP 8.5 clone-with syntax to accept arbitrary expressions (such as variables, function calls, and array expressions) and optional trailing commas for modification payloads, with or without the named `with:` parameter, representing the payload in AST as `ExprClone a (Expr a) (Maybe (Expr a))` (#131).

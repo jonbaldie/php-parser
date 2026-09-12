@@ -378,6 +378,18 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             (allVariables expr)
           let exprCount = length (allExprs expr)
           assertBool "Counts outer and literal expressions" (exprCount > 0)
+
+  , testCase "allExprs, allVariables, and transformExpr traverse by-reference assignment (Issue #138)" $ do
+      case parseExpression "test.php" "$target =& $source" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Variables on both sides" ["target", "source"] (allVariables expr)
+          assertEqual "Counts the assignment and both operands" 3 (length (allExprs expr))
+          let transformed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "source")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamed"))
+                e -> e) expr
+          assertEqual "Transformed source variable" ["target", "renamed"] (allVariables transformed)
   ]
 
 foldReturns :: Stmt a -> [Bool]
