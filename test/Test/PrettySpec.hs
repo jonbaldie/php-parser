@@ -432,22 +432,27 @@ prettyTests = testGroup "Pretty Printer Specifications"
           varC = ExprVar () (SimpleVar () (VarName () "c"))
           varArr = ExprVar () (SimpleVar () (VarName () "arr"))
           litKey = ExprLit () (LitString () "k" "'k'")
-          itemA = ArrayItem () Nothing varA False
-          itemB = ArrayItem () Nothing varB False
-          itemC = ArrayItem () Nothing varC False
+          itemA = ArrayItem () Nothing varA False False
+          itemB = ArrayItem () Nothing varB False False
+          itemC = ArrayItem () Nothing varC False False
           itemEmpty = ArrayItemEmpty ()
-          itemKeyed = ArrayItem () (Just litKey) varA False
+          itemKeyed = ArrayItem () (Just litKey) varA False False
+          itemRef = ArrayItem () Nothing varA False True
+          itemKeyedRef = ArrayItem () (Just litKey) varA False True
           contexts =
             [ ("empty list", ExprList () [], "list()")
             , ("simple list", ExprList () [itemA, itemB], "list($a, $b)")
             , ("keyed list", ExprList () [itemKeyed], "list('k' => $a)")
-            , ("nested list", ExprList () [itemA, ArrayItem () Nothing (ExprList () [itemB, itemC]) False], "list($a, list($b, $c))")
+            , ("nested list", ExprList () [itemA, ArrayItem () Nothing (ExprList () [itemB, itemC]) False False], "list($a, list($b, $c))")
             , ("omitted slot", ExprList () [itemA, itemEmpty, itemB], "list($a, , $b)")
             , ("leading omitted slot", ExprList () [itemEmpty, itemB], "list(, $b)")
             , ("assignment target", ExprAssign () Nothing (ExprList () [itemA, itemB]) varArr, "list($a, $b) = $arr")
             , ("array omitted slot", ExprArray () [itemA, itemEmpty, itemB], "[$a, , $b]")
             , ("array leading omitted slot", ExprArray () [itemEmpty, itemB], "[, $b]")
             , ("array destructuring assignment", ExprAssign () Nothing (ExprArray () [itemA, itemEmpty, itemB]) varArr, "[$a, , $b] = $arr")
+            , ("by-reference item", ExprArray () [itemRef], "[&$a]")
+            , ("mixed value and by-reference", ExprArray () [itemA, itemRef], "[$a, &$a]")
+            , ("keyed by-reference item", ExprArray () [itemKeyedRef], "['k' => &$a]")
             ]
       mapM_ (\(name, expr, expected) -> do
         let printed = prettyPrintExpr expr
@@ -463,7 +468,7 @@ prettyTests = testGroup "Pretty Printer Specifications"
           varMods = ExprVar () (SimpleVar () (VarName () "mods"))
           litKey = ExprLit () (LitString () "k" "'k'")
           litVal = ExprLit () (LitInt () 42 "42")
-          arrMod = ExprArray () [ArrayItem () (Just litKey) litVal False]
+          arrMod = ExprArray () [ArrayItem () (Just litKey) litVal False False]
           callMod = ExprCall () (ExprConstFetch () (QualifiedName () NameUnqualified ["getMods"])) (ArgsList [])
           contexts =
             [ ("clone without payload", ExprClone () varObj Nothing, "clone $obj")

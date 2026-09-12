@@ -785,13 +785,13 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertParsesOk "<?php list($a, $b) = $arr;"
           case parseProgram "test.php" "<?php list($a, $b) = $arr;" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False]) (ExprVar _ (SimpleVar _ (VarName _ "arr"))))]) -> pure ()
+            Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False False, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False False]) (ExprVar _ (SimpleVar _ (VarName _ "arr"))))]) -> pure ()
             other -> assertFailure ("Unexpected AST for list assignment: " ++ show other)
       , testCase "list(...) destructuring in foreach loops" $ do
           assertParsesOk "<?php foreach ($arr as list($a, $b)) {}"
           case parseProgram "test.php" "<?php foreach ($arr as list($a, $b)) {}" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtForeach _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))) Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False]) False []]) -> pure ()
+            Right (Program _ [StmtForeach _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))) Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False False, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False False]) False []]) -> pure ()
             other -> assertFailure ("Unexpected AST for foreach with list: " ++ show other)
       , testCase "foreach with key and list(...) value" $ do
           assertParsesOk "<?php foreach ($arr as $k => list($a, $b)) {}"
@@ -803,7 +803,7 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertParsesOk "<?php foreach ($arr as list($a, list($b, $c))): echo $a; endforeach;"
           case parseProgram "test.php" "<?php foreach ($arr as list($a, list($b, $c))): echo $a; endforeach;" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtForeach _ _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprList _ [_, _]) False]) False [StmtEcho _ _]]) -> pure ()
+            Right (Program _ [StmtForeach _ _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False False, ArrayItem _ Nothing (ExprList _ [_, _]) False False]) False [StmtEcho _ _]]) -> pure ()
             other -> assertFailure ("Unexpected AST for foreach alt syntax with nested list: " ++ show other)
       ]
   , testGroup "Array destructuring syntax with omitted elements in assignments and foreach loops (Issue #126)"
@@ -813,13 +813,13 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertParsesOk "<?php [, , $c] = $arr;"
           case parseProgram "test.php" "<?php [$a, , $b] = $arr;" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False]) (ExprVar _ (SimpleVar _ (VarName _ "arr"))))]) -> pure ()
+            Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False False]) (ExprVar _ (SimpleVar _ (VarName _ "arr"))))]) -> pure ()
             other -> assertFailure ("Unexpected AST for array destructuring assignment: " ++ show other)
       , testCase "short array destructuring with omitted elements in foreach loops" $ do
           assertParsesOk "<?php foreach ($arr as [$first, , $third]) {}"
           case parseProgram "test.php" "<?php foreach ($arr as [$first, , $third]) {}" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtForeach _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))) Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "first"))) False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "third"))) False]) False []]) -> pure ()
+            Right (Program _ [StmtForeach _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))) Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "first"))) False False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "third"))) False False]) False []]) -> pure ()
             other -> assertFailure ("Unexpected AST for foreach with array destructuring: " ++ show other)
       , testCase "foreach with key and array destructuring with omitted elements" $ do
           assertParsesOk "<?php foreach ($arr as $k => [$first, , $third]) {}"
@@ -831,13 +831,13 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertParsesOk "<?php foreach ($arr as [, $b]) {}"
           case parseProgram "test.php" "<?php foreach ($arr as [, $b]) {}" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtForeach _ (ExprVar _ _) Nothing (ExprArray _ [ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False]) False []]) -> pure ()
+            Right (Program _ [StmtForeach _ (ExprVar _ _) Nothing (ExprArray _ [ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False False]) False []]) -> pure ()
             other -> assertFailure ("Unexpected AST for foreach with leading omitted array destructuring: " ++ show other)
       , testCase "foreach with nested array destructuring in alternative syntax" $ do
           assertParsesOk "<?php foreach ($arr as [$a, [$b, , $c]]): echo $a; endforeach;"
           case parseProgram "test.php" "<?php foreach ($arr as [$a, [$b, , $c]]): echo $a; endforeach;" of
             Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtForeach _ _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ _) False]) False]) False [StmtEcho _ _]]) -> pure ()
+            Right (Program _ [StmtForeach _ _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False False, ArrayItem _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ _) False False]) False False]) False [StmtEcho _ _]]) -> pure ()
             other -> assertFailure ("Unexpected AST for foreach alt syntax with nested array destructuring: " ++ show other)
       ]
   , testCase "Reject promoted property modifiers on non-constructors (Issue #129)" $ do

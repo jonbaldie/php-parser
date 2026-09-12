@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Add support for by-reference array items in square-bracket array literals and `array(...)` constructs (`[&$a]`, `array(&$a)`, `['k' => &$v]`), tracking by-reference items via `itemByRef :: !Bool` in `ArrayItem`, pretty-printing `&` before values, and preserving by-reference elements in AST traversals and round-tripping (#139).
+
 * Add support for by-reference assignment (`$a =& $b`, `$a = &$b`, `$a =& foo()`), represented in the AST as `ExprAssignRef a (Expr a) (Expr a)` and printed as `$a =& $b`; the source must be variable-like, so `$a =& new Foo()` and `$a =& 1` remain syntax errors as in PHP (#138).
 
 * Fix `parseCallArgs` to disambiguate first-class callable syntax `foo(...)` from leading argument unpacking `foo(...$args)`, allowing argument unpacking as the first call argument (#137).

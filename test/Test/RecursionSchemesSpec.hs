@@ -390,6 +390,20 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
                   ExprVar a (SimpleVar sv (VarName vn "renamed"))
                 e -> e) expr
           assertEqual "Transformed source variable" ["target", "renamed"] (allVariables transformed)
+
+  , testCase "allExprs, allVariables, and transformExpr traverse by-reference array items (Issue #139)" $ do
+      case parseExpression "test.php" "[$x, &$y, 'k' => &$z]" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts all variables including by-reference items" ["x", "y", "z"] (allVariables expr)
+          let transformed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "y")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedY"))
+                e -> e) expr
+          assertEqual "Transformed by-ref variable in array item" ["x", "renamedY", "z"] (allVariables transformed)
+          case transformed of
+            ExprArray _ [_, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "renamedY"))) False True, _] -> pure ()
+            other -> assertFailure ("Expected transformed by-reference array item, got: " ++ show other)
   ]
 
 foldReturns :: Stmt a -> [Bool]
