@@ -461,6 +461,7 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprEval _ e -> "eval(" <> prettyExpr e <> ")"
   ExprInclude _ inc e -> prettyInclude inc <+> prettyExpr e
   ExprPrint _ e -> "print " <> prettyExpr e
+  ExprExit _ kind mStatus -> prettyExitKind kind <> maybe mempty (\e -> "(" <> prettyExpr e <> ")") mStatus
   ExprThrow _ e -> "throw " <> prettyExpr e
   ExprConstFetch _ qn -> prettyQualifiedName qn
 
@@ -575,6 +576,7 @@ prettyCallBase e
 
 needsCallParens :: Expr a -> Bool
 needsCallParens = \case
+  ExprExit {}                  -> True
   ExprPropertyFetch {}         -> True
   ExprNullsafePropertyFetch {} -> True
   ExprStaticPropertyFetch {}   -> True
@@ -718,6 +720,11 @@ prettyCastType = \case
   CastArray -> "array"
   CastObject -> "object"
   CastUnset -> "unset"
+
+prettyExitKind :: ExitKind -> Doc ann
+prettyExitKind = \case
+  ExitExit -> "exit"
+  ExitDie -> "die"
 
 prettyInclude :: IncludeType -> Doc ann
 prettyInclude = \case

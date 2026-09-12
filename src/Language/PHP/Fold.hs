@@ -167,6 +167,7 @@ transformExpr f = f . \case
   ExprEval a e -> ExprEval a (transformExpr f e)
   ExprInclude a inc e -> ExprInclude a inc (transformExpr f e)
   ExprPrint a e -> ExprPrint a (transformExpr f e)
+  ExprExit a kind mStatus -> ExprExit a kind (fmap (transformExpr f) mStatus)
   ExprThrow a e -> ExprThrow a (transformExpr f e)
   ExprConstFetch a qn -> ExprConstFetch a qn
 
@@ -409,6 +410,7 @@ queryExpr q expr = q expr <> case expr of
   ExprEval _ e -> queryExpr q e
   ExprInclude _ _ e -> queryExpr q e
   ExprPrint _ e -> queryExpr q e
+  ExprExit _ _ mStatus -> foldMap (queryExpr q) mStatus
   ExprThrow _ e -> queryExpr q e
   ExprConstFetch _ _ -> mempty
 

@@ -344,6 +344,29 @@ prettyTests = testGroup "Pretty Printer Specifications"
             assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
         ) contexts
 
+  , testCase "prettyPrintExpr renders exit and die in nested contexts (Issue #124)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+          litOne = ExprLit () (LitInt () 1 "1")
+          bareExit = ExprExit () ExitExit Nothing
+          dieStatus = ExprExit () ExitDie (Just varX)
+          contexts =
+            [ ("bare exit", bareExit, "exit")
+            , ("bare die", ExprExit () ExitDie Nothing, "die")
+            , ("exit with status", ExprExit () ExitExit (Just litOne), "exit(1)")
+            , ("die with status", dieStatus, "die($x)")
+            , ("binary operand", ExprBinary () OpLogicalOr varX dieStatus, "($x or die($x))")
+            , ("assignment operand", ExprAssign () Nothing varX bareExit, "$x = exit")
+            , ("call base", ExprCall () bareExit (ArgsList []), "(exit)()")
+            ]
+      mapM_ (\(name, expr, expected) -> do
+        let printed = prettyPrintExpr expr
+        assertEqual name expected printed
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
+        ) contexts
+
   , testCase "prettyPrintExpr on operator operands parenthesizes yield, yield from, arrow function, throw, and include (Issue #112)" $ do
       let varX = ExprVar () (SimpleVar () (VarName () "x"))
           litOne = ExprLit () (LitInt () 1 "1")

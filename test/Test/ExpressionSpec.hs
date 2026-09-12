@@ -957,6 +957,86 @@ expressionTests = testGroup "Expression Specifications"
             Left err -> assertFailure (show (formatParseError err))
             Right (Program _ [StmtExpr _ (ExprPrint _ _)]) -> pure ()
             Right other -> assertFailure ("Expected print expression statement, got: " ++ show other)
+
+      , testCase "exit and die are expression language constructs (Issue #124)" $ do
+          let statusless =
+                [ ("exit", ExitExit)
+                , ("exit()", ExitExit)
+                , ("die", ExitDie)
+                , ("die()", ExitDie)
+                ] :: [(Text, ExitKind)]
+          forM_ statusless $ \(src, kind) ->
+            case parseExpression "test.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right expr -> do
+                case expr of
+                  ExprExit _ k Nothing | k == kind -> pure ()
+                  other -> assertFailure (show src ++ ": expected statusless " ++ show kind
+                                          ++ ", got: " ++ show other)
+                assertRoundTripExpr expr
+
+          case parseExpression "test.php" "exit(0)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprExit _ ExitExit (Just (ExprLit _ (LitInt _ 0 _))) -> pure ()
+                other -> assertFailure ("Expected exit with integer status, got: " ++ show other)
+              assertEqual "pretty printed" "exit(0)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "die('err')" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprExit _ ExitDie (Just (ExprLit _ (LitString _ "err" _))) -> pure ()
+                other -> assertFailure ("Expected die with string status, got: " ++ show other)
+              assertEqual "pretty printed" "die('err')" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "$x = exit(1)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprAssign _ Nothing
+                  (ExprVar _ (SimpleVar _ (VarName _ "x")))
+                  (ExprExit _ ExitExit (Just (ExprLit _ (LitInt _ 1 _)))) -> pure ()
+                other -> assertFailure ("Expected assignment with ExprExit, got: " ++ show other)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "$file or die('fail')" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprBinary _ OpLogicalOr (ExprVar _ _) (ExprExit _ ExitDie (Just _)) -> pure ()
+                other -> assertFailure ("Expected or with die on the right, got: " ++ show other)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "exit($code . 'bye')" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprExit _ ExitExit (Just (ExprBinary _ OpConcat _ _))) -> pure ()
+            Right other -> assertFailure ("Expected the concatenation as the status, got: " ++ show other)
+
+          case parseExpression "test.php" "EXIT(2)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprExit _ ExitExit (Just _)) -> pure ()
+            Right other -> assertFailure ("Expected case-insensitive exit, got: " ++ show other)
+
+          forM_ (["<?php exit;", "<?php exit();", "<?php exit(0);", "<?php exit(\"msg\");"] :: [Text]) $ \src ->
+            case parseProgram "test.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right (Program _ [StmtExpr _ (ExprExit _ ExitExit _)]) -> pure ()
+              Right other -> assertFailure (show src ++ ": expected exit statement, got: " ++ show other)
+
+          forM_ (["<?php die;", "<?php die();", "<?php die(1);", "<?php die(\"err\");"] :: [Text]) $ \src ->
+            case parseProgram "test.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right (Program _ [StmtExpr _ (ExprExit _ ExitDie _)]) -> pure ()
+              Right other -> assertFailure (show src ++ ": expected die statement, got: " ++ show other)
+
+          case parseProgram "test.php" "<?php $obj->die(); $obj->exit();" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtExpr _ (ExprMethodCall {}), StmtExpr _ (ExprMethodCall {})]) -> pure ()
+            Right other -> assertFailure ("Expected method calls named die and exit, got: " ++ show other)
       ]
 
   , testGroup "Double-quoted string escapes (Issue #87)"
