@@ -126,6 +126,16 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php foreach ($arr as $k => list($a, $b)) {}"
       assertRoundTrips "<?php foreach ($arr as list($a, list($b, $c))): echo $a; endforeach;"
 
+  , testCase "Round-trip array destructuring constructs with omitted elements (Issue #126)" $ do
+      assertRoundTrips "<?php [$a, , $b] = $arr;"
+      assertRoundTrips "<?php [, $b] = $arr;"
+      assertRoundTrips "<?php [, , $c] = $arr;"
+      assertRoundTrips "<?php [$a, , $c, , $e] = $arr;"
+      assertRoundTrips "<?php foreach ($arr as [$first, , $third]) {}"
+      assertRoundTrips "<?php foreach ($arr as $k => [$first, , $third]) {}"
+      assertRoundTrips "<?php foreach ($arr as [, $b]) {}"
+      assertRoundTrips "<?php foreach ($arr as [$a, [$b, , $c]]): echo $a; endforeach;"
+
   , testCase "Round-trip yield, arrow function, and throw in postfix positions (Issue #22)" $ do
       let yieldX = ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))
           arrow = ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))
