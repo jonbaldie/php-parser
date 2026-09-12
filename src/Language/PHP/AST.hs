@@ -482,6 +482,7 @@ data Expr a
   | ExprEmpty !a !(Expr a)
   | ExprEval !a !(Expr a)
   | ExprInclude !a !IncludeType !(Expr a)
+  | ExprPrint !a !(Expr a)
   | ExprThrow !a !(Expr a)
   | ExprConstFetch !a !(QualifiedName a)
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
@@ -566,5 +567,6 @@ getAnnotation = \case
   ExprEmpty a _                -> a
   ExprEval a _                 -> a
   ExprInclude a _ _            -> a
+  ExprPrint a _                -> a
   ExprThrow a _                -> a
   ExprConstFetch a _           -> a

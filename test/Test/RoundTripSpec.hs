@@ -96,6 +96,12 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php require_once 'file.php';"
       assertRoundTrips "<?php $a = (isset($x) && !empty($y));"
 
+  , testCase "Round-trip print language construct expressions (Issue #123)" $ do
+      assertRoundTrips "<?php print 'hello';"
+      assertRoundTrips "<?php $x = print 1;"
+      assertRoundTrips "<?php $ok ? print 'yes' : print 'no';"
+      assertRoundTrips "<?php print 1 and $ok;"
+
   , testCase "Round-trip yield, arrow function, and throw in postfix positions (Issue #22)" $ do
       let yieldX = ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))
           arrow = ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))

@@ -40,6 +40,21 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           let vars = allVariables renameAtoZ
           assertEqual "Variables after transformation" ["z", "b", "z"] vars
 
+  , testCase "allExprs, allVariables, and transformExpr traverse print (Issue #123)" $ do
+      case parseExpression "test.php" "print $value + $other" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Variables inside print" ["value", "other"] (allVariables expr)
+          assertEqual "Counts print and its operand expressions" 4 (length (allExprs expr))
+          let transformed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "value")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamed"))
+                e -> e) expr
+          assertEqual "Renames variables inside print" ["renamed", "other"] (allVariables transformed)
+          assertEqual "Pretty prints transformed print expression"
+            "print ($renamed + $other)"
+            (prettyPrintExpr transformed)
+
   , testCase "queryStmt counts total expressions in a block" $ do
       let src = "if ($cond) { $x = 1; return $x + 2; }"
       case parseStatement "test.php" src of
