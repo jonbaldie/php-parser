@@ -425,4 +425,33 @@ prettyTests = testGroup "Pretty Printer Specifications"
         assertEqual (name ++ " top-level expr has no outer parens") (T.pack raw) (prettyPrintExpr construct)
         assertEqual (name ++ " statement level has no outer parens") (T.pack (raw ++ ";")) (prettyPrintStmt (StmtExpr () construct))
         ) constructs
+
+  , testCase "prettyPrintExpr renders list(...) destructuring constructs (Issue #125)" $ do
+      let varA = ExprVar () (SimpleVar () (VarName () "a"))
+          varB = ExprVar () (SimpleVar () (VarName () "b"))
+          varC = ExprVar () (SimpleVar () (VarName () "c"))
+          varArr = ExprVar () (SimpleVar () (VarName () "arr"))
+          litKey = ExprLit () (LitString () "k" "'k'")
+          itemA = ArrayItem () Nothing varA False
+          itemB = ArrayItem () Nothing varB False
+          itemC = ArrayItem () Nothing varC False
+          itemEmpty = ArrayItemEmpty ()
+          itemKeyed = ArrayItem () (Just litKey) varA False
+          contexts =
+            [ ("empty list", ExprList () [], "list()")
+            , ("simple list", ExprList () [itemA, itemB], "list($a, $b)")
+            , ("keyed list", ExprList () [itemKeyed], "list('k' => $a)")
+            , ("nested list", ExprList () [itemA, ArrayItem () Nothing (ExprList () [itemB, itemC]) False], "list($a, list($b, $c))")
+            , ("omitted slot", ExprList () [itemA, itemEmpty, itemB], "list($a, , $b)")
+            , ("leading omitted slot", ExprList () [itemEmpty, itemB], "list(, $b)")
+            , ("assignment target", ExprAssign () Nothing (ExprList () [itemA, itemB]) varArr, "list($a, $b) = $arr")
+            ]
+      mapM_ (\(name, expr, expected) -> do
+        let printed = prettyPrintExpr expr
+        assertEqual name expected printed
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
+        ) contexts
   ]

@@ -746,6 +746,33 @@ statementTests = testGroup "Statement & Declaration Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right (Program _ [StmtUnset _ [ExprVar _ _, ExprArrayAccess _ _ _]]) -> pure ()
         other -> assertFailure ("Unexpected AST for unset: " ++ show other)
+
+  , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
+      [ testCase "list(...) destructuring in assignments" $ do
+          assertParsesOk "<?php list($a, $b) = $arr;"
+          case parseProgram "test.php" "<?php list($a, $b) = $arr;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False]) (ExprVar _ (SimpleVar _ (VarName _ "arr"))))]) -> pure ()
+            other -> assertFailure ("Unexpected AST for list assignment: " ++ show other)
+      , testCase "list(...) destructuring in foreach loops" $ do
+          assertParsesOk "<?php foreach ($arr as list($a, $b)) {}"
+          case parseProgram "test.php" "<?php foreach ($arr as list($a, $b)) {}" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtForeach _ (ExprVar _ (SimpleVar _ (VarName _ "arr"))) Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "a"))) False, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "b"))) False]) False []]) -> pure ()
+            other -> assertFailure ("Unexpected AST for foreach with list: " ++ show other)
+      , testCase "foreach with key and list(...) value" $ do
+          assertParsesOk "<?php foreach ($arr as $k => list($a, $b)) {}"
+          case parseProgram "test.php" "<?php foreach ($arr as $k => list($a, $b)) {}" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtForeach _ (ExprVar _ _) (Just (ExprVar _ (SimpleVar _ (VarName _ "k")))) (ExprList _ [_, _]) False []]) -> pure ()
+            other -> assertFailure ("Unexpected AST for foreach with key and list: " ++ show other)
+      , testCase "foreach with nested list(...) in alternative syntax" $ do
+          assertParsesOk "<?php foreach ($arr as list($a, list($b, $c))): echo $a; endforeach;"
+          case parseProgram "test.php" "<?php foreach ($arr as list($a, list($b, $c))): echo $a; endforeach;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtForeach _ _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprList _ [_, _]) False]) False [StmtEcho _ _]]) -> pure ()
+            other -> assertFailure ("Unexpected AST for foreach alt syntax with nested list: " ++ show other)
+      ]
   ]
 
 

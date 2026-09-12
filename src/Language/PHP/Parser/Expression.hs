@@ -360,6 +360,7 @@ parseExprWithContext pStmt pMember = parseExprRec
       <|> parseArrowFunction
       <|> parseClosure
       <|> parseArrayLit
+      <|> parseListLit
       <|> parseVariableExpr
       <|> parseLiteralExpr
       <|> parseIsset
@@ -507,6 +508,45 @@ parseExprWithContext pStmt pMember = parseExprRec
         parseItems = do
           items <- parseArrayItemWith parseExprRec `M.sepEndBy` comma
           pure (\sp -> ExprArray sp items)
+
+    parseListLit = withSpan $ do
+      keyword_ "list"
+      items <- parens parseListItems
+      pure (\sp -> ExprList sp items)
+
+    parseListItems = do
+      isClose <- (True <$ M.lookAhead (symbol ")")) <|> pure False
+      if isClose
+        then pure []
+        else do
+          firstItem <- parseListItemFirst
+          restItems <- parseListItemRest
+          pure (firstItem : restItems)
+      where
+        parseListItemFirst = parseOmittedSlot <|> parseArrayItemWith parseExprRec
+          where
+            parseOmittedSlot = do
+              _ <- M.lookAhead comma
+              withSpan (pure (\sp -> ArrayItemEmpty sp))
+
+        parseListItemRest = do
+          hasComma <- (True <$ comma) <|> pure False
+          if not hasComma
+            then pure []
+            else do
+              isClose <- (True <$ M.lookAhead (symbol ")")) <|> pure False
+              if isClose
+                then pure []
+                else do
+                  item <- parseListItemNext
+                  rest <- parseListItemRest
+                  pure (item : rest)
+
+        parseListItemNext = parseOmittedSlot <|> parseArrayItemWith parseExprRec
+          where
+            parseOmittedSlot = do
+              _ <- M.lookAhead comma
+              withSpan (pure (\sp -> ArrayItemEmpty sp))
 
     parseVariableExpr = withSpan $ do
       v <- parseVar

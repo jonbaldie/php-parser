@@ -76,6 +76,32 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           assertEqual "Statusless exit holds no variables" [] (allVariables expr)
           assertEqual "Counts the statusless exit alone" 1 (length (allExprs expr))
 
+  , testCase "allExprs, allVariables, and transformExpr traverse ExprList (Issue #125)" $ do
+      case parseExpression "test.php" "list($a, list($b, $c), \"key\" => $d)" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Variables inside nested list" ["a", "b", "c", "d"] (allVariables expr)
+          assertEqual "Counts list and its subexpressions" 7 (length (allExprs expr))
+          let transformed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "b")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamed"))
+                e -> e) expr
+          assertEqual "Renames variable inside nested list" ["a", "renamed", "c", "d"] (allVariables transformed)
+
+      case parseExpression "test.php" "list($a, , $b)" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Omitted slots don't introduce variables" ["a", "b"] (allVariables expr)
+          assertEqual "Counts list and non-empty items" 3 (length (allExprs expr))
+          let transformed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "a")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "newA"))
+                e -> e) expr
+          assertEqual "Renames variables in list with omitted slots" ["newA", "b"] (allVariables transformed)
+          assertEqual "Pretty prints list with omitted slot"
+            "list($newA, , $b)"
+            (prettyPrintExpr transformed)
+
   , testCase "queryStmt counts total expressions in a block" $ do
       let src = "if ($cond) { $x = 1; return $x + 2; }"
       case parseStatement "test.php" src of

@@ -115,6 +115,17 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php $file or die('fail');"
       assertRoundTrips "<?php $ok ? exit(0) : die(1);"
 
+  , testCase "Round-trip list(...) destructuring constructs (Issue #125)" $ do
+      assertRoundTrips "<?php list($a, $b) = $arr;"
+      assertRoundTrips "<?php list(\"k\" => $v) = $arr;"
+      assertRoundTrips "<?php list($a, list($b, $c)) = $arr;"
+      assertRoundTrips "<?php list($a, , $b) = $arr;"
+      assertRoundTrips "<?php list(, $b) = $arr;"
+      assertRoundTrips "<?php list(, , $c) = $arr;"
+      assertRoundTrips "<?php foreach ($arr as list($a, $b)) {}"
+      assertRoundTrips "<?php foreach ($arr as $k => list($a, $b)) {}"
+      assertRoundTrips "<?php foreach ($arr as list($a, list($b, $c))): echo $a; endforeach;"
+
   , testCase "Round-trip yield, arrow function, and throw in postfix positions (Issue #22)" $ do
       let yieldX = ExprYield () Nothing (Just (ExprVar () (SimpleVar () (VarName () "x"))))
           arrow = ExprArrowFunction () [] False False [] Nothing (ExprVar () (SimpleVar () (VarName () "x")))

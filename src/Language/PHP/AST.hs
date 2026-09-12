@@ -342,12 +342,17 @@ data SwitchCase a
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 -- | Array element.
-data ArrayItem a = ArrayItem
-  { itemAnn    :: !a
-  , itemKey    :: !(Maybe (Expr a))
-  , itemValue  :: !(Expr a)
-  , itemUnpack :: !Bool             -- ^ ...$arr
-  } deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
+data ArrayItem a
+  = ArrayItem
+      { itemAnn    :: !a
+      , itemKey    :: !(Maybe (Expr a))
+      , itemValue  :: !(Expr a)
+      , itemUnpack :: !Bool             -- ^ ...$arr
+      }
+  | ArrayItemEmpty
+      { itemAnn    :: !a
+      }
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 -- | Binary operators.
 data BinOp
@@ -478,6 +483,7 @@ data Expr a
   | ExprStaticPropertyFetch !a !(ClassTarget a) !(VarName a)
   | ExprClassConstFetch !a !(ClassTarget a) !(ClassConstName a)
   | ExprArray !a ![ArrayItem a]
+  | ExprList !a ![ArrayItem a]
   | ExprArrayAccess !a !(Expr a) !(Maybe (Expr a))
   | ExprMatch !a !(Expr a) ![MatchArm a]
   | ExprClosure !a ![AttributeGroup a] !Bool !Bool ![Param a] ![(VarName a, Bool)] !(Maybe (Type a)) ![Stmt a]
@@ -564,6 +570,7 @@ getAnnotation = \case
   ExprStaticPropertyFetch a _ _ -> a
   ExprClassConstFetch a _ _    -> a
   ExprArray a _                -> a
+  ExprList a _                 -> a
   ExprArrayAccess a _ _        -> a
   ExprMatch a _ _              -> a
   ExprClosure a _ _ _ _ _ _ _  -> a
