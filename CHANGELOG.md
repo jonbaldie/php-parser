@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Reject mutually exclusive declaration modifiers: `final abstract` classes and methods, and `static readonly` properties, in either order, matching PHP's fatal errors (#128).
+
 * Reject duplicate declaration modifiers on classes, properties, methods, class constants, and promoted parameters (e.g. `final final class C`, `static static int $x`, `public public function`), and repeated access-type modifiers (`public private`), matching PHP's "Multiple ... modifiers are not allowed" diagnostics (#92).
 
 * Reject `try` statements with neither a `catch` clause nor a `finally` block, matching PHP (#91).
