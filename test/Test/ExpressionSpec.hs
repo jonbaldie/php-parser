@@ -1288,6 +1288,7 @@ expressionTests = testGroup "Expression Specifications"
           case parseExpression "test.php" "list() = $arr" of
             Left err -> assertFailure (show (formatParseError err))
             Right (ExprAssign _ Nothing (ExprList _ []) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
       , testCase "case insensitivity" $ do
           assertParsesOkExpr "LIST($a, $b) = $arr"
           assertParsesOkExpr "List($a, $b) = $arr"
