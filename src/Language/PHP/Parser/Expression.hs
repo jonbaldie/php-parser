@@ -303,7 +303,13 @@ parseExprWithContext pStmt pMember = parseExprRec
           case target of
             Left varName -> do
               let sp = combineSpans (exprSpan base) (varNameSpan varName)
-              pure (ExprStaticPropertyFetch sp classTarget varName)
+              mArgs <- optional parseCallArgs
+              case mArgs of
+                Nothing -> pure (ExprStaticPropertyFetch sp classTarget varName)
+                Just args ->
+                  let varExpr = ExprVar (varNameSpan varName)
+                                  (SimpleVar (varNameSpan varName) varName)
+                  in pure (ExprStaticCall sp classTarget (MemberExpr varExpr) args)
             Right constOrMethod -> do
               mArgs <- optional parseCallArgs
               let sp = combineSpans (exprSpan base) (classConstSpan constOrMethod)

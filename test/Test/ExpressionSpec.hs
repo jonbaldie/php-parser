@@ -133,6 +133,19 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprCall _ _ (ArgsList [Arg _ _ (ExprClassConstFetch _ _ (ConstNameIdent (Ident _ "CONST"))) False])) -> pure ()
         other -> assertFailure ("Expected class constant fetch arg, got: " ++ show other)
 
+  , testCase "Static variable method calls preserve ExprStaticCall semantics (Issue #127)" $ do
+      case parseExpression "test.php" "Foo::$bar()" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          case expr of
+            ExprStaticCall _
+              (ClassTargetName (QualifiedName _ NameUnqualified ["Foo"]))
+              (MemberExpr (ExprVar _ (SimpleVar _ (VarName _ "bar"))))
+              (ArgsList []) -> pure ()
+            other -> assertFailure ("Expected static variable method call, got: " ++ show other)
+          assertEqual "pretty printed" "Foo::$bar()" (prettyPrintExpr expr)
+          assertRoundTripExpr expr
+
   , testCase "Named argument with static member value: func(name: Foo::CONST)" $ do
       let src = "func(name: Foo::CONST)"
       case parseExpression "test.php" src of
