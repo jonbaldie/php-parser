@@ -647,9 +647,10 @@ prettyConstName = \case
 
 prettyArrayItem :: HasLeadingTrivia a => ArrayItem a -> Doc ann
 prettyArrayItem = \case
-  ArrayItem annotation mKey val isUnpack -> prettyLeadingTrivia annotation $
+  ArrayItem annotation mKey val isUnpack isByRef -> prettyLeadingTrivia annotation $
     maybe mempty (\k -> prettyExpr k <+> "=> ") mKey <>
     (if isUnpack then "..." else "") <>
+    (if isByRef then "&" else "") <>
     prettyExpr val
   ArrayItemEmpty annotation -> prettyLeadingTrivia annotation mempty
 

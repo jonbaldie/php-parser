@@ -456,7 +456,7 @@ genExprSized n
           e <- genExprSized (n - 1)
           pure (ExprCast () ct e)
       , do
-          items <- listOf1 (ArrayItem () Nothing <$> genExprSized (n `div` 2) <*> pure False)
+          items <- listOf1 (ArrayItem () Nothing <$> genExprSized (n `div` 2) <*> pure False <*> pure False)
           pure (ExprArray () (take 3 items))
       , do
           arr <- genExprSized (n `div` 2)

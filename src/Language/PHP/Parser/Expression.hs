@@ -671,15 +671,22 @@ parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
       if isSpread
         then do
           expr <- pExpr
-          pure (\sp -> ArrayItem sp Nothing expr True)
+          pure (\sp -> ArrayItem sp Nothing expr True False)
         else do
-          kOrV <- pExpr
-          isArrow <- (True <$ symbol "=>") <|> pure False
-          if isArrow
+          isRef <- (True <$ symbol "&") <|> pure False
+          if isRef
             then do
-              v <- pExpr
-              pure (\sp -> ArrayItem sp (Just kOrV) v False)
-            else pure (\sp -> ArrayItem sp Nothing kOrV False)
+              expr <- pExpr
+              pure (\sp -> ArrayItem sp Nothing expr False True)
+            else do
+              kOrV <- pExpr
+              isArrow <- (True <$ symbol "=>") <|> pure False
+              if isArrow
+                then do
+                  valRef <- (True <$ symbol "&") <|> pure False
+                  v <- pExpr
+                  pure (\sp -> ArrayItem sp (Just kOrV) v False valRef)
+                else pure (\sp -> ArrayItem sp Nothing kOrV False False)
 
 -- | Attributes #[ ... ]
 parseAttributes :: Parser [AttributeGroup Span]

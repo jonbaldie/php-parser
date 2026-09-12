@@ -348,6 +348,7 @@ data ArrayItem a
       , itemKey    :: !(Maybe (Expr a))
       , itemValue  :: !(Expr a)
       , itemUnpack :: !Bool             -- ^ ...$arr
+      , itemByRef  :: !Bool             -- ^ &$val
       }
   | ArrayItemEmpty
       { itemAnn    :: !a

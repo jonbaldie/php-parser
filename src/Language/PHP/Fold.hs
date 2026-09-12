@@ -343,7 +343,7 @@ queryStringPart q = \case
 -- | Query array or list item.
 queryArrayItem :: Monoid m => (Expr a -> m) -> ArrayItem a -> m
 queryArrayItem q = \case
-  ArrayItem _ mKey val _ -> maybe mempty (queryExpr q) mKey <> queryExpr q val
+  ArrayItem _ mKey val _ _ -> maybe mempty (queryExpr q) mKey <> queryExpr q val
   ArrayItemEmpty _ -> mempty
 
 -- | Monoidal query over expressions.
