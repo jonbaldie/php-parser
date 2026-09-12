@@ -135,8 +135,11 @@ transformExpr f = f . \case
           c -> c
     in ExprClassConstFetch a target' constName'
   ExprArray a items ->
-    let items' = map (\item -> item { itemKey = fmap (transformExpr f) (itemKey item), itemValue = transformExpr f (itemValue item) }) items
+    let items' = map (transformArrayItem f) items
     in ExprArray a items'
+  ExprList a items ->
+    let items' = map (transformArrayItem f) items
+    in ExprList a items'
   ExprArrayAccess a arr mIdx ->
     ExprArrayAccess a (transformExpr f arr) (fmap (transformExpr f) mIdx)
   ExprMatch a subject arms ->
@@ -170,6 +173,12 @@ transformExpr f = f . \case
   ExprExit a kind mStatus -> ExprExit a kind (fmap (transformExpr f) mStatus)
   ExprThrow a e -> ExprThrow a (transformExpr f e)
   ExprConstFetch a qn -> ExprConstFetch a qn
+
+-- | Transform array or list item recursively.
+transformArrayItem :: (Expr a -> Expr a) -> ArrayItem a -> ArrayItem a
+transformArrayItem f = \case
+  item@(ArrayItem {}) -> item { itemKey = fmap (transformExpr f) (itemKey item), itemValue = transformExpr f (itemValue item) }
+  item@(ArrayItemEmpty _) -> item
 
 -- | Transform string part in interpolated string.
 transformStringPart :: (Expr a -> Expr a) -> StringPart a -> StringPart a
@@ -330,6 +339,12 @@ queryStringPart q = \case
   StrLit _ -> mempty
   StrExpr e -> queryExpr q e
 
+-- | Query array or list item.
+queryArrayItem :: Monoid m => (Expr a -> m) -> ArrayItem a -> m
+queryArrayItem q = \case
+  ArrayItem _ mKey val _ -> maybe mempty (queryExpr q) mKey <> queryExpr q val
+  ArrayItemEmpty _ -> mempty
+
 -- | Monoidal query over expressions.
 --
 -- Closure use-clause bindings (@use ($var, &$ref)@) are traversed as variable
@@ -385,7 +400,9 @@ queryExpr q expr = q expr <> case expr of
     (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
     (case constName of ConstNameDynamic e -> queryExpr q e; _ -> mempty)
   ExprArray _ items ->
-    foldMap (\item -> maybe mempty (queryExpr q) (itemKey item) <> queryExpr q (itemValue item)) items
+    foldMap (queryArrayItem q) items
+  ExprList _ items ->
+    foldMap (queryArrayItem q) items
   ExprArrayAccess _ arr mIdx ->
     queryExpr q arr <> maybe mempty (queryExpr q) mIdx
   ExprMatch _ subject arms ->

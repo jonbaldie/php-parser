@@ -1242,6 +1242,57 @@ expressionTests = testGroup "Expression Specifications"
               Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
               Right expr -> assertRoundTripExpr expr
       ]
+
+  , testGroup "List destructuring syntax (Issue #125)"
+      [ testCase "basic list assignment" $ do
+          assertParsesOkExpr "list($a, $b) = $arr"
+          case parseExpression "test.php" "list($a, $b) = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprVar _ _) False]) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "keyed items" $ do
+          assertParsesOkExpr "list(\"k\" => $v) = $arr"
+          case parseExpression "test.php" "list(\"k\" => $v) = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ [ArrayItem _ (Just (ExprLit _ (LitString _ "k" _))) (ExprVar _ _) False]) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "nested list" $ do
+          assertParsesOkExpr "list($a, list($b, $c)) = $arr"
+          case parseExpression "test.php" "list($a, list($b, $c)) = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprList _ [_, _]) False]) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "omitted slots" $ do
+          assertParsesOkExpr "list($a, , $b) = $arr"
+          case parseExpression "test.php" "list($a, , $b) = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ _) False]) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "multiple and leading omitted slots" $ do
+          assertParsesOkExpr "list(, $b) = $arr"
+          assertParsesOkExpr "list(, , $c) = $arr"
+          assertParsesOkExpr "list($a, , , $b) = $arr"
+          case parseExpression "test.php" "list(, , $c) = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ [ArrayItemEmpty _, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ _) False]) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "trailing commas" $ do
+          assertParsesOkExpr "list($a, $b,) = $arr"
+          assertParsesOkExpr "list($a, ,) = $arr"
+          case parseExpression "test.php" "list($a, $b,) = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprVar _ _) False]) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "empty list" $ do
+          assertParsesOkExpr "list() = $arr"
+          case parseExpression "test.php" "list() = $arr" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing (ExprList _ []) _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "case insensitivity" $ do
+          assertParsesOkExpr "LIST($a, $b) = $arr"
+          assertParsesOkExpr "List($a, $b) = $arr"
+      ]
   ]
 
 assertRoundTripExpr :: Expr (Annotated Span) -> Assertion

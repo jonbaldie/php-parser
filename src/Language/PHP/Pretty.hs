@@ -434,6 +434,8 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
     prettyTarget target <> "::" <> prettyConstName constName
   ExprArray _ items ->
     "[" <> hsep (punctuate "," (map prettyArrayItem items)) <> "]"
+  ExprList _ items ->
+    "list(" <> hsep (punctuate "," (map prettyArrayItem items)) <> ")"
   ExprArrayAccess _ arr mIdx ->
     prettyPostfixBase arr <> "[" <> maybe mempty prettyExpr mIdx <> "]"
   ExprMatch _ subject arms ->
@@ -641,10 +643,12 @@ prettyConstName = \case
   ConstNameDynamic e -> "{" <> prettyExpr e <> "}"
 
 prettyArrayItem :: HasLeadingTrivia a => ArrayItem a -> Doc ann
-prettyArrayItem (ArrayItem annotation mKey val isUnpack) = prettyLeadingTrivia annotation $
-  maybe mempty (\k -> prettyExpr k <+> "=> ") mKey <>
-  (if isUnpack then "..." else "") <>
-  prettyExpr val
+prettyArrayItem = \case
+  ArrayItem annotation mKey val isUnpack -> prettyLeadingTrivia annotation $
+    maybe mempty (\k -> prettyExpr k <+> "=> ") mKey <>
+    (if isUnpack then "..." else "") <>
+    prettyExpr val
+  ArrayItemEmpty annotation -> prettyLeadingTrivia annotation mempty
 
 prettyMatchArm :: HasLeadingTrivia a => MatchArm a -> Doc ann
 prettyMatchArm arm = prettyLeadingTrivia (matchArmAnnotation arm) $ case arm of
