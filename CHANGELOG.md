@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Reject member dereferencing (`->`, `?->`, `::`, `[`) directly on an unparenthesized `new` over a named class (`new Service->process()`), matching PHP 8.4's requirement for call parentheses before dereferencing; anonymous classes (`new class {}->method()`) and `new` with call arguments remain dereferenceable (#130).
+
 * Reject promoted property modifiers (visibility and readonly) on non-constructors and abstract constructors, matching PHP's "Cannot declare promoted property outside a constructor" and "Cannot declare promoted property in an abstract constructor" fatal errors (#129).
 
 * Reject mutually exclusive declaration modifiers: `final abstract` classes and methods, and `static readonly` properties, in either order, matching PHP's fatal errors (#128).
