@@ -435,7 +435,7 @@ genExprSized n
           e1 <- genExprSized (n `div` 2)
           e2 <- genExprSized (n `div` 2)
           op <- elements
-            [ OpAdd, OpSub, OpMul, OpDiv, OpMod, OpConcat, OpPipe
+            [ OpAdd, OpSub, OpMul, OpDiv, OpMod, OpConcat, OpPipe, OpInstanceof
             , OpBitAnd, OpBitOr, OpBitXor, OpEq, OpIdentical, OpNotEq
             , OpLt, OpLte, OpGt, OpGte, OpSpaceship, OpBoolAnd, OpBoolOr
             ]
