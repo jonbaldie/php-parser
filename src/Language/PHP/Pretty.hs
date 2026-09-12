@@ -398,6 +398,8 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprUnary _ op e -> prettyUnary op e
   ExprAssign _ mOp lhs rhs ->
     prettySubExpr lhs <+> prettyAssignOp mOp <+> prettySubExpr rhs
+  ExprAssignRef _ lhs rhs ->
+    prettySubExpr lhs <+> "=&" <+> prettySubExpr rhs
   ExprTernary _ cond (Just t) f ->
     parens (prettySubExpr cond <+> "?" <+> prettySubExpr t <+> ":" <+> prettySubExpr f)
   ExprTernary _ cond Nothing f ->
@@ -478,6 +480,7 @@ prettySubExpr e
 needsAssignParens :: Expr a -> Bool
 needsAssignParens = \case
   ExprAssign {}        -> True
+  ExprAssignRef {}     -> True
   ExprYield {}         -> True
   ExprYieldFrom {}     -> True
   ExprArrowFunction {} -> True
@@ -599,6 +602,7 @@ needsPostfixParens = \case
   ExprUnary {}         -> True
   ExprClone {}         -> True
   ExprAssign {}        -> True
+  ExprAssignRef {}     -> True
   ExprYield {}         -> True
   ExprYieldFrom {}     -> True
   ExprArrowFunction {} -> True

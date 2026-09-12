@@ -469,6 +469,7 @@ data Expr a
   | ExprBinary !a !BinOp !(Expr a) !(Expr a)
   | ExprUnary !a !UnOp !(Expr a)
   | ExprAssign !a !(Maybe BinOp) !(Expr a) !(Expr a)
+  | ExprAssignRef !a !(Expr a) !(Expr a) -- ^ By-reference assignment @$a =& $b@
   | ExprTernary !a !(Expr a) !(Maybe (Expr a)) !(Expr a)
   | ExprNullCoalesce !a !(Expr a) !(Expr a)
   | ExprClone !a !(Expr a) !(Maybe (Expr a)) -- ^ PHP 8.5 clone-with
@@ -556,6 +557,7 @@ getAnnotation = \case
   ExprBinary a _ _ _           -> a
   ExprUnary a _ _              -> a
   ExprAssign a _ _ _           -> a
+  ExprAssignRef a _ _          -> a
   ExprTernary a _ _ _          -> a
   ExprNullCoalesce a _ _       -> a
   ExprClone a _ _              -> a

@@ -26,6 +26,21 @@ import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
 
+-- | Whether an expression denotes a PHP @variable@, the only kind of source a
+-- by-reference assignment can bind to.
+isReferenceable :: Expr a -> Bool
+isReferenceable = \case
+  ExprVar {}                   -> True
+  ExprArrayAccess {}           -> True
+  ExprPropertyFetch {}         -> True
+  ExprNullsafePropertyFetch {} -> True
+  ExprStaticPropertyFetch {}   -> True
+  ExprCall {}                  -> True
+  ExprMethodCall {}            -> True
+  ExprNullsafeMethodCall {}    -> True
+  ExprStaticCall {}            -> True
+  _                            -> False
+
 -- | Parse expression with default statement and class member dummies.
 parseExpr :: Parser (Expr Span)
 parseExpr = parseExprWith parseStmtDummy M.empty
@@ -51,9 +66,31 @@ parseExprWithContext pStmt pMember = parseExprRec
       where
         assignRest lhs = do
           op <- parseAssignOp
+          case op of
+            Nothing -> assignRefRest lhs <|> assignValueRest Nothing lhs
+            Just _  -> assignValueRest op lhs
+
+        -- By-reference assignment. The ampersand belongs to the operator, not
+        -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
+        -- trivia and share this production (Issue #138).
+        assignRefRest lhs = do
+          _ <- symbol "&"
+          rhs <- parseReferenceSource
+          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          pure (ExprAssignRef sp lhs rhs)
+
+        assignValueRest op lhs = do
           rhs <- parseAssignment
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssign sp op lhs rhs)
+
+        -- PHP takes a reference to a variable, never to a value: the source of
+        -- a by-reference assignment is drawn from the postfix level and must be
+        -- variable-like, so @$a =& new Foo()@ and @$a =& 1@ are syntax errors.
+        parseReferenceSource = do
+          rhs <- parsePostfix
+          guard (isReferenceable rhs)
+          pure rhs
 
         parseAssignOp =
           (Nothing <$ lexeme (M.try (C.char '=' <* M.notFollowedBy (C.char '=' <|> C.char '>'))))

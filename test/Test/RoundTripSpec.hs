@@ -187,6 +187,27 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           Right reparsed ->
             assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testCase "Round-trip by-reference assignment nested in composite expressions (Issue #138)" $ do
+      let refAssign = ExprAssignRef () (ExprVar () (SimpleVar () (VarName () "a")))
+                        (ExprVar () (SimpleVar () (VarName () "b")))
+          litTwo = ExprLit () (LitInt () 2 "2")
+          contexts =
+            [ ("bare", refAssign)
+            , ("binary lhs", ExprBinary () OpAdd refAssign litTwo)
+            , ("binary rhs", ExprBinary () OpAdd litTwo refAssign)
+            , ("unary operand", ExprUnary () OpBoolNot refAssign)
+            , ("ternary condition", ExprTernary () refAssign (Just litTwo) litTwo)
+            , ("cast operand", ExprCast () CastInt refAssign)
+            , ("assignment rhs", ExprAssign () Nothing litTwo refAssign)
+            ]
+      forM_ contexts $ \(name, ctx) -> do
+        let printed = prettyPrintExpr ctx
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": printed output does not parse: "
+                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
+
   , testCase "Round-trip postfix operators on include expressions (Issue #67)" $ do
       let lit = ExprLit () (LitString () "f.php" "'f.php'")
           inc t = ExprInclude () t lit

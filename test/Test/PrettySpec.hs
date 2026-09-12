@@ -479,5 +479,24 @@ prettyTests = testGroup "Pretty Printer Specifications"
           Right reparsed ->
             assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
         ) contexts
+
+  , testCase "prettyPrintExpr renders by-reference assignment (Issue #138)" $ do
+      let varA = ExprVar () (SimpleVar () (VarName () "a"))
+          varB = ExprVar () (SimpleVar () (VarName () "b"))
+          call = ExprCall () (ExprConstFetch () (QualifiedName () NameUnqualified ["foo"])) (ArgsList [])
+          contexts =
+            [ ("variable source", ExprAssignRef () varA varB, "$a =& $b")
+            , ("call source", ExprAssignRef () varA call, "$a =& foo()")
+            , ("property target", ExprAssignRef () (ExprPropertyFetch () varA (MemberIdent (Ident () "p"))) varB, "$a->p =& $b")
+            , ("operand position", ExprBinary () OpBoolOr (ExprAssignRef () varA varB) varB, "(($a =& $b) || $b)")
+            ]
+      mapM_ (\(name, expr, expected) -> do
+        let printed = prettyPrintExpr expr
+        assertEqual name expected printed
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
+        ) contexts
   ]
 

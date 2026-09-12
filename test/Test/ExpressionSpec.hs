@@ -1365,7 +1365,65 @@ expressionTests = testGroup "Expression Specifications"
             Right (ExprAssign _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItem _ Nothing (ExprArray _ [ArrayItem _ Nothing (ExprVar _ _) False, ArrayItemEmpty _, ArrayItem _ Nothing (ExprVar _ _) False]) False]) _) -> pure ()
             other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
+
+  , testGroup "By-reference assignment (Issue #138)"
+      [ testCase "$a =& $b parses as a by-reference assignment" $ do
+          case parseExpression "test.php" "$a =& $b" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssignRef _ (ExprVar _ (SimpleVar _ (VarName _ "a"))) (ExprVar _ (SimpleVar _ (VarName _ "b")))) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "$a = &$b is the same production as $a =& $b" $ do
+          let spellings = ["$a =& $b", "$a = &$b", "$a = & $b", "$a=&$b"]
+          forM_ spellings $ \src ->
+            case parseExpression "test.php" src of
+              Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+              Right expr ->
+                assertEqual (T.unpack src ++ ": AST") (stripAnnotations refAB) (stripAnnotations expr)
+
+      , testCase "By-reference assignment accepts every variable-like target" $ do
+          forM_ [ "$a =& foo()"
+                , "$a =& $arr[0]"
+                , "$a =& $obj->prop"
+                , "$a =& $obj?->prop"
+                , "$a =& $obj->method()"
+                , "$a =& Klass::$prop"
+                , "$a =& Klass::make()"
+                , "$a =& $$name"
+                , "$arr['k'] =& $b"
+                , "$obj->prop =& $b"
+                ] assertParsesOkExpr
+
+      , testCase "By-reference assignment rejects non-variable sources" $ do
+          forM_ [ "$a =& new Foo()"
+                , "$a =& 1"
+                , "$a =& 'text'"
+                , "$a =& $b + 1"
+                , "$a =& [1, 2]"
+                ] $ \src ->
+            case parseExpression "test.php" src of
+              Left _ -> pure ()
+              Right expr -> assertFailure (T.unpack src ++ ": expected a parse error, got: " ++ show expr)
+
+      , testCase "By-reference assignment is right-nested inside a statement" $ do
+          case parseProgram "test.php" "<?php $a =& $b;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtExpr _ (ExprAssignRef _ (ExprVar _ (SimpleVar _ (VarName _ "a"))) (ExprVar _ (SimpleVar _ (VarName _ "b"))))]) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "Value assignments are unaffected" $ do
+          forM_ ["$a = $b", "$a += 1", "$a &= $b", "$a = $b & $c", "$a = $b && $c"] assertParsesOkExpr
+          case parseExpression "test.php" "$a = $b" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprAssign _ Nothing _ _) -> pure ()
+            other -> assertFailure ("Unexpected AST: " ++ show other)
+      ]
   ]
+
+refAB :: Expr ()
+refAB = ExprAssignRef ()
+  (ExprVar () (SimpleVar () (VarName () "a")))
+  (ExprVar () (SimpleVar () (VarName () "b")))
 
 assertRoundTripExpr :: Expr (Annotated Span) -> Assertion
 assertRoundTripExpr expr =
