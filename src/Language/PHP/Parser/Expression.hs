@@ -45,7 +45,7 @@ parseExprWithContext pStmt pMember = parseExprRec
     parseLogicalXor = parseBinaryLeft parseLogicalAnd [ (keyword "xor", OpLogicalXor) ]
     parseLogicalAnd = parseBinaryLeft parseAssignment [ (keyword "and", OpLogicalAnd) ]
 
-    parseAssignment = parseYield <|> parseThrow <|> parseInclude <|> do
+    parseAssignment = parseYield <|> parseThrow <|> parseInclude <|> parsePrint <|> do
       lhs <- parseTernary
       assignRest lhs <|> pure lhs
       where
@@ -99,6 +99,11 @@ parseExprWithContext pStmt pMember = parseExprRec
       incType <- parseIncludeType
       expr <- parseAssignment
       pure (\sp -> ExprInclude sp incType expr)
+
+    parsePrint = withSpan $ do
+      _ <- keyword "print"
+      expr <- parseAssignment
+      pure (\sp -> ExprPrint sp expr)
 
     parseIncludeType =
       (IncIncludeOnce <$ keyword "include_once")

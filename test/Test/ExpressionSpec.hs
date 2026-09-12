@@ -912,6 +912,51 @@ expressionTests = testGroup "Expression Specifications"
                 ExprBinary _ OpBoolAnd (ExprUnary _ OpBoolNot (ExprIsset _ [_])) (ExprUnary _ OpBoolNot (ExprEmpty _ _)) -> pure ()
                 other -> assertFailure ("Expected binary bool with isset and empty, got: " ++ show other)
               assertRoundTripExpr expr
+
+      , testCase "print is an expression language construct (Issue #123)" $ do
+          case parseExpression "test.php" "print 'hello'" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprPrint _ (ExprLit _ (LitString _ "hello" _)) -> pure ()
+                other -> assertFailure ("Expected ExprPrint, got: " ++ show other)
+              assertEqual "pretty printed" "print 'hello'" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "$x = print 1" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprAssign _ Nothing
+                  (ExprVar _ (SimpleVar _ (VarName _ "x")))
+                  (ExprPrint _ (ExprLit _ (LitInt _ 1 _))) -> pure ()
+                other -> assertFailure ("Expected assignment with ExprPrint, got: " ++ show other)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "print 1 + 2" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprPrint _ (ExprBinary _ OpAdd _ _)) -> pure ()
+            Right other -> assertFailure ("Expected print to contain the addition, got: " ++ show other)
+
+          case parseExpression "test.php" "print $x and $ok" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprBinary _ OpLogicalAnd (ExprPrint _ _) _) -> pure ()
+            Right other -> assertFailure ("Expected and to remain outside print, got: " ++ show other)
+
+          case parseExpression "test.php" "print $x = 1" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprPrint _ (ExprAssign _ Nothing _ _)) -> pure ()
+            Right other -> assertFailure ("Expected assignment inside print, got: " ++ show other)
+
+          case parseExpression "test.php" "print print 1" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprPrint _ (ExprPrint _ _)) -> pure ()
+            Right other -> assertFailure ("Expected right-associative print, got: " ++ show other)
+
+          case parseProgram "test.php" "<?php print 'hello';" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtExpr _ (ExprPrint _ _)]) -> pure ()
+            Right other -> assertFailure ("Expected print expression statement, got: " ++ show other)
       ]
 
   , testGroup "Double-quoted string escapes (Issue #87)"

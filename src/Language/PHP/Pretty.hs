@@ -460,11 +460,12 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprEmpty _ e -> "empty(" <> prettyExpr e <> ")"
   ExprEval _ e -> "eval(" <> prettyExpr e <> ")"
   ExprInclude _ inc e -> prettyInclude inc <+> prettyExpr e
+  ExprPrint _ e -> "print " <> prettyExpr e
   ExprThrow _ e -> "throw " <> prettyExpr e
   ExprConstFetch _ qn -> prettyQualifiedName qn
 
 -- | Render an expression in an operator-operand position. Assignment,
--- yield, yield from, arrow functions, throw, and include bind more loosely
+-- yield, yield from, arrow functions, throw, include, and print bind more loosely
 -- than every operator that can enclose them, so an operand-position construct
 -- must be parenthesized to survive re-parsing.
 prettySubExpr :: HasLeadingTrivia a => Expr a -> Doc ann
@@ -480,6 +481,7 @@ needsAssignParens = \case
   ExprArrowFunction {} -> True
   ExprThrow {}         -> True
   ExprInclude {}       -> True
+  ExprPrint {}         -> True
   _                    -> False
 
 prettyBinOp :: BinOp -> Doc ann
@@ -599,6 +601,7 @@ needsPostfixParens = \case
   ExprArrowFunction {} -> True
   ExprThrow {}         -> True
   ExprInclude {}       -> True
+  ExprPrint {}         -> True
   _                    -> False
 
 prettyNewTarget :: HasLeadingTrivia a => ClassTarget a -> Doc ann

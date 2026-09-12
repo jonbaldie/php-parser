@@ -325,6 +325,25 @@ prettyTests = testGroup "Pretty Printer Specifications"
       assertEqual "Top-level include has no outer parens" "include 'f.php'"
         (prettyPrintExpr (ExprInclude () IncInclude lit))
 
+  , testCase "prettyPrintExpr preserves print precedence and postfix contexts (Issue #123)" $ do
+      let varX = ExprVar () (SimpleVar () (VarName () "x"))
+          litOne = ExprLit () (LitInt () 1 "1")
+          printX = ExprPrint () varX
+          contexts =
+            [ ("top-level print", printX, "print $x")
+            , ("binary operand", ExprBinary () OpAdd printX litOne, "((print $x) + 1)")
+            , ("property fetch", ExprPropertyFetch () printX (MemberIdent (Ident () "prop")), "(print $x)->prop")
+            , ("call", ExprCall () printX (ArgsList []), "(print $x)()")
+            ]
+      mapM_ (\(name, expr, expected) -> do
+        let printed = prettyPrintExpr expr
+        assertEqual name expected printed
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
+        ) contexts
+
   , testCase "prettyPrintExpr on operator operands parenthesizes yield, yield from, arrow function, throw, and include (Issue #112)" $ do
       let varX = ExprVar () (SimpleVar () (VarName () "x"))
           litOne = ExprLit () (LitInt () 1 "1")
@@ -384,4 +403,3 @@ prettyTests = testGroup "Pretty Printer Specifications"
         assertEqual (name ++ " statement level has no outer parens") (T.pack (raw ++ ";")) (prettyPrintStmt (StmtExpr () construct))
         ) constructs
   ]
-
