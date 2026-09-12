@@ -457,4 +457,27 @@ prettyTests = testGroup "Pretty Printer Specifications"
           Right reparsed ->
             assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
         ) contexts
+
+  , testCase "prettyPrintExpr on clone-with formats arbitrary payloads (Issue #131)" $ do
+      let varObj = ExprVar () (SimpleVar () (VarName () "obj"))
+          varMods = ExprVar () (SimpleVar () (VarName () "mods"))
+          litKey = ExprLit () (LitString () "k" "'k'")
+          litVal = ExprLit () (LitInt () 42 "42")
+          arrMod = ExprArray () [ArrayItem () (Just litKey) litVal False]
+          callMod = ExprCall () (ExprConstFetch () (QualifiedName () NameUnqualified ["getMods"])) (ArgsList [])
+          contexts =
+            [ ("clone without payload", ExprClone () varObj Nothing, "clone $obj")
+            , ("clone with variable", ExprClone () varObj (Just varMods), "clone($obj, $mods)")
+            , ("clone with array", ExprClone () varObj (Just arrMod), "clone($obj, ['k' => 42])")
+            , ("clone with call", ExprClone () varObj (Just callMod), "clone($obj, getMods())")
+            ]
+      mapM_ (\(name, expr, expected) -> do
+        let printed = prettyPrintExpr expr
+        assertEqual name expected printed
+        case parseExpression "test.php" printed of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right reparsed ->
+            assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
+        ) contexts
   ]
+

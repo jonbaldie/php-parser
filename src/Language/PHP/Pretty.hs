@@ -406,8 +406,7 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
     parens (prettySubExpr lhs <+> "??" <+> prettySubExpr rhs)
   ExprClone _ obj Nothing -> "clone " <> prettySubExpr obj
   ExprClone _ obj (Just with) ->
-    "clone(" <> prettySubExpr obj <> ", [" <>
-    hsep (punctuate "," (map (\(k, v) -> prettySubExpr k <+> "=>" <+> prettySubExpr v) with)) <> "])"
+    "clone(" <> prettySubExpr obj <> ", " <> prettySubExpr with <> ")"
   ExprNew _ target args ->
     "new " <> prettyNewTarget target <> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   ExprNewAnonClass _ attrs modif args ext impls members ->

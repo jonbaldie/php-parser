@@ -62,7 +62,7 @@ transformExpr f = f . \case
     ExprTernary a (transformExpr f cond) (fmap (transformExpr f) tExpr) (transformExpr f fExpr)
   ExprNullCoalesce a e1 e2 -> ExprNullCoalesce a (transformExpr f e1) (transformExpr f e2)
   ExprClone a e mWith ->
-    ExprClone a (transformExpr f e) (fmap (map (\(k, v) -> (transformExpr f k, transformExpr f v))) mWith)
+    ExprClone a (transformExpr f e) (fmap (transformExpr f) mWith)
   ExprNew a target args ->
     let target' = case target of
           ClassTargetExpr e -> ClassTargetExpr (transformExpr f e)
@@ -368,7 +368,7 @@ queryExpr q expr = q expr <> case expr of
     queryExpr q cond <> maybe mempty (queryExpr q) tExpr <> queryExpr q fExpr
   ExprNullCoalesce _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
   ExprClone _ e mWith ->
-    queryExpr q e <> maybe mempty (foldMap (\(k, v) -> queryExpr q k <> queryExpr q v)) mWith
+    queryExpr q e <> maybe mempty (queryExpr q) mWith
   ExprNew _ target args ->
     (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
     foldMap (queryArg q) args

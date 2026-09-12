@@ -471,7 +471,7 @@ data Expr a
   | ExprAssign !a !(Maybe BinOp) !(Expr a) !(Expr a)
   | ExprTernary !a !(Expr a) !(Maybe (Expr a)) !(Expr a)
   | ExprNullCoalesce !a !(Expr a) !(Expr a)
-  | ExprClone !a !(Expr a) !(Maybe [(Expr a, Expr a)]) -- ^ PHP 8.5 clone-with
+  | ExprClone !a !(Expr a) !(Maybe (Expr a)) -- ^ PHP 8.5 clone-with
   | ExprNew !a !(ClassTarget a) ![Arg a]
   | ExprNewAnonClass !a ![AttributeGroup a] !ClassModifier ![Arg a] !(Maybe (QualifiedName a)) ![QualifiedName a] ![ClassMember a]
   | ExprCall !a !(Expr a) !(CallArgs a)

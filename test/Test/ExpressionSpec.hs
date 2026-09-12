@@ -187,7 +187,7 @@ expressionTests = testGroup "Expression Specifications"
       case parseExpression "test.php" "clone($obj, ['key' => 'val'])" of
         Left err -> assertFailure (show (formatParseError err))
         Right expr -> case expr of
-          ExprClone _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (Just [_]) ->
+          ExprClone _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (Just (ExprArray _ [_])) ->
             pure ()
           other -> assertFailure ("Expected clone-with ExprClone, got: " ++ show other)
 
