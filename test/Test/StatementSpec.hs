@@ -947,6 +947,22 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php trait T { const FOO = 1; }"
         , "<?php enum E { const FOO = 1; }"
         ]
+    , testCase "Reject non-final variadic parameters (Issue #149)" $ do
+      mapM_ assertParsesFail
+        [ "<?php function f(...$a, $b) {}"
+        , "<?php class C { function f(...$a, $b) {} }"
+        , "<?php $f = function (...$a, $b) {};"
+        , "<?php $f = fn(...$a, $b) => $a;"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php function f($a, ...$b) {}"
+        , "<?php class C { function f($a, ...$b) {} }"
+        , "<?php $f = function ($a, ...$b) {};"
+        , "<?php $f = fn($a, ...$b) => $a;"
+        , "<?php function f(...$args) {}"
+        , "<?php $f = function (...$args) {};"
+        , "<?php $f = fn(...$args) => $args;"
+        ]
   ]
 
 

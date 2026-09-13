@@ -23,7 +23,7 @@ import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
-import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith)
+import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
@@ -768,7 +768,7 @@ parseFunction = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "function" <* M.notFollowedBy (symbol "("))
   byRef <- (True <$ symbol "&") <|> pure False
   name <- identifier
-  params <- parens (parseParamInContext NonConstructorParam `M.sepEndBy` comma)
+  params <- parens (parseParamList (parseParamInContext NonConstructorParam))
   retType <- parseReturnType
   body <- braces (M.many parseStmt)
   pure (\sp -> StmtFunction sp (FunctionDecl sp attrs byRef name params retType body))
@@ -902,7 +902,7 @@ parseMethod ctx attrs = withSpan $ do
         | not isCtor = NonConstructorParam
         | isAbs      = AbstractConstructorParam
         | otherwise  = ConstructorParam
-  params <- parens (parseParamInContext paramCtx `M.sepEndBy` comma)
+  params <- parens (parseParamList (parseParamInContext paramCtx))
   retType <- parseReturnType
   body <- (semi *> pure Nothing) <|> (Just <$> braces (M.many parseStmt))
   pure (\sp -> MethodDecl sp attrs modif byRef name params retType body)
