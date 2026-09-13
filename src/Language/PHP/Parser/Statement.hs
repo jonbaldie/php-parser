@@ -775,7 +775,7 @@ data ParamContext
 
 -- | Whether a parameter declares promoted property modifiers.
 isPromotedParam :: Param a -> Bool
-isPromotedParam p = isJust (paramVis p) || isJust (paramWriteVis p) || paramReadonly p
+isPromotedParam p = isJust (paramVis p) || isJust (paramWriteVis p) || paramReadonly p || paramFinal p
 
 -- | Parameter parsing (supports constructor property promotion & asymmetric visibility).
 parseParam :: Parser (Param Span)
@@ -784,8 +784,10 @@ parseParam = parseParamInContext ConstructorParam
 parseParamInContext :: ParamContext -> Parser (Param Span)
 parseParamInContext pCtx = withSpan $ do
   attrs <- parseAttributes
-  (vis, wVis, isRo) <- parseParamModifiers
+  (vis, wVis, isRo, isFin) <- parseParamModifiers
   let isPromoted = isJust vis || isJust wVis || isRo
+  when (isFin && not isPromoted) $
+    modifierError "Cannot use the 'final' modifier on a non-promoted parameter"
   when isPromoted $ case pCtx of
     NonConstructorParam ->
       modifierError "Cannot declare promoted property outside a constructor"
@@ -798,24 +800,28 @@ parseParamInContext pCtx = withSpan $ do
   isVariadic <- (True <$ symbol "...") <|> pure False
   var <- variableName
   mDef <- optional (symbol "=" *> parseExpr)
-  pure (\sp -> Param sp attrs vis wVis isRo typ byRef isVariadic var mDef)
+  pure (\sp -> Param sp attrs vis wVis isRo isFin typ byRef isVariadic var mDef)
   where
-    parseParamModifiers = loop Nothing Nothing False
+    parseParamModifiers = loop Nothing Nothing False False
       where
-        loop vis wVis isRo =
+        loop vis wVis isRo isFin =
           (do
             wv <- parseAsymmetricWriteVis
             when (isJust wVis) $ duplicateModifier "access type"
-            loop vis (Just wv) isRo)
+            loop vis (Just wv) isRo isFin)
           <|> (do
             v <- parseVisibility
             when (isJust vis) $ duplicateModifier "access type"
-            loop (Just v) wVis isRo)
+            loop (Just v) wVis isRo isFin)
           <|> (do
             keyword_ "readonly"
             when isRo $ duplicateModifier "readonly"
-            loop vis wVis True)
-          <|> pure (vis, wVis, isRo)
+            loop vis wVis True isFin)
+          <|> (do
+            keyword_ "final"
+            when isFin $ duplicateModifier "final"
+            loop vis wVis isRo True)
+          <|> pure (vis, wVis, isRo, isFin)
 
 -- | The enclosing declaration kind in which class members are parsed.
 -- PHP applies different member rules to enums, classes, and interfaces.
