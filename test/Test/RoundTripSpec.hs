@@ -387,6 +387,16 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
   , testCase "Round-trip constructor promotion with final modifier (Issue #145)" $ do
       assertRoundTrips "<?php\nclass C {\n    function __construct(final private int $x, public final int $y, public private(set) final int $z, final readonly int $w) {}\n}\n"
 
+  , testCase "Round-trip typed by-reference parameters (Issue #151)" $ do
+      assertRoundTrips "<?php\nfunction swap(int &$a, int &$b) {\n}\n"
+      assertRoundTrips "<?php\nfunction pick(array &$xs) {\n}\n"
+      assertRoundTrips "<?php\nfunction f(int &...$xs) {\n}\n"
+      assertRoundTrips "<?php\nclass C {\n    public function merge(array &$out): void {\n    }\n    public function __construct(private array &$ref) {\n    }\n}\n"
+      assertRoundTrips "<?php\n$f = function (array &$xs) {\n};\n"
+      assertRoundTrips "<?php\n$f = fn (array &$xs) => $xs;\n"
+      assertRoundTrips "<?php\nfunction f((A&B) &$xs) {\n}\n"
+      assertRoundTrips "<?php\nfunction f(A&B &$xs) {\n}\n"
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr

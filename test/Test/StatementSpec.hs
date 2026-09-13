@@ -973,6 +973,84 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php abstract class C { abstract function f(); }"
         , "<?php class C { public function f() { return 1; } }"
         ]
+    , testCase "Typed by-reference parameters (Issue #151)" $ do
+      mapM_ assertParsesOk
+        [ "<?php function swap(int &$a, int &$b) {}"
+        , "<?php function pick(array &$xs) {}"
+        , "<?php function f(int &...$xs) {}"
+        , "<?php class C { public function merge(array &$out): void {} }"
+        , "<?php class C { public function __construct(private array &$ref) {} }"
+        , "<?php $f = function (array &$xs) {};"
+        , "<?php $f = fn(array &$xs) => $xs;"
+        , "<?php function f((A&B) &$xs) {}"
+        , "<?php function f(A&B &$xs) {}"
+        ]
+      case parseProgram "test.php" "<?php function swap(int &$a, int &$b) {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtFunction _ fn]) -> case funcParams fn of
+          [p1, p2] -> do
+            assertBool "p1 byRef" (paramByRef p1)
+            assertBool "p2 byRef" (paramByRef p2)
+            case (paramType p1, paramType p2) of
+              (Just (SimpleType _ (QualifiedName _ NameUnqualified ["int"])),
+               Just (SimpleType _ (QualifiedName _ NameUnqualified ["int"]))) -> pure ()
+              other -> assertFailure ("Unexpected param types: " ++ show other)
+          _ -> assertFailure "Expected 2 params"
+        _ -> assertFailure "Expected StmtFunction"
+      case parseProgram "test.php" "<?php function f(int &...$xs) {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtFunction _ fn]) -> case funcParams fn of
+          [p] -> do
+            assertBool "p byRef" (paramByRef p)
+            assertBool "p variadic" (paramVariadic p)
+            case paramType p of
+              Just (SimpleType _ (QualifiedName _ NameUnqualified ["int"])) -> pure ()
+              other -> assertFailure ("Unexpected param type: " ++ show other)
+          _ -> assertFailure "Expected 1 param"
+        _ -> assertFailure "Expected StmtFunction"
+      case parseProgram "test.php" "<?php function f((A&B) &$xs) {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtFunction _ fn]) -> case funcParams fn of
+          [p] -> do
+            assertBool "p byRef" (paramByRef p)
+            case paramType p of
+              Just (DNFType _ [IntersectionType _ _]) -> pure ()
+              other -> assertFailure ("Unexpected param type: " ++ show other)
+          _ -> assertFailure "Expected 1 param"
+        _ -> assertFailure "Expected StmtFunction"
+      case parseProgram "test.php" "<?php function f(A&B &$xs) {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtFunction _ fn]) -> case funcParams fn of
+          [p] -> do
+            assertBool "p byRef" (paramByRef p)
+            case paramType p of
+              Just (IntersectionType _ _) -> pure ()
+              other -> assertFailure ("Unexpected param type: " ++ show other)
+          _ -> assertFailure "Expected 1 param"
+        _ -> assertFailure "Expected StmtFunction"
+      case parseProgram "test.php" "<?php function f(A&B $xs) {}" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtFunction _ fn]) -> case funcParams fn of
+          [p] -> do
+            assertBool "p not byRef" (not (paramByRef p))
+            case paramType p of
+              Just (IntersectionType _ _) -> pure ()
+              other -> assertFailure ("Unexpected param type: " ++ show other)
+          _ -> assertFailure "Expected 1 param"
+        _ -> assertFailure "Expected StmtFunction"
+      case parseProgram "test.php" "<?php class C { public function __construct(private array &$ref) {} }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+          [MemberMethod md] -> case methodParams md of
+            [p] -> do
+              assertEqual "vis" (Just Private) (paramVis p)
+              assertBool "byRef" (paramByRef p)
+              case paramType p of
+                Just (SimpleType _ (QualifiedName _ NameUnqualified ["array"])) -> pure ()
+                other -> assertFailure ("Unexpected param type: " ++ show other)
+            _ -> assertFailure "Expected 1 param"
+          _ -> assertFailure "Expected 1 MemberMethod"
+        _ -> assertFailure "Expected StmtClass"
   ]
 
 

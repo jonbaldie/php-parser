@@ -90,7 +90,7 @@ parseUnionOrIntersection = do
 parseIntersectionOrAtomic :: Parser (Type Span)
 parseIntersectionOrAtomic = do
   t1 <- parseAtomicType
-  moreInter <- M.many (symbol "&" *> parseAtomicType)
+  moreInter <- M.many (M.try (symbol "&" *> parseAtomicType))
   case moreInter of
     [] -> pure t1
     rest -> do
