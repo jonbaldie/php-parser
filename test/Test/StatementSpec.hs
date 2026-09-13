@@ -372,6 +372,41 @@ statementTests = testGroup "Statement & Declaration Specifications"
                 Right ast2 -> assertEqual "round-trip AST equal" (stripAnnotations ast) (stripAnnotations ast2))
             alts
 
+  , testGroup "Issue 152: alternative-syntax closers may omit semicolon before closing tag"
+      [ testCase "endif" $ assertParsesOk "<?php if ($x): ?>ok<?php endif ?>"
+      , testCase "endwhile" $ assertParsesOk "<?php while ($x): ?>ok<?php endwhile ?>"
+      , testCase "endfor" $ assertParsesOk "<?php for ($i = 0; $i < 10; $i++): ?>ok<?php endfor ?>"
+      , testCase "endforeach" $ assertParsesOk "<?php foreach ($xs as $x): ?>ok<?php endforeach ?>"
+      , testCase "endswitch" $ assertParsesOk "<?php switch ($x): case 1: echo 1; endswitch ?>"
+      , testCase "enddeclare" $ assertParsesOk "<?php declare(ticks=1): echo 1; enddeclare ?>"
+      , testCase "explicit semicolon still parses" $ assertParsesOk "<?php if ($x): ?>ok<?php endif; ?>"
+      , testCase "mixed HTML endif produces inline HTML" $ do
+          case parseProgram "test.php" "<?php if ($x): ?>ok<?php endif ?>" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtIf _ _ [StmtInlineHtml _ html] [] Nothing]) ->
+              assertEqual "inline HTML" "ok" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+      , testCase "pretty-print round-trip" $ do
+          let srcs =
+                [ "<?php if ($x): echo 1; endif ?>"
+                , "<?php while ($x): echo 1; endwhile ?>"
+                , "<?php for ($i = 0; $i < 10; $i++): echo $i; endfor ?>"
+                , "<?php foreach ($xs as $x): echo $x; endforeach ?>"
+                , "<?php switch ($x): case 1: echo 1; endswitch ?>"
+                , "<?php declare(ticks=1): echo 1; enddeclare ?>"
+                , "<?php if ($x): echo 1; endif; ?>"
+                ]
+          mapM_ (\src -> do
+                  ast <- case parseProgram "test.php" src of
+                    Left err -> assertFailure (show (formatParseError err))
+                    Right ast -> pure ast
+                  let printed = prettyPrint ast
+                  case parseProgram "test.php" printed of
+                    Left err -> assertFailure ("Reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+                    Right ast2 -> assertEqual "round-trip AST equal" (stripAnnotations ast) (stripAnnotations ast2))
+                srcs
+      ]
+
   , testCase "Issue 24 reproducer: relative namespace statements" $ do
       assertParsesOk "<?php namespace\\Foo::bar();"
       assertParsesOk "<?php namespace\\func();"
