@@ -318,32 +318,37 @@ transformStmt f = \case
 
 -- | Query attribute group.
 queryAttributeGroup :: Monoid m => (Expr a -> m) -> AttributeGroup a -> m
-queryAttributeGroup q (AttributeGroup _ attrs) = foldMap (queryAttribute q) attrs
+queryAttributeGroup q = queryAttributeGroupWith q (queryStmt q)
 
--- | Query attribute.
-queryAttribute :: Monoid m => (Expr a -> m) -> Attribute a -> m
-queryAttribute q (Attribute _ _ args) = foldMap (queryArg q) args
+queryAttributeGroupWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> AttributeGroup a -> m
+queryAttributeGroupWith qExpr qStmt (AttributeGroup _ attrs) =
+  foldMap (queryAttributeWith qExpr qStmt) attrs
 
--- | Query argument.
-queryArg :: Monoid m => (Expr a -> m) -> Arg a -> m
-queryArg q = queryExpr q . argExpr
+queryAttributeWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Attribute a -> m
+queryAttributeWith qExpr qStmt (Attribute _ _ args) =
+  foldMap (queryArgWith qExpr qStmt) args
+
+queryArgWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Arg a -> m
+queryArgWith qExpr qStmt = queryExprWith qExpr qStmt . argExpr
 
 -- | Query parameter.
 queryParam :: Monoid m => (Expr a -> m) -> Param a -> m
-queryParam q p =
-  foldMap (queryAttributeGroup q) (paramAttrs p) <>
-  maybe mempty (queryExpr q) (paramDefault p)
+queryParam q = queryParamWith q (queryStmt q)
 
--- | Query string part in interpolated string.
-queryStringPart :: Monoid m => (Expr a -> m) -> StringPart a -> m
-queryStringPart q = \case
+queryParamWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Param a -> m
+queryParamWith qExpr qStmt p =
+  foldMap (queryAttributeGroupWith qExpr qStmt) (paramAttrs p) <>
+  maybe mempty (queryExprWith qExpr qStmt) (paramDefault p)
+
+queryStringPartWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> StringPart a -> m
+queryStringPartWith qExpr qStmt = \case
   StrLit _ -> mempty
-  StrExpr e -> queryExpr q e
+  StrExpr e -> queryExprWith qExpr qStmt e
 
--- | Query array or list item.
-queryArrayItem :: Monoid m => (Expr a -> m) -> ArrayItem a -> m
-queryArrayItem q = \case
-  ArrayItem _ mKey val _ _ -> maybe mempty (queryExpr q) mKey <> queryExpr q val
+queryArrayItemWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> ArrayItem a -> m
+queryArrayItemWith qExpr qStmt = \case
+  ArrayItem _ mKey val _ _ ->
+    maybe mempty (queryExprWith qExpr qStmt) mKey <> queryExprWith qExpr qStmt val
   ArrayItemEmpty _ -> mempty
 
 -- | Monoidal query over expressions.
@@ -355,82 +360,94 @@ queryArrayItem q = \case
 -- Subexpressions embedded within interpolated strings ('LitInterpolated') are
 -- recursively queried.
 queryExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
-queryExpr q expr = q expr <> case expr of
+queryExpr q = queryExprWith q (queryStmt q)
+
+-- | Internal expression traversal with an explicit statement visitor.  The
+-- separate visitor lets 'foldStmt' reuse the expression traversal without
+-- changing the public query API.
+queryExprWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Expr a -> m
+queryExprWith qExpr qStmt expr = qExpr expr <> case expr of
   ExprVar _ v -> case v of
-    DynamicVar _ e -> queryExpr q e
+    DynamicVar _ e -> queryExprWith qExpr qStmt e
     SimpleVar {} -> mempty
   ExprLit _ l -> case l of
-    LitInterpolated _ parts -> foldMap (queryStringPart q) parts
+    LitInterpolated _ parts -> foldMap (queryStringPartWith qExpr qStmt) parts
     _ -> mempty
-  ExprBinary _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
-  ExprUnary _ _ e -> queryExpr q e
-  ExprAssign _ _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
-  ExprAssignRef _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
+  ExprBinary _ _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
+  ExprUnary _ _ e -> queryExprWith qExpr qStmt e
+  ExprAssign _ _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
+  ExprAssignRef _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
   ExprTernary _ cond tExpr fExpr ->
-    queryExpr q cond <> maybe mempty (queryExpr q) tExpr <> queryExpr q fExpr
-  ExprNullCoalesce _ e1 e2 -> queryExpr q e1 <> queryExpr q e2
+    queryExprWith qExpr qStmt cond <>
+    maybe mempty (queryExprWith qExpr qStmt) tExpr <>
+    queryExprWith qExpr qStmt fExpr
+  ExprNullCoalesce _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
   ExprClone _ e mWith ->
-    queryExpr q e <> maybe mempty (queryExpr q) mWith
+    queryExprWith qExpr qStmt e <> maybe mempty (queryExprWith qExpr qStmt) mWith
   ExprNew _ target args ->
-    (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
-    foldMap (queryArg q) args
+    (case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
+    foldMap (queryArgWith qExpr qStmt) args
   ExprNewAnonClass _ attrs _ args _ _ members ->
-    foldMap (queryAttributeGroup q) attrs <>
-    foldMap (queryArg q) args <>
-    foldMap (queryClassMember q) members
+    foldMap (queryAttributeGroupWith qExpr qStmt) attrs <>
+    foldMap (queryArgWith qExpr qStmt) args <>
+    foldMap (queryClassMemberWith qExpr qStmt) members
   ExprCall _ fn args ->
-    queryExpr q fn <> case args of
-      ArgsList as -> foldMap (queryArg q) as
+    queryExprWith qExpr qStmt fn <> case args of
+      ArgsList as -> foldMap (queryArgWith qExpr qStmt) as
       FirstClassCallable -> mempty
   ExprMethodCall _ obj member args ->
-    queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryArg q) as; FirstClassCallable -> mempty)
+    queryExprWith qExpr qStmt obj <>
+    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
+    (case args of ArgsList as -> foldMap (queryArgWith qExpr qStmt) as; FirstClassCallable -> mempty)
   ExprNullsafeMethodCall _ obj member args ->
-    queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryArg q) as; FirstClassCallable -> mempty)
+    queryExprWith qExpr qStmt obj <>
+    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
+    (case args of ArgsList as -> foldMap (queryArgWith qExpr qStmt) as; FirstClassCallable -> mempty)
   ExprPropertyFetch _ obj member ->
-    queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty)
+    queryExprWith qExpr qStmt obj <>
+    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty)
   ExprNullsafePropertyFetch _ obj member ->
-    queryExpr q obj <> (case member of MemberExpr e -> queryExpr q e; _ -> mempty)
+    queryExprWith qExpr qStmt obj <>
+    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty)
   ExprStaticCall _ target member args ->
-    (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
-    (case member of MemberExpr e -> queryExpr q e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryArg q) as; FirstClassCallable -> mempty)
+    (case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
+    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
+    (case args of ArgsList as -> foldMap (queryArgWith qExpr qStmt) as; FirstClassCallable -> mempty)
   ExprStaticPropertyFetch _ target _ ->
-    case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty
+    case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty
   ExprClassConstFetch _ target constName ->
-    (case target of ClassTargetExpr e -> queryExpr q e; _ -> mempty) <>
-    (case constName of ConstNameDynamic e -> queryExpr q e; _ -> mempty)
+    (case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
+    (case constName of ConstNameDynamic e -> queryExprWith qExpr qStmt e; _ -> mempty)
   ExprArray _ items ->
-    foldMap (queryArrayItem q) items
+    foldMap (queryArrayItemWith qExpr qStmt) items
   ExprList _ items ->
-    foldMap (queryArrayItem q) items
+    foldMap (queryArrayItemWith qExpr qStmt) items
   ExprArrayAccess _ arr mIdx ->
-    queryExpr q arr <> maybe mempty (queryExpr q) mIdx
+    queryExprWith qExpr qStmt arr <> maybe mempty (queryExprWith qExpr qStmt) mIdx
   ExprMatch _ subject arms ->
-    queryExpr q subject <> foldMap (\case
-      MatchArm _ conds res -> foldMap (queryExpr q) conds <> queryExpr q res
-      MatchDefault _ res -> queryExpr q res) arms
+    queryExprWith qExpr qStmt subject <> foldMap (\case
+      MatchArm _ conds res -> foldMap (queryExprWith qExpr qStmt) conds <> queryExprWith qExpr qStmt res
+      MatchDefault _ res -> queryExprWith qExpr qStmt res) arms
   ExprClosure _ attrs _ _ params uses _ stmts ->
-    foldMap (queryAttributeGroup q) attrs <>
-    foldMap (queryParam q) params <>
-    foldMap (\(vn@(VarName va _), _) -> queryExpr q (ExprVar va (SimpleVar va vn))) uses <>
-    foldMap (queryStmt q) stmts
+    foldMap (queryAttributeGroupWith qExpr qStmt) attrs <>
+    foldMap (queryParamWith qExpr qStmt) params <>
+    foldMap (\(vn@(VarName va _), _) -> queryExprWith qExpr qStmt (ExprVar va (SimpleVar va vn))) uses <>
+    foldMap qStmt stmts
   ExprArrowFunction _ attrs _ _ params _ body ->
-    foldMap (queryAttributeGroup q) attrs <>
-    foldMap (queryParam q) params <>
-    queryExpr q body
+    foldMap (queryAttributeGroupWith qExpr qStmt) attrs <>
+    foldMap (queryParamWith qExpr qStmt) params <>
+    queryExprWith qExpr qStmt body
   ExprYield _ mK mV ->
-    maybe mempty (queryExpr q) mK <> maybe mempty (queryExpr q) mV
-  ExprYieldFrom _ e -> queryExpr q e
-  ExprCast _ _ e -> queryExpr q e
-  ExprIsset _ es -> foldMap (queryExpr q) es
-  ExprEmpty _ e -> queryExpr q e
-  ExprEval _ e -> queryExpr q e
-  ExprInclude _ _ e -> queryExpr q e
-  ExprPrint _ e -> queryExpr q e
-  ExprExit _ _ mStatus -> foldMap (queryExpr q) mStatus
-  ExprThrow _ e -> queryExpr q e
+    maybe mempty (queryExprWith qExpr qStmt) mK <> maybe mempty (queryExprWith qExpr qStmt) mV
+  ExprYieldFrom _ e -> queryExprWith qExpr qStmt e
+  ExprCast _ _ e -> queryExprWith qExpr qStmt e
+  ExprIsset _ es -> foldMap (queryExprWith qExpr qStmt) es
+  ExprEmpty _ e -> queryExprWith qExpr qStmt e
+  ExprEval _ e -> queryExprWith qExpr qStmt e
+  ExprInclude _ _ e -> queryExprWith qExpr qStmt e
+  ExprPrint _ e -> queryExprWith qExpr qStmt e
+  ExprExit _ _ mStatus -> foldMap (queryExprWith qExpr qStmt) mStatus
+  ExprThrow _ e -> queryExprWith qExpr qStmt e
   ExprConstFetch _ _ -> mempty
 
 -- | Query expressions in statements.
@@ -496,27 +513,30 @@ queryStmt q = \case
 
 -- | Query expressions in class members.
 queryClassMember :: Monoid m => (Expr a -> m) -> ClassMember a -> m
-queryClassMember q = \case
+queryClassMember q = queryClassMemberWith q (queryStmt q)
+
+queryClassMemberWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> ClassMember a -> m
+queryClassMemberWith qExpr qStmt = \case
   MemberProperty p ->
-    foldMap (queryAttributeGroup q) (propAttrs p) <>
-    foldMap (maybe mempty (queryExpr q) . snd) (propItems p) <>
+    foldMap (queryAttributeGroupWith qExpr qStmt) (propAttrs p) <>
+    foldMap (maybe mempty (queryExprWith qExpr qStmt) . snd) (propItems p) <>
     foldMap (\h ->
-      foldMap (queryAttributeGroup q) (hookAttrs h) <>
+      foldMap (queryAttributeGroupWith qExpr qStmt) (hookAttrs h) <>
       case hookBody h of
-        HookExpr e -> queryExpr q e
-        HookBlock ss -> foldMap (queryStmt q) ss
+        HookExpr e -> queryExprWith qExpr qStmt e
+        HookBlock ss -> foldMap qStmt ss
         HookAbstract -> mempty) (propHooks p)
   MemberMethod m ->
-    foldMap (queryAttributeGroup q) (methodAttrs m) <>
-    foldMap (queryParam q) (methodParams m) <>
-    maybe mempty (foldMap (queryStmt q)) (methodBody m)
+    foldMap (queryAttributeGroupWith qExpr qStmt) (methodAttrs m) <>
+    foldMap (queryParamWith qExpr qStmt) (methodParams m) <>
+    maybe mempty (foldMap qStmt) (methodBody m)
   MemberConst c ->
-    foldMap (queryAttributeGroup q) (constAttrs c) <>
-    foldMap (queryExpr q . snd) (constItems c)
+    foldMap (queryAttributeGroupWith qExpr qStmt) (constAttrs c) <>
+    foldMap (queryExprWith qExpr qStmt . snd) (constItems c)
   MemberTraitUse _ -> mempty
   MemberEnumCase ec ->
-    foldMap (queryAttributeGroup q) (enumCaseAttrs ec) <>
-    maybe mempty (queryExpr q) (enumCaseVal ec)
+    foldMap (queryAttributeGroupWith qExpr qStmt) (enumCaseAttrs ec) <>
+    maybe mempty (queryExprWith qExpr qStmt) (enumCaseVal ec)
 
 -- | Catamorphism over expressions using an expression transformation or reduction.
 foldExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
@@ -525,42 +545,77 @@ foldExpr = queryExpr
 -- | Map and accumulate over all statements.
 foldStmt :: Monoid m => (Stmt a -> m) -> Stmt a -> m
 foldStmt q s = q s <> case s of
+  StmtExpr _ e -> foldExprStmts q e
   StmtBlock _ ss -> foldMap (foldStmt q) ss
-  StmtIf _ _ thens elifs mElse ->
+  StmtIf _ c thens elifs mElse ->
+    foldExprStmts q c <>
     foldMap (foldStmt q) thens <>
-    foldMap (\(_, stmts) -> foldMap (foldStmt q) stmts) elifs <>
+    foldMap (\(cond, stmts) -> foldExprStmts q cond <> foldMap (foldStmt q) stmts) elifs <>
     maybe mempty (foldMap (foldStmt q)) mElse
-  StmtWhile _ _ ss -> foldMap (foldStmt q) ss
-  StmtDoWhile _ ss _ -> foldMap (foldStmt q) ss
-  StmtFor _ _ _ _ ss -> foldMap (foldStmt q) ss
-  StmtForeach _ _ _ _ _ ss -> foldMap (foldStmt q) ss
-  StmtSwitch _ _ cases -> foldMap (\case
-    SwitchCase _ _ ss -> foldMap (foldStmt q) ss
-    SwitchDefault _ ss -> foldMap (foldStmt q) ss) cases
+  StmtWhile _ c ss -> foldExprStmts q c <> foldMap (foldStmt q) ss
+  StmtDoWhile _ ss c -> foldMap (foldStmt q) ss <> foldExprStmts q c
+  StmtFor _ inits conds incrs ss ->
+    foldMap (foldExprStmts q) inits <>
+    foldMap (foldExprStmts q) conds <>
+    foldMap (foldExprStmts q) incrs <>
+    foldMap (foldStmt q) ss
+  StmtForeach _ arr mKey val _ ss ->
+    foldExprStmts q arr <>
+    maybe mempty (foldExprStmts q) mKey <>
+    foldExprStmts q val <>
+    foldMap (foldStmt q) ss
+  StmtSwitch _ c cases ->
+    foldExprStmts q c <> foldMap (\case
+      SwitchCase _ ce ss -> foldExprStmts q ce <> foldMap (foldStmt q) ss
+      SwitchDefault _ ss -> foldMap (foldStmt q) ss) cases
   StmtTry _ tryStmts catches mFinally ->
     foldMap (foldStmt q) tryStmts <>
     foldMap (foldMap (foldStmt q) . catchBody) catches <>
     maybe mempty (foldMap (foldStmt q)) mFinally
   StmtNamespace _ _ mStmts -> maybe mempty (foldMap (foldStmt q)) mStmts
-  StmtFunction _ fn -> foldMap (foldStmt q) (funcBody fn)
-  StmtClass _ cd -> foldMap (foldClassMember q) (classMembers cd)
-  StmtInterface _ id' -> foldMap (foldClassMember q) (ifaceMembers id')
-  StmtTrait _ td -> foldMap (foldClassMember q) (traitMembers td)
-  StmtEnum _ ed -> foldMap (foldClassMember q) (enumMembers ed)
+  StmtBreak _ me -> maybe mempty (foldExprStmts q) me
+  StmtContinue _ me -> maybe mempty (foldExprStmts q) me
+  StmtReturn _ me -> maybe mempty (foldExprStmts q) me
+  StmtThrowStmt _ e -> foldExprStmts q e
+  StmtConst _ c ->
+    foldMap (queryAttributeGroupWith (foldExprStmts q) (foldStmt q)) (constAttrs c) <>
+    foldMap (foldExprStmts q . snd) (constItems c)
+  StmtFunction _ fn ->
+    foldMap (queryAttributeGroupWith (foldExprStmts q) (foldStmt q)) (funcAttrs fn) <>
+    foldMap (queryParamWith (foldExprStmts q) (foldStmt q)) (funcParams fn) <>
+    foldMap (foldStmt q) (funcBody fn)
+  StmtClass _ cd ->
+    foldMap (queryAttributeGroupWith (foldExprStmts q) (foldStmt q)) (classAttrs cd) <>
+    foldMap (foldClassMember q) (classMembers cd)
+  StmtInterface _ id' ->
+    foldMap (queryAttributeGroupWith (foldExprStmts q) (foldStmt q)) (ifaceAttrs id') <>
+    foldMap (foldClassMember q) (ifaceMembers id')
+  StmtTrait _ td ->
+    foldMap (queryAttributeGroupWith (foldExprStmts q) (foldStmt q)) (traitAttrs td) <>
+    foldMap (foldClassMember q) (traitMembers td)
+  StmtEnum _ ed ->
+    foldMap (queryAttributeGroupWith (foldExprStmts q) (foldStmt q)) (enumAttrs ed) <>
+    foldMap (foldClassMember q) (enumMembers ed)
+  StmtEcho _ es -> foldMap (foldExprStmts q) es
+  StmtGlobal _ es -> foldMap (foldExprStmts q) es
+  StmtStatic _ items -> foldMap (maybe mempty (foldExprStmts q) . snd) items
   StmtDeclare _ _ mBody -> maybe mempty (foldMap (foldStmt q)) mBody
-  _ -> mempty
+  StmtUnset _ es -> foldMap (foldExprStmts q) es
+  StmtUse _ _ _ -> mempty
+  StmtGroupUse _ _ _ _ -> mempty
+  StmtGoto _ _ -> mempty
+  StmtLabel _ _ -> mempty
+  StmtInlineHtml _ _ -> mempty
+  StmtHaltCompiler _ _ -> mempty
+  StmtEmpty _ -> mempty
+
+-- | Fold statements reachable through an expression.
+foldExprStmts :: Monoid m => (Stmt a -> m) -> Expr a -> m
+foldExprStmts q = queryExprWith (const mempty) (foldStmt q)
 
 -- | Fold statements contained in class members.
 foldClassMember :: Monoid m => (Stmt a -> m) -> ClassMember a -> m
-foldClassMember q = \case
-  MemberProperty p ->
-    foldMap (\h -> case hookBody h of
-      HookExpr _ -> mempty
-      HookBlock ss -> foldMap (foldStmt q) ss
-      HookAbstract -> mempty) (propHooks p)
-  MemberMethod m ->
-    maybe mempty (foldMap (foldStmt q)) (methodBody m)
-  _ -> mempty
+foldClassMember q = queryClassMemberWith (foldExprStmts q) (foldStmt q)
 
 
 -- | Collect all expressions within an expression.

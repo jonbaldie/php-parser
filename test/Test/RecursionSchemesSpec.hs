@@ -147,6 +147,21 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
   , testCase "foldStmt visits return inside property hook block" $ do
       assertFoldsReturn "<?php class Book { public string $title { set(string $value) { return; } } }"
 
+  , testCase "foldStmt visits statements inside closures in expressions (Issue #142)" $ do
+      assertFoldsStatementKinds
+        "<?php $f = function() { echo 1; return 2; };"
+        ["StmtExpr", "StmtEcho", "StmtReturn"]
+
+  , testCase "foldStmt visits statements inside anonymous classes in expressions (Issue #142)" $ do
+      assertFoldsStatementKinds
+        "<?php $x = new class { function f() { echo 1; return 2; } };"
+        ["StmtExpr", "StmtEcho", "StmtReturn"]
+
+  , testCase "foldStmt follows nested expression paths without duplicates (Issue #142)" $ do
+      assertFoldsStatementKinds
+        "<?php function outer() { return function() { echo new class { function inner() { return 1; } }; return 2; }; }"
+        ["StmtFunction", "StmtReturn", "StmtEcho", "StmtReturn", "StmtReturn"]
+
   , testCase "foldStmt still visits returns in if/while/try" $ do
       case parseStatement "test.php" "if ($c) { return 1; } elseif ($d) { return 2; } else { return 3; }" of
         Left err -> assertFailure (show (formatParseError err))
@@ -418,3 +433,22 @@ assertFoldsReturn src =
     Right (Program _ [stmt]) ->
       assertEqual "returns inside declaration" [True] (foldReturns stmt)
     Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+assertFoldsStatementKinds :: Text -> [String] -> IO ()
+assertFoldsStatementKinds src expected =
+  case parseProgram "test.php" src of
+    Left err -> assertFailure (show (formatParseError err))
+    Right (Program _ [stmt]) ->
+      assertEqual "statements reachable from expression" expected (foldStatementKinds stmt)
+    Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+foldStatementKinds :: Stmt a -> [String]
+foldStatementKinds = foldStmt (\stmt -> [statementKind stmt])
+
+statementKind :: Stmt a -> String
+statementKind = \case
+  StmtExpr {} -> "StmtExpr"
+  StmtEcho {} -> "StmtEcho"
+  StmtReturn {} -> "StmtReturn"
+  StmtFunction {} -> "StmtFunction"
+  _ -> "Other"
