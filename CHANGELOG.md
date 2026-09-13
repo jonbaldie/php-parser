@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Support typed by-reference parameters in functions, methods, closures, and arrow functions (`function f(int &$a)`), disambiguating intersection types from parameter-level by-reference modifiers (#151).
+
 * Reject removed PHP `(unset)` and `(real)` casts while retaining the supported cast aliases (#146).
 
 * Support `final` modifier on PHP 8.4 constructor-promoted properties (`final private int $x`, `public final int $y`), tracking the modifier via `paramFinal :: !Bool` in `Param`, pretty-printing `final` on promoted parameters, and rejecting `final` on non-promoted parameters (#145).
