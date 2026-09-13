@@ -235,6 +235,62 @@ statementTests = testGroup "Statement & Declaration Specifications"
             StmtInlineHtml _ txt : _ -> assertEqual "starts with html" "<html><body>" txt
             other -> assertFailure ("Expected leading html, got: " ++ show other)
 
+  , testCase "Inline HTML inside a brace-delimited if body (Issue #154)" $ do
+      let src = "<?php if ($x) { ?>ok<?php } ?>"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtIf _ _ [StmtInlineHtml _ html] [] Nothing]) ->
+          assertEqual "inline HTML" "ok" html
+        Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+  , testCase "Inline HTML inside brace-delimited control bodies (Issue #154)" $ do
+      let cases =
+            [ ("while", "<?php while ($x) { ?>ok<?php } ?>")
+            , ("for", "<?php for ($i = 0; $i < 1; $i++) { ?>ok<?php } ?>")
+            , ("foreach", "<?php foreach ($xs as $x) { ?>ok<?php } ?>")
+            ]
+      mapM_ (\(name, src) -> case parseProgram "test.php" src of
+        Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+        Right (Program _ [stmt]) ->
+          assertEqual (name ++ " preserves inline HTML") ["ok"]
+            (foldStmt (\case
+              StmtInlineHtml _ html -> [html]
+              _ -> []) stmt)
+        Right other -> assertFailure (name ++ ": unexpected AST: " ++ show other)) cases
+
+  , testCase "Short echo remains parseable after inline HTML in a brace body (Issue #154)" $ do
+      let src = "<?php if ($x) { ?>ok<?= $title ?><?php } ?>"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtIf _ _ body [] Nothing]) -> do
+          assertEqual "body has inline HTML and echo" 2 (length body)
+          assertBool "body starts with inline HTML"
+            (case body of StmtInlineHtml _ "ok" : _ -> True; _ -> False)
+          assertBool "body ends with echo"
+            (case reverse body of StmtEcho _ [_] : _ -> True; _ -> False)
+        Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+  , testCase "Inline HTML in a closure body folds correctly (Issue #154)" $ do
+      let src = "<?php $render = function () { ?>ok<?php }; ?>"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [stmt]) ->
+          assertEqual "closure inline HTML" ["ok"]
+            (foldStmt (\case
+              StmtInlineHtml _ html -> [html]
+              _ -> []) stmt)
+        Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+  , testCase "Pretty-printed alternative-syntax inline HTML reparses (Issue #154)" $ do
+      let src = "<?php if ($ready): ?><h1><?php echo $title; ?></h1><?php endif; ?>"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast ->
+          case parseProgram "printed.php" (prettyPrint ast) of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast2 -> assertEqual "round-trip AST equal"
+              (stripAnnotations ast) (stripAnnotations ast2)
+
   , testCase "Short echo tag accepts comma-separated expressions (Issue #114)" $ do
       case parseProgram "test.php" "<?= 1, 2 ?>" of
         Left err -> assertFailure (show (formatParseError err))

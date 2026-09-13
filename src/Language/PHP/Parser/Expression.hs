@@ -4,6 +4,7 @@ module Language.PHP.Parser.Expression
   ( parseExpr
   , parseExprWith
   , parseExprWithContext
+  , parseExprWithContextAndBody
   , parsePrimaryExpr
   , parseArg
   , parseCallArgs
@@ -54,7 +55,17 @@ parseExprWith pStmt pMember = parseExprWithContext pStmt (const pMember)
 -- | Parse an expression with a class member parser that receives the
 -- enclosing class's readonly status for anonymous classes.
 parseExprWithContext :: Parser (Stmt Span) -> (Bool -> Parser (ClassMember Span)) -> Parser (Expr Span)
-parseExprWithContext pStmt pMember = parseExprRec
+parseExprWithContext pStmt pMember =
+  parseExprWithContextAndBody (M.many pStmt) pMember
+
+-- | Parse an expression with a separate parser for statement lists embedded
+-- in closures. Callers that parse mixed PHP/HTML bodies can supply a body
+-- parser that consumes tag transitions without inventing empty statements.
+parseExprWithContextAndBody
+  :: Parser [Stmt Span]
+  -> (Bool -> Parser (ClassMember Span))
+  -> Parser (Expr Span)
+parseExprWithContextAndBody parseBody pMember = parseExprRec
   where
     parseExprRec = parseLogicalOr
 
@@ -547,7 +558,7 @@ parseExprWithContext pStmt pMember = parseExprRec
       params <- parens (parseParamList (parseParamDummy parseExprRec))
       uses <- (keyword "use" *> parens (parseClosureUse `M.sepEndBy` comma)) <|> pure []
       retType <- parseReturnType
-      body <- braces (M.many pStmt)
+      body <- braces parseBody
       pure (\sp -> ExprClosure sp attrs byRef isStatic params uses retType body)
       where
         parseClosureUse = do

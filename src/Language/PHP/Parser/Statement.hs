@@ -23,11 +23,11 @@ import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
-import Language.PHP.Parser.Expression (parseExprWithContext, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList)
+import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
-parseExpr = parseExprWithContext parseStmt (\ro -> parseClassMemberInContext (ClassLikeContext ro))
+parseExpr = parseExprWithContextAndBody parseMixedBody (\ro -> parseClassMemberInContext (ClassLikeContext ro))
 
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
 parseProgram :: Parser (Program Span)
@@ -94,6 +94,33 @@ parseShortEchoBody = do
   let lastExpr = if null moreExprs then firstExpr else last moreExprs
       echoSpan = combineSpans (exprSpan firstExpr) (exprSpan lastExpr)
   pure (StmtEcho echoSpan (firstExpr : moreExprs))
+
+-- | Parse a statement list that can switch between PHP and inline HTML.
+-- Close/open tag transitions are not represented as empty statements; only
+-- non-empty HTML chunks become 'StmtInlineHtml' nodes.
+parseMixedBody :: Parser [Stmt Span]
+parseMixedBody = concat <$> M.many parseMixedBodyElement
+
+parseMixedBodyElement :: Parser [Stmt Span]
+parseMixedBodyElement =
+  parseHtmlChunk
+  <|> parseOpenTagChunk
+  <|> parseShortEchoChunk
+  <|> ((\s -> [s]) <$> parseStmt)
+  where
+    parseHtmlChunk = do
+      _ <- M.try parseCloseTag
+      (sp, html) <- spanned takeUntilPhpTag
+      pure (if null html then [] else [StmtInlineHtml sp (T.pack html)])
+
+    parseOpenTagChunk = do
+      _ <- M.try parseOpenTag
+      pure []
+
+    parseShortEchoChunk = do
+      _ <- M.try (C.string "<?=")
+      echoStmt <- parseShortEchoBody
+      pure [echoStmt]
 
 parsePhpAndHtmlChunks :: Parser [Stmt Span]
 parsePhpAndHtmlChunks = do
@@ -193,7 +220,7 @@ parseDeclare = withSpan $ do
         pure (\sp -> StmtDeclare sp dirs (Just stmts)))
       -- Brace block (declare(...) { ... })
       <|> (do
-        stmts <- braces (M.many parseStmt)
+        stmts <- braces parseMixedBody
         pure (\sp -> StmtDeclare sp dirs (Just stmts)))
       -- Single statement (declare(...) stmt)
       <|> (do
@@ -249,7 +276,7 @@ parseEmptyStmt = withSpan $ do
 -- | Block statement { ... }.
 parseBlock :: Parser (Stmt Span)
 parseBlock = withSpan $ do
-  stmts <- braces (M.many parseStmt)
+  stmts <- braces parseMixedBody
   pure (\sp -> StmtBlock sp stmts)
 
 -- | Echo statement.
@@ -360,44 +387,13 @@ parseIf = withSpan $ do
       parseAltBody
 
     parseStmtBody =
-      (braces (M.many parseStmt))
+      (braces parseMixedBody)
       <|> ((\s -> [s]) <$> parseStmt)
 
--- | Body of an alternative-syntax control structure: statements possibly
--- interleaved with inline HTML chunks, ending just before the terminator
--- keyword (endif/endwhile/...). The @many@ stops at any token no statement
--- can start with; terminator keywords are reserved words, so they halt it.
+-- | Body of an alternative-syntax control structure. It ends just before
+-- the terminator keyword (endif/endwhile/...).
 parseAltBody :: Parser [Stmt Span]
-parseAltBody = concat <$> M.many parseAltBodyElement
-
-parseAltBodyElement :: Parser [Stmt Span]
-parseAltBodyElement =
-  parseAltHtmlChunk
-  <|> parseAltOpenTagChunk
-  <|> parseAltShortEchoChunk
-  <|> ((\s -> [s]) <$> parseStmt)
-  where
-    -- ?> html <?php / <?= — must be reopened by a PHP chunk to continue.
-    parseAltHtmlChunk = do
-      isClose <- (True <$ M.try parseCloseTag) <|> pure False
-      if not isClose
-        then M.empty
-        else do
-          (sp, html) <- spanned takeUntilPhpTag
-          pure (if null html then [] else [StmtInlineHtml sp (T.pack html)])
-    -- Reopening tag after an inline HTML chunk.
-    parseAltOpenTagChunk = do
-      isOpen <- (True <$ M.try parseOpenTag) <|> pure False
-      if not isOpen
-        then M.empty
-        else pure []
-    parseAltShortEchoChunk = do
-      isEcho <- (True <$ M.try (C.string "<?=")) <|> pure False
-      if not isEcho
-        then M.empty
-        else do
-          echoStmt <- parseShortEchoBody
-          pure [echoStmt]
+parseAltBody = parseMixedBody
 
 -- | While loop, including the alternative (colon/keyword) syntax.
 parseWhile :: Parser (Stmt Span)
@@ -413,14 +409,14 @@ parseWhile = withSpan $ do
       _ <- statementTerminator
       pure (\sp -> StmtWhile sp cond body)
     braceBranch cond = do
-      body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
       pure (\sp -> StmtWhile sp cond body)
 
 -- | Do-While loop.
 parseDoWhile :: Parser (Stmt Span)
 parseDoWhile = withSpan $ do
   keyword_ "do"
-  body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+  body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
   keyword_ "while"
   cond <- parens parseExpr
   _ <- semi
@@ -446,7 +442,7 @@ parseFor = withSpan $ do
       _ <- statementTerminator
       pure (\sp -> StmtFor sp inits conds incrs body)
     braceBranch inits conds incrs = do
-      body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
       pure (\sp -> StmtFor sp inits conds incrs body)
 
 -- | Foreach loop, including the alternative (colon/keyword) syntax.
@@ -480,7 +476,7 @@ parseForeach = withSpan $ do
       _ <- statementTerminator
       pure (\sp -> StmtForeach sp arr mKey val byRef body)
     braceBranch arr mKey val byRef = do
-      body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
+      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
       pure (\sp -> StmtForeach sp arr mKey val byRef body)
 
 -- | Switch statement, including the alternative (colon/keyword) syntax.
@@ -501,7 +497,7 @@ parseSwitch = withSpan $ do
       pure (\sp -> StmtSwitch sp expr cases)
 
 parseSwitchCase :: Parser (SwitchCase Span)
-parseSwitchCase = parseSwitchCaseWith (M.many parseStmt)
+parseSwitchCase = parseSwitchCaseWith parseMixedBody
 
 parseSwitchCaseWith :: Parser [Stmt Span] -> Parser (SwitchCase Span)
 parseSwitchCaseWith parseBody = parseDefault <|> parseCase
@@ -524,9 +520,9 @@ parseSwitchCaseWith parseBody = parseDefault <|> parseCase
 parseTry :: Parser (Stmt Span)
 parseTry = withSpan $ do
   keyword_ "try"
-  body <- braces (M.many parseStmt)
+  body <- braces parseMixedBody
   catches <- M.many parseCatch
-  mFinally <- optional (keyword "finally" *> braces (M.many parseStmt))
+  mFinally <- optional (keyword "finally" *> braces parseMixedBody)
   when (null catches && isNothing mFinally) $
     fail "cannot use try without catch or finally"
   pure (\sp -> StmtTry sp body catches mFinally)
@@ -537,7 +533,7 @@ parseTry = withSpan $ do
       types <- qualifiedName `M.sepBy1` symbol "|"
       mVar <- optional variableName
       _ <- symbol ")"
-      catBody <- braces (M.many parseStmt)
+      catBody <- braces parseMixedBody
       pure (\sp -> CatchClause sp types mVar catBody)
 
 -- | Namespace declaration (bracketed or unbracketed).
@@ -555,7 +551,7 @@ parseNamespace = withSpan $ do
         pure (mName, isBr)
   if isBracketed
     then do
-      stmts <- braces (M.many parseStmt)
+      stmts <- braces parseMixedBody
       pure (\sp -> StmtNamespace sp mName (Just stmts))
     else pure (\sp -> StmtNamespace sp mName Nothing)
   where
@@ -774,7 +770,7 @@ parseFunction = withSpan $ do
   name <- identifier
   params <- parens (parseParamList (parseParamInContext NonConstructorParam))
   retType <- parseReturnType
-  body <- braces (M.many parseStmt)
+  body <- braces parseMixedBody
   pure (\sp -> StmtFunction sp (FunctionDecl sp attrs byRef name params retType body))
 
 -- | Promoted parameter context for validating parameter modifiers.
@@ -910,7 +906,7 @@ parseMethod ctx attrs = withSpan $ do
   retType <- parseReturnType
   body <- if isAbs
     then semi *> pure Nothing
-    else Just <$> braces (M.many parseStmt)
+    else Just <$> braces parseMixedBody
   pure (\sp -> MethodDecl sp attrs modif byRef name params retType body)
 
 -- | Property with optional PHP 8.4 hooks and asymmetric visibility.
@@ -966,7 +962,7 @@ parsePropertyHook = withSpan $ do
         expr <- parseExpr
         _ <- semi
         pure (HookExpr expr))
-      <|> (HookBlock <$> braces (M.many parseStmt))
+      <|> (HookBlock <$> braces parseMixedBody)
       <|> (HookAbstract <$ semi)
 
 -- | Trait usage inside class.
