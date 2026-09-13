@@ -923,6 +923,30 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php $o = new class { public function __construct(public string $name) {} };"
         , "<?php abstract class C { public function __construct(public string $name) {} }"
         ]
+    , testCase "Reject visibility, final, and types on global const declarations (Issue #147)" $ do
+      mapM_ assertParsesFail
+        [ "<?php public const FOO = 1;"
+        , "<?php protected const FOO = 1;"
+        , "<?php private const FOO = 1;"
+        , "<?php final const FOO = 1;"
+        , "<?php const string FOO = 'a';"
+        , "<?php #[Attr] public const FOO = 1;"
+        , "<?php #[Attr] final const FOO = 1;"
+        , "<?php #[Attr] const int FOO = 1;"
+        , "<?php namespace Foo { public const BAR = 1; }"
+        , "<?php namespace Foo { final const BAR = 1; }"
+        , "<?php namespace Foo { const string BAR = 'a'; }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php const FOO = 1;"
+        , "<?php const FOO = 1, BAR = 2;"
+        , "<?php #[Attr] const FOO = 1;"
+        , "<?php namespace Foo { const BAR = 1; }"
+        , "<?php class C { public const int FOO = 1; final protected const BAR = 2; private const string BAZ = 'x'; }"
+        , "<?php interface I { public const string FOO = 'a'; }"
+        , "<?php trait T { const FOO = 1; }"
+        , "<?php enum E { const FOO = 1; }"
+        ]
   ]
 
 
