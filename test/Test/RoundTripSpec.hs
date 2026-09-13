@@ -381,6 +381,9 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php $obj->method(...);"
       assertRoundTrips "<?php Config::load(...);"
 
+  , testCase "Round-trip binary-prefixed string literals (Issue #143)" $ do
+      assertRoundTrips "<?php\n$a = b'hello';\n$b = B\"world\";\n$c = b\"hi $name\";\n"
+
   , testProperty "Arbitrary generated simple expressions round-trip cleanly" $
       forAll genSimpleExpr $ \origExpr ->
         let printed = prettyPrintExpr origExpr

@@ -458,9 +458,15 @@ decodeDoubleQuotedEscapes = T.concat . go
 literalString :: Parser (Expr Span) -> Parser (Literal Span)
 literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuoted <|> doubleQuoted
   where
+    -- The binary prefix @b@ / @B@ (Issue #143) is a syntax alias for an
+    -- ordinary string literal, so it contributes nothing but its own
+    -- characters to the raw text. It must abut the quote: @M.try@ keeps a bare
+    -- @b@ identifier available to the alternatives that follow.
+    openQuote q = M.try (optional (C.char 'b' <|> C.char 'B') *> C.char q)
+
     singleQuoted = do
       (raw, val) <- M.match $ do
-        _ <- C.char '\''
+        _ <- openQuote '\''
         content <- many singleChar
         _ <- C.char '\''
         pure content
@@ -473,7 +479,7 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 
     doubleQuoted = do
       (raw, parts) <- M.match $ do
-        _ <- C.char '"'
+        _ <- openQuote '"'
         ps <- many doublePart
         _ <- C.char '"'
         pure ps
