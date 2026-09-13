@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Allow alternative-syntax closers (`endif`, `endwhile`, `endfor`, `endforeach`, `endswitch`, `enddeclare`) to be terminated by a PHP closing tag (`?>`) without a semicolon, matching mixed-template PHP (#152).
+
 * Support typed by-reference parameters in functions, methods, closures, and arrow functions (`function f(int &$a)`), disambiguating intersection types from parameter-level by-reference modifiers (#151).
 
 * Reject removed PHP `(unset)` and `(real)` casts while retaining the supported cast aliases (#146).

@@ -183,7 +183,7 @@ parseDeclare = withSpan $ do
         _ <- colon
         stmts <- parseAltBody
         keyword_ "enddeclare"
-        _ <- semi
+        _ <- statementTerminator
         pure (\sp -> StmtDeclare sp dirs (Just stmts)))
       -- Brace block (declare(...) { ... })
       <|> (do
@@ -322,7 +322,7 @@ parseIf = withSpan $ do
       elifs <- M.many parseAltElseIf
       mElse <- optional parseAltElse
       keyword_ "endif"
-      _ <- semi
+      _ <- statementTerminator
       pure (\sp -> StmtIf sp cond thens elifs mElse)
     -- if (c) ... elseif (c2) ... else ...
     braceBranch cond = do
@@ -406,7 +406,7 @@ parseWhile = withSpan $ do
       _ <- colon
       body <- parseAltBody
       keyword_ "endwhile"
-      _ <- semi
+      _ <- statementTerminator
       pure (\sp -> StmtWhile sp cond body)
     braceBranch cond = do
       body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
@@ -439,7 +439,7 @@ parseFor = withSpan $ do
       _ <- colon
       body <- parseAltBody
       keyword_ "endfor"
-      _ <- semi
+      _ <- statementTerminator
       pure (\sp -> StmtFor sp inits conds incrs body)
     braceBranch inits conds incrs = do
       body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
@@ -473,7 +473,7 @@ parseForeach = withSpan $ do
       _ <- colon
       body <- parseAltBody
       keyword_ "endforeach"
-      _ <- semi
+      _ <- statementTerminator
       pure (\sp -> StmtForeach sp arr mKey val byRef body)
     braceBranch arr mKey val byRef = do
       body <- (braces (M.many parseStmt)) <|> ((\s -> [s]) <$> parseStmt)
@@ -493,7 +493,7 @@ parseSwitch = withSpan $ do
       _ <- colon
       cases <- concat <$> M.many ((\c -> [c]) <$> parseSwitchCaseWith parseAltBody)
       keyword_ "endswitch"
-      _ <- semi
+      _ <- statementTerminator
       pure (\sp -> StmtSwitch sp expr cases)
 
 parseSwitchCase :: Parser (SwitchCase Span)
