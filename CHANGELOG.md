@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Reject removed PHP `(unset)` and `(real)` casts while retaining the supported cast aliases (#146).
+
 * Support `final` modifier on PHP 8.4 constructor-promoted properties (`final private int $x`, `public final int $y`), tracking the modifier via `paramFinal :: !Bool` in `Param`, pretty-printing `final` on promoted parameters, and rejecting `final` on non-promoted parameters (#145).
 
 * Parse dollar-brace string interpolation (`"${var}"`) as `LitInterpolated` containing the variable, matching `"$var"` and `"{$var}"`, instead of leaving it as a literal string; pretty-print escapes a literal `${ident}` in interpolated text so it does not reparse as interpolation (#144).

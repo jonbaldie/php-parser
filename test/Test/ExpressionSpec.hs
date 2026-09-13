@@ -20,6 +20,27 @@ expressionTests = testGroup "Expression Specifications"
           assertEqual "trivia is empty block comment" [CommentBlock ""] triv
         other -> assertFailure ("Expected integer 1, got: " ++ show other)
 
+  , testCase "Removed casts are rejected and supported casts round-trip (Issue #146)" $ do
+      forM_ ["(unset)0", "(real)0"] $ \src ->
+        case parseExpression "issue146.php" src of
+          Left _ -> pure ()
+          Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      forM_ [ "(int)0"
+            , "(integer)0"
+            , "(float)0"
+            , "(double)0"
+            , "(string)0"
+            , "(binary)0"
+            , "(bool)0"
+            , "(boolean)0"
+            , "(array)0"
+            , "(object)0"
+            ] $ \src ->
+        case parseExpression "issue146.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right expr -> assertRoundTripExpr expr
+
   , testCase "instanceof precedence and round trips (Issue #141)" $ do
       let cases =
             [ ("addition", "$x instanceof Foo + 1", \case
