@@ -731,7 +731,15 @@ parseConstModifier = loop Nothing False
         loop vis True)
       <|> pure (vis, isFin)
 
--- | Top-level or Class constant declaration (supports typed constants PHP 8.3).
+-- | Constant item: name and initial value expression.
+parseConstItem :: Parser (Ident Span, Expr Span)
+parseConstItem = do
+  name <- semiReservedIdentifier
+  _ <- symbol "="
+  val <- parseExpr
+  pure (name, val)
+
+-- | Class member constant declaration (supports visibility, final, and typed constants PHP 8.3).
 parseConstDecl :: Parser (ConstDecl Span)
 parseConstDecl = withSpan $ do
   (attrs, vis, isFinal) <- M.try $ do
@@ -743,17 +751,16 @@ parseConstDecl = withSpan $ do
   items <- parseConstItem `M.sepBy1` comma
   _ <- semi
   pure (\sp -> ConstDecl sp attrs vis isFinal mType items)
-  where
-    parseConstItem = do
-      name <- semiReservedIdentifier
-      _ <- symbol "="
-      val <- parseExpr
-      pure (name, val)
 
+-- | Top-level constant declaration statement.
+-- Unlike class member constants, global constants forbid visibility modifiers,
+-- 'final', and type annotations.
 parseConstStmt :: Parser (Stmt Span)
 parseConstStmt = withSpan $ do
-  c <- parseConstDecl
-  pure (\sp -> StmtConst sp c)
+  attrs <- M.try (parseAttributes <* keyword_ "const")
+  items <- parseConstItem `M.sepBy1` comma
+  _ <- semi
+  pure (\sp -> StmtConst sp (ConstDecl sp attrs Nothing False Nothing items))
 
 -- | Function declaration.
 parseFunction :: Parser (Stmt Span)
