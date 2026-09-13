@@ -2,6 +2,7 @@
 
 module Test.PHP82Spec (php82Tests) where
 
+import Control.Monad (forM_)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Text (Text)
@@ -65,6 +66,43 @@ php82Tests = testGroup "PHP 8.2 Specifications"
                 assertEqual "const 2 visibility" Nothing (constVis c2)
               _ -> assertFailure "Expected 2 MemberConst"
           _ -> assertFailure "Expected StmtTrait"
+
+  , testCase "Readonly class property constraints (Issue #148)" $ do
+      let rejected = [ "<?php readonly class C { public static int $x; }"
+                     , "<?php readonly class C { protected static int $x; }"
+                     , "<?php readonly class C { private static int $x; }"
+                     , "<?php readonly class C { static int $x; }"
+                     , "<?php readonly class C { static $x; }"
+                     , "<?php readonly class C { public static $x; }"
+                     , "<?php readonly class C { public $x; }"
+                     , "<?php readonly class C { protected $x; }"
+                     , "<?php readonly class C { private $x; }"
+                     , "<?php readonly class C { var $x; }"
+                     , "<?php readonly class C { public $x, $y; }"
+                     , "<?php $c = new readonly class { public static int $x; };"
+                     , "<?php $c = new readonly class { public $x; };"
+                     ]
+          accepted = [ "<?php readonly class C { public int $x; }"
+                     , "<?php readonly class C { protected string $y = 'foo'; }"
+                     , "<?php readonly class C { private ?float $z; }"
+                     , "<?php readonly class C { public int $x, $y; }"
+                     , "<?php readonly class C { public readonly int $x; }"
+                     , "<?php $c = new readonly class { public int $x; };"
+                     , "<?php class C { public static int $x; }"
+                     , "<?php class C { public $x; }"
+                     , "<?php class C { var $x; }"
+                     , "<?php class C { static $x; }"
+                     , "<?php $c = new class { public static int $x; };"
+                     , "<?php $c = new class { public $x; };"
+                     ]
+      forM_ rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("expected parse failure for: " ++ show src)
+      forM_ accepted $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right _ -> pure ()
   ]
 
 assertParsesOk :: Text -> Assertion
