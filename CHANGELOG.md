@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Support binary-prefixed string literals (`b'hello'`, `b"hi $name"`, `B'hello'`, `B"hello"`), which PHP treats as an alias for an ordinary string literal; the prefix is kept in `LitString`'s raw text and must abut the quote, so a bare `b` is still an identifier (#143).
+
 * Support mixed-kind grouped `use` imports (`use Foo\{function bar, const BAZ, Qux}`), recording an optional clause-level `useClauseType` on `UseClause` and pretty-printing per-clause `function`/`const` keywords (#140).
 
 * Add support for by-reference array items in square-bracket array literals and `array(...)` constructs (`[&$a]`, `array(&$a)`, `['k' => &$v]`), tracking by-reference items via `itemByRef :: !Bool` in `ArrayItem`, pretty-printing `&` before values, and preserving by-reference elements in AST traversals and round-tripping (#139).

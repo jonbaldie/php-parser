@@ -1511,6 +1511,40 @@ expressionTests = testGroup "Expression Specifications"
               Left _ -> pure ()
               Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
       ]
+
+  , testGroup "Binary string prefix (Issue #143)"
+      [ testCase "prefixed single- and double-quoted strings are plain string literals" $ do
+          forM_ [ "b'hello'" :: Text, "B'hello'", "b\"hello\"", "B\"hello\"" ] $ \src ->
+            case parseExpression "issue143.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right (ExprLit _ (LitString _ "hello" raw)) ->
+                assertEqual ("raw text for " ++ show src) src raw
+              other -> assertFailure (show src ++ ": expected LitString, got " ++ show other)
+
+      , testCase "prefixed double-quoted strings still interpolate and decode escapes" $ do
+          case parseExpression "issue143.php" "b\"hi $name\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrLit "hi ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name")))])) -> pure ()
+            other -> assertFailure ("Expected LitInterpolated, got " ++ show other)
+          case parseExpression "issue143.php" "B\"\\101\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitString _ "A" _)) -> pure ()
+            other -> assertFailure ("Expected decoded LitString, got " ++ show other)
+
+      , testCase "prefixed strings round-trip through the pretty printer" $
+          forM_ [ "b'hello'" :: Text, "B\"hi $name\"", "b\"hello\" . B'world'" ] $ \src ->
+            case parseExpression "issue143.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right expr -> assertRoundTripExpr expr
+
+      , testCase "a bare b stays an identifier and a detached prefix is rejected" $ do
+          assertParsesOkExpr "b"
+          assertParsesOkExpr "$b . b"
+          forM_ [ "ab'hello'" :: Text, "b 'hello'" ] $ \src ->
+            case parseExpression "issue143.php" src of
+              Left _ -> pure ()
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+      ]
   ]
 
 refAB :: Expr ()
