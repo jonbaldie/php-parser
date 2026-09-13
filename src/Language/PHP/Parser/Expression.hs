@@ -261,12 +261,11 @@ parseExprWithContext pStmt pMember = parseExprRec
 
         parseCastType =
           (CastInt <$ (keyword "int" <|> keyword "integer"))
-          <|> (CastFloat <$ (keyword "float" <|> keyword "double" <|> keyword "real"))
+          <|> (CastFloat <$ (keyword "float" <|> keyword "double"))
           <|> (CastString <$ (keyword "string" <|> keyword "binary"))
           <|> (CastBool <$ (keyword "bool" <|> keyword "boolean"))
           <|> (CastArray <$ keyword "array")
           <|> (CastObject <$ keyword "object")
-          <|> (CastUnset <$ keyword "unset")
 
     parseClone = withSpan $ do
       _ <- keyword "clone"

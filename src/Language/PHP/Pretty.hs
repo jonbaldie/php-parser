@@ -739,7 +739,6 @@ prettyCastType = \case
   CastBool -> "bool"
   CastArray -> "array"
   CastObject -> "object"
-  CastUnset -> "unset"
 
 prettyExitKind :: ExitKind -> Doc ann
 prettyExitKind = \case

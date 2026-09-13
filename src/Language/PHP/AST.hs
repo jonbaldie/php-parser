@@ -410,7 +410,6 @@ data CastType
   | CastBool
   | CastArray
   | CastObject
-  | CastUnset
   deriving (Eq, Ord, Show, Generic)
 
 -- | Include types.
