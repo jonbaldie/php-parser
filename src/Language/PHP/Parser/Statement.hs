@@ -904,7 +904,9 @@ parseMethod ctx attrs = withSpan $ do
         | otherwise  = ConstructorParam
   params <- parens (parseParamList (parseParamInContext paramCtx))
   retType <- parseReturnType
-  body <- (semi *> pure Nothing) <|> (Just <$> braces (M.many parseStmt))
+  body <- if isAbs
+    then semi *> pure Nothing
+    else Just <$> braces (M.many parseStmt)
   pure (\sp -> MethodDecl sp attrs modif byRef name params retType body)
 
 -- | Property with optional PHP 8.4 hooks and asymmetric visibility.
