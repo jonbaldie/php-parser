@@ -690,7 +690,8 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
 -- | Re-emit the escapes the lexer decoded away in interpolated-string text
 -- parts: a backslash is doubled so it survives re-decoding, double quotes are
 -- escaped so they don't terminate the string (Issue #111), and a dollar that
--- would otherwise reparse as variable interpolation is escaped (Issue #88).
+-- would otherwise reparse as @$name@ or @${name}@ interpolation is escaped
+-- (Issue #88, Issue #144).
 escapeInterpText :: Text -> Text
 escapeInterpText = T.concat . go
   where
@@ -698,11 +699,15 @@ escapeInterpText = T.concat . go
       Nothing -> []
       Just ('\\', rest) -> "\\\\" : go rest
       Just ('"', rest) -> "\\\"" : go rest
-      Just ('$', rest) -> (if startsIdent rest then "\\$" else "$") : go rest
+      Just ('$', rest) -> (if startsInterpolation rest then "\\$" else "$") : go rest
       Just (c, rest) -> T.singleton c : go rest
-    startsIdent rest = case T.uncons rest of
-      Just (c, _) -> isAlpha c || c == '_' || c >= '\x80'
-      Nothing -> False
+    startsInterpolation rest = case T.uncons rest of
+      Just (c, _) | isIdentStart c -> True
+      Just ('{', afterBrace) -> case T.uncons afterBrace of
+        Just (c, _) -> isIdentStart c
+        Nothing -> False
+      _ -> False
+    isIdentStart c = isAlpha c || c == '_' || c >= '\x80'
 
 prettyVar :: HasLeadingTrivia a => Var a -> Doc ann
 prettyVar variable = prettyLeadingTrivia (varAnnotation variable) $ case variable of

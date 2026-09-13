@@ -2,6 +2,8 @@
 
 ## 0.1.4.0
 
+* Parse dollar-brace string interpolation (`"${var}"`) as `LitInterpolated` containing the variable, matching `"$var"` and `"{$var}"`, instead of leaving it as a literal string; pretty-print escapes a literal `${ident}` in interpolated text so it does not reparse as interpolation (#144).
+
 * Support binary-prefixed string literals (`b'hello'`, `b"hi $name"`, `B'hello'`, `B"hello"`), which PHP treats as an alias for an ordinary string literal; the prefix is kept in `LitString`'s raw text and must abut the quote, so a bare `b` is still an identifier (#143).
 
 * Support mixed-kind grouped `use` imports (`use Foo\{function bar, const BAZ, Qux}`), recording an optional clause-level `useClauseType` on `UseClause` and pretty-printing per-clause `function`/`const` keywords (#140).

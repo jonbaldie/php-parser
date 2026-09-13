@@ -1255,6 +1255,36 @@ expressionTests = testGroup "Expression Specifications"
             assertEqual "round trip AST" (stripAnnotations expr) (stripAnnotations reparsed)
       ]
 
+  , testGroup "Dollar-brace string interpolation (Issue #144)"
+      [ testCase "dollar-brace variable interpolation parses into LitInterpolated" $ do
+          case parseExpression "test.php" "\"${foo}\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrExpr (ExprVar _ (SimpleVar _ (VarName _ "foo")))])) -> pure ()
+            other -> assertFailure ("Expected LitInterpolated, got: " ++ show other)
+
+      , testCase "allVariables reports the dollar-brace interpolated name" $ do
+          case parseExpression "test.php" "\"${foo}\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> assertEqual "variables" ["foo"] (allVariables expr)
+
+      , testCase "mixed dollar-brace strings keep surrounding literal chunks" $ do
+          case parseExpression "test.php" "\"hello ${name}!\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrLit "hello ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name"))), StrLit "!"])) -> pure ()
+            other -> assertFailure ("Expected mixed LitInterpolated parts, got: " ++ show other)
+
+      , testCase "dollar-brace interpolations round-trip through pretty printing" $
+          forM_ [ "\"${foo}\"" :: Text
+                , "\"hello ${name}!\""
+                , "\"${a} and $b and {$c}\""
+                ] $ \src -> do
+            expr <- case parseExpression "test.php" src of
+              Left err -> assertFailure (show (formatParseError err))
+              Right e@(ExprLit _ (LitInterpolated _ _)) -> pure e
+              Right other -> assertFailure ("Expected LitInterpolated, got: " ++ show other)
+            assertRoundTripExpr expr
+      ]
+
   , testGroup "Escaped dollar printing (Issue #88)"
       [ testCase "literal dollars and backslashes in text parts survive printing" $
           forM_
@@ -1279,6 +1309,9 @@ expressionTests = testGroup "Expression Specifications"
           safe <- printedFor (T.pack "\"a\\$ $a\"")
           assertEqual "a $ before a space needs no escape"
             (T.pack "\"a$ {$a}\"") safe
+          dollarBrace <- printedFor (T.pack "\"\\${x} $a\"")
+          assertEqual "literal ${x} reprints as \\${x}"
+            (T.pack "\"\\${x} {$a}\"") dollarBrace
       ]
 
   , testGroup "Escaped double quotes in interpolated strings (Issue #111)"
