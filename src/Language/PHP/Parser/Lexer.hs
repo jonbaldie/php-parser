@@ -491,7 +491,7 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
     -- failed interpolation attempt backtracks into literal text, so unmatched
     -- @{@ and stray @$@ stay ordinary characters.
     doublePart =
-      (StrExpr <$> (interpolatedExpr <|> simpleInterp))
+      (StrExpr <$> (interpolatedExpr <|> dollarBraceInterp <|> simpleInterp))
       <|> literalRun
       <|> strayDollar
       <|> strayBrace
@@ -504,6 +504,21 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
       e <- parseInterpExpr
       _ <- C.char '}'
       pure e
+
+    -- Dollar-brace syntax @${ident}@: interpolates @$ident@, as in PHP
+    -- (deprecated in 8.2, still parsed through 8.5). Once @${@ is followed by
+    -- an identifier, the closing @}@ is required. Variable-variable @${$var}@
+    -- does not match here and falls through.
+    dollarBraceInterp = do
+      start <- sourcePosHere
+      _ <- M.try (C.string "${" *> M.lookAhead identStartChar)
+      name <- rawIdentifier
+      _ <- C.char '}'
+      end <- sourcePosHere
+      let sp = mkSpan start end
+      pure (ExprVar sp (SimpleVar sp (VarName sp name)))
+
+    identStartChar = M.satisfy (\c -> isAlpha c || c == '_' || c >= '\x80')
 
     -- Simple syntax: @$name@ followed by at most one @->prop@ or @[key]@
     -- dereference, matching PHP's greedy scan of the variable expression. A
