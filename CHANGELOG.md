@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.4.0
+## 0.1.5.0
 
 * Accept comma-separated expressions in short echo tags (`<?= $a, $b ?>`) inside alternative-syntax bodies, matching top-level short echo tags and `echo` (#153).
 
@@ -31,6 +31,8 @@
 * Reject promoted property modifiers (visibility and readonly) on non-constructors and abstract constructors, matching PHP's "Cannot declare promoted property outside a constructor" and "Cannot declare promoted property in an abstract constructor" fatal errors (#129).
 
 * Reject mutually exclusive declaration modifiers: `final abstract` classes and methods, and `static readonly` properties, in either order, matching PHP's fatal errors (#128).
+
+## 0.1.4.0
 
 * Reject duplicate declaration modifiers on classes, properties, methods, class constants, and promoted parameters (e.g. `final final class C`, `static static int $x`, `public public function`), and repeated access-type modifiers (`public private`), matching PHP's "Multiple ... modifiers are not allowed" diagnostics (#92).
 
