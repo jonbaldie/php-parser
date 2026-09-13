@@ -866,6 +866,11 @@ checkMember ctx member =
     (InterfaceContext, MemberProperty pd)
       | null (propHooks pd) -> forbidden "Interfaces may not include properties"
     (InterfaceContext, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
+    (ClassLikeContext True, MemberProperty pd) -> do
+      when (propStatic (propModifier pd)) $
+        forbidden "Readonly classes cannot declare static properties"
+      when (isNothing (propType pd)) $
+        forbidden "Readonly classes cannot declare untyped properties"
     (_, MemberEnumCase _) -> forbidden "Enum cases can only be used inside enum declarations"
     _ -> pure ()
   where
