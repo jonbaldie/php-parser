@@ -141,8 +141,12 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
   , testCase "foldStmt visits return inside enum method" $ do
       assertFoldsReturn "<?php enum Foo { public function bar() { return 1; } }"
 
-  , testCase "foldStmt visits return inside interface method" $ do
-      assertFoldsReturn "<?php interface Foo { public function bar() { return 1; } }"
+  , testCase "foldStmt handles bodyless interface methods" $ do
+      case parseProgram "test.php" "<?php interface Foo { public function bar(); }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [stmt]) ->
+          assertEqual "bodyless interface methods have no returns" [] (foldReturns stmt)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
 
   , testCase "foldStmt visits return inside property hook block" $ do
       assertFoldsReturn "<?php class Book { public string $title { set(string $value) { return; } } }"

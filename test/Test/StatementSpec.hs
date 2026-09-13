@@ -963,6 +963,16 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php $f = function (...$args) {};"
         , "<?php $f = fn(...$args) => $args;"
         ]
+    , testCase "Reject method bodies on interface and abstract methods (Issue #150)" $ do
+      mapM_ assertParsesFail
+        [ "<?php interface I { public function f() { return 1; } }"
+        , "<?php abstract class C { abstract function f() { return 1; } }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php interface I { public function f(); }"
+        , "<?php abstract class C { abstract function f(); }"
+        , "<?php class C { public function f() { return 1; } }"
+        ]
   ]
 
 
