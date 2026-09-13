@@ -242,6 +242,23 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertEqual "echo expression count" 2 (length exprs)
         Right other -> assertFailure ("Expected single echo, got: " ++ show other)
 
+  , testCase "Short echo tag accepts comma-separated expressions inside alternative-syntax bodies (Issue #153)" $ do
+      case parseProgram "test.php" "<?php if ($x): ?><?= $a, $b ?><?php endif; ?>" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtIf _ _ [StmtEcho _ exprs] _ _]) ->
+          assertEqual "echo expression count" 2 (length exprs)
+        Right other -> assertFailure ("Expected if with a two-expression echo, got: " ++ show other)
+
+  , testCase "Short echo tag with commas between inline HTML inside an alternative-syntax body (Issue #153)" $ do
+      let src = "<?php if ($x): ?>x<?= $title, ' - ', $subtitle ?>y<?php endif; ?>"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtIf _ _ body _ _]) ->
+          case [exprs | StmtEcho _ exprs <- body] of
+            [exprs] -> assertEqual "echo expression count" 3 (length exprs)
+            other -> assertFailure ("Expected one echo in body, got: " ++ show other)
+        Right other -> assertFailure ("Expected single if statement, got: " ++ show other)
+
   , testCase "Preserves comments and docblocks in trivia" $ do
       let src = "<?php /** PHPDoc for Service */ class Service {}"
       case parseProgram "test.php" src of

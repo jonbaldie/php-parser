@@ -83,6 +83,18 @@ parseCloseTag = do
 statementTerminator :: Parser T.Text
 statementTerminator = semi <|> (M.lookAhead parseCloseTag *> pure ";")
 
+-- | The body of a short echo tag, after its @<?=@ opener. @<?=@ is @echo@,
+-- so it takes the same comma-separated expression list.
+parseShortEchoBody :: Parser (Stmt Span)
+parseShortEchoBody = do
+  sc
+  firstExpr <- parseExpr
+  moreExprs <- M.many (comma *> parseExpr)
+  _ <- optional semi
+  let lastExpr = if null moreExprs then firstExpr else last moreExprs
+      echoSpan = combineSpans (exprSpan firstExpr) (exprSpan lastExpr)
+  pure (StmtEcho echoSpan (firstExpr : moreExprs))
+
 parsePhpAndHtmlChunks :: Parser [Stmt Span]
 parsePhpAndHtmlChunks = do
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
@@ -92,14 +104,8 @@ parsePhpAndHtmlChunks = do
       isShortEcho <- (True <$ M.try (C.string "<?=")) <|> pure False
       if isShortEcho
         then do
-          sc
-          firstExpr <- parseExpr
-          moreExprs <- M.many (comma *> parseExpr)
-          _ <- optional semi
+          echoStmt <- parseShortEchoBody
           hasClose <- (True <$ M.try parseCloseTag) <|> pure False
-          let lastExpr = if null moreExprs then firstExpr else last moreExprs
-              echoSpan = combineSpans (exprSpan firstExpr) (exprSpan lastExpr)
-              echoStmt = StmtEcho echoSpan (firstExpr : moreExprs)
           if hasClose
             then do
               (spHtml, html) <- spanned takeUntilPhpTag
@@ -390,10 +396,8 @@ parseAltBodyElement =
       if not isEcho
         then M.empty
         else do
-          sc
-          expr <- parseExpr
-          _ <- optional semi
-          pure [StmtEcho (exprSpan expr) [expr]]
+          echoStmt <- parseShortEchoBody
+          pure [echoStmt]
 
 -- | While loop, including the alternative (colon/keyword) syntax.
 parseWhile :: Parser (Stmt Span)
