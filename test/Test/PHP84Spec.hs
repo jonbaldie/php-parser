@@ -197,6 +197,57 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberMethod"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "Constructor promotion with final modifier (Issue #145)" $ do
+      let src = "<?php class C { function __construct(final private int $x, public final int $y, public private(set) final int $z, final readonly int $w) {} }"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) -> case stmts of
+          [StmtClass _ cd] -> case classMembers cd of
+            [MemberMethod md] -> case methodParams md of
+              [p1, p2, p3, p4] -> do
+                assertEqual "p1 vis" (Just Private) (paramVis p1)
+                assertBool "p1 final" (paramFinal p1)
+                assertBool "p1 not readonly" (not (paramReadonly p1))
+
+                assertEqual "p2 vis" (Just Public) (paramVis p2)
+                assertBool "p2 final" (paramFinal p2)
+                assertBool "p2 not readonly" (not (paramReadonly p2))
+
+                assertEqual "p3 vis" (Just Public) (paramVis p3)
+                assertEqual "p3 write vis" (Just Private) (paramWriteVis p3)
+                assertBool "p3 final" (paramFinal p3)
+
+                assertEqual "p4 vis" Nothing (paramVis p4)
+                assertBool "p4 readonly" (paramReadonly p4)
+                assertBool "p4 final" (paramFinal p4)
+              _ -> assertFailure "Expected 4 params"
+            _ -> assertFailure "Expected MemberMethod"
+          _ -> assertFailure "Expected StmtClass"
+
+      -- Reject final on non-promoted parameters
+      let rejectNonPromoted =
+            [ "<?php class C { function __construct(final int $x) {} }"
+            , "<?php function foo(final int $x) {}"
+            , "<?php class C { function foo(final int $x) {} }"
+            , "<?php function foo(final private int $x) {}"
+            , "<?php class C { function __construct(final final private int $x) {} }"
+            , "<?php abstract class C { abstract function __construct(final private int $x); }"
+            ]
+      _ <- forM rejectNonPromoted $ \badSrc ->
+        case parseProgram "test.php" badSrc of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("Expected parse failure for: " ++ show badSrc)
+
+      -- Verify round-trip through pretty printing
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right prog -> do
+          let printed = prettyPrint prog
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("Reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted:\n" ++ show printed)
+            Right prog2 ->
+              assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+
   , testCase "New without parentheses method call: new Service()->process()" $ do
       let src = "new Service()->process()"
       case parseExpression "test.php" src of

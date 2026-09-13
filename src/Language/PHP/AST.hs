@@ -204,6 +204,7 @@ data Param a = Param
   , paramVis         :: !(Maybe Visibility) -- ^ Constructor property promotion read vis
   , paramWriteVis    :: !(Maybe Visibility) -- ^ Asymmetric write vis (PHP 8.4)
   , paramReadonly    :: !Bool
+  , paramFinal       :: !Bool               -- ^ Constructor property promotion final (PHP 8.4)
   , paramType        :: !(Maybe (Type a))
   , paramByRef       :: !Bool
   , paramVariadic    :: !Bool

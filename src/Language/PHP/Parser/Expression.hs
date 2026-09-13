@@ -720,7 +720,7 @@ parseParamDummy pExpr = withSpan $ do
   isVariadic <- (True <$ symbol "...") <|> pure False
   var <- variableName
   mDef <- optional (symbol "=" *> pExpr)
-  pure (\sp -> Param sp attrs Nothing Nothing False typ byRef isVariadic var mDef)
+  pure (\sp -> Param sp attrs Nothing Nothing False False typ byRef isVariadic var mDef)
 
 parseStmtDummy :: Parser (Stmt Span)
 parseStmtDummy = withSpan $ do

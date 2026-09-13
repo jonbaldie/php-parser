@@ -319,11 +319,12 @@ prettyMethodDecl (MethodDecl annotation attrs modif byRef name params retType bo
     Just ss -> " {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}"
 
 prettyParam :: HasLeadingTrivia a => Param a -> Doc ann
-prettyParam (Param annotation attrs vis wVis isRo mType byRef isVariadic name mDef) = prettyLeadingTrivia annotation $
+prettyParam (Param annotation attrs vis wVis isRo isFinal mType byRef isVariadic name mDef) = prettyLeadingTrivia annotation $
   prettyAttributes attrs <>
   maybe mempty (\v -> prettyVisibility v <> " ") vis <>
   maybe mempty (\wv -> prettyVisibility wv <> "(set) ") wVis <>
   (if isRo then "readonly " else "") <>
+  (if isFinal then "final " else "") <>
   maybe mempty (\t -> prettyType t <> " ") mType <>
   (if byRef then "&" else "") <>
   (if isVariadic then "..." else "") <>
