@@ -7,6 +7,7 @@ module Language.PHP.Parser.Expression
   , parsePrimaryExpr
   , parseArg
   , parseCallArgs
+  , parseParamList
   , parseMatchArm
   , parseArrayItem
   , parseAttributes
@@ -19,6 +20,7 @@ module Language.PHP.Parser.Expression
 
 import Control.Applicative ((<|>), optional)
 import Control.Monad (guard, join, void)
+import qualified Data.Set as S
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 import Language.PHP.AST
@@ -529,7 +531,7 @@ parseExprWithContext pStmt pMember = parseExprRec
       let attrs = attrs1 ++ attrs2
       keyword_ "fn"
       byRef <- (True <$ symbol "&") <|> pure False
-      params <- parens (parseParamDummy parseExprRec `M.sepEndBy` comma)
+      params <- parens (parseParamList (parseParamDummy parseExprRec))
       retType <- parseReturnType
       _ <- symbol "=>"
       body <- parseAssignment
@@ -542,7 +544,7 @@ parseExprWithContext pStmt pMember = parseExprRec
       let attrs = attrs1 ++ attrs2
       keyword_ "function"
       byRef <- (True <$ symbol "&") <|> pure False
-      params <- parens (parseParamDummy parseExprRec `M.sepEndBy` comma)
+      params <- parens (parseParamList (parseParamDummy parseExprRec))
       uses <- (keyword "use" *> parens (parseClosureUse `M.sepEndBy` comma)) <|> pure []
       retType <- parseReturnType
       body <- braces (M.many pStmt)
@@ -720,6 +722,18 @@ parseParamDummy pExpr = withSpan $ do
   var <- variableName
   mDef <- optional (symbol "=" *> pExpr)
   pure (\sp -> Param sp attrs Nothing Nothing False False typ byRef isVariadic var mDef)
+
+-- | Parse a parameter list and reject variadic parameters before its end.
+parseParamList :: Parser (Param Span) -> Parser [Param Span]
+parseParamList p = do
+  params <- p `M.sepEndBy` comma
+  if hasNonFinalVariadic params
+    then M.registerFancyFailure (S.singleton (M.ErrorFail "Only the last parameter can be variadic")) *> pure params
+    else pure params
+  where
+    hasNonFinalVariadic [] = False
+    hasNonFinalVariadic [_] = False
+    hasNonFinalVariadic (param : rest) = paramVariadic param || hasNonFinalVariadic rest
 
 parseStmtDummy :: Parser (Stmt Span)
 parseStmtDummy = withSpan $ do
