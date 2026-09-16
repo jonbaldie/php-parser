@@ -1646,6 +1646,42 @@ expressionTests = testGroup "Expression Specifications"
               Left _ -> pure ()
               Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
       ]
+
+  , testGroup "Nullsafe operator with first-class callables rejection (Issue #187)"
+      [ testCase "nullsafe method call with first-class callable is rejected" $ do
+          forM_ [ "$obj?->method(...)" :: Text
+                , "$obj?->$method(...)"
+                , "$obj?->{\"method\"}(...)"
+                , "$a?->b()?->c(...)"
+                , "$a?->b->c(...)"
+                , "$a?->b()->c(...)"
+                , "$a?->arr[0]->c(...)"
+                , "($a?->b)->c(...)"
+                ] $ \src ->
+            case parseExpression "issue187.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot combine nullsafe operator with Closure creation")
+                  (errorCustom err)
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      , testCase "nullsafe first-class callable inside program is rejected" $ do
+          case parseProgram "issue187.php" "<?php\n$f = $obj?->method(...);\n" of
+            Left err ->
+              assertEqual "expected specific error message for program"
+                (Just "Cannot combine nullsafe operator with Closure creation")
+                (errorCustom err)
+            Right prog -> assertFailure ("expected parse error for program, got: " ++ show prog)
+
+      , testCase "valid first-class callables and nullsafe calls continue to be accepted" $ do
+          assertParsesOkExpr "$obj?->method()"
+          assertParsesOkExpr "$obj->method(...)"
+          assertParsesOkExpr "Foo::method(...)"
+          assertParsesOkExpr "strlen(...)"
+          assertParsesOkExpr "$a?->b->c()"
+          assertParsesOkExpr "$a->b->c(...)"
+          assertParsesOkExpr "($obj?->fn)(...)"
+      ]
   ]
 
 refAB :: Expr ()

@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject combining the nullsafe operator with first-class callables (`$obj?->method(...)`, `$obj?->prop->method(...)`), producing a parse error matching PHP's compile-time fatal error (#187).
+
 * Support binary-prefixed heredocs and nowdocs (`b<<<EOT`, `b<<<'EOT'`, `B<<<EOT`, `B<<<'EOT'`), mirroring PHP's lexer; the prefix must abut `<<<` so a bare `b` remains an identifier (#186).
 
 * Accept comma-separated expressions in short echo tags (`<?= $a, $b ?>`) inside alternative-syntax bodies, matching top-level short echo tags and `echo` (#153).

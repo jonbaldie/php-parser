@@ -44,6 +44,21 @@ isReferenceable = \case
   ExprStaticCall {}            -> True
   _                            -> False
 
+-- | Whether an expression receiver chain contains a nullsafe operator (@?->@).
+--
+-- In PHP, first-class callable creation (@(...)@) cannot be combined with the
+-- nullsafe operator, either directly (@$obj?->method(...)@) or anywhere in the
+-- receiver chain of a method call (@$obj?->prop->method(...)@,
+-- @$obj?->m()->method(...)@, @$obj?->arr[0]->method(...)@).
+hasNullsafe :: Expr a -> Bool
+hasNullsafe = \case
+  ExprNullsafePropertyFetch {} -> True
+  ExprNullsafeMethodCall {}    -> True
+  ExprPropertyFetch _ base _   -> hasNullsafe base
+  ExprMethodCall _ base _ _    -> hasNullsafe base
+  ExprArrayAccess _ base _     -> hasNullsafe base
+  _                            -> False
+
 -- | Parse expression with default statement and class member dummies.
 parseExpr :: Parser (Expr Span)
 parseExpr = parseExprWith parseStmtDummy M.empty
@@ -333,6 +348,9 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           let sp = combineSpans (exprSpan base) (memberNameSpan name)
           case mArgs of
             Nothing -> pure (ExprPropertyFetch sp base name)
+            Just FirstClassCallable
+              | hasNullsafe base -> fail "Cannot combine nullsafe operator with Closure creation"
+              | otherwise        -> pure (ExprMethodCall sp base name FirstClassCallable)
             Just args -> pure (ExprMethodCall sp base name args)
 
         parseNullsafeMethodOrProp = do
@@ -342,6 +360,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           let sp = combineSpans (exprSpan base) (memberNameSpan name)
           case mArgs of
             Nothing -> pure (ExprNullsafePropertyFetch sp base name)
+            Just FirstClassCallable -> fail "Cannot combine nullsafe operator with Closure creation"
             Just args -> pure (ExprNullsafeMethodCall sp base name args)
 
         parseStaticAccess = do
