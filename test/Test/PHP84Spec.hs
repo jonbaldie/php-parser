@@ -92,6 +92,19 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberProperty"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "interface property hooks reject bodies and final modifier (Issue #189)" $ do
+      let assertRejected label src = case parseProgram "test.php" src of
+            Left _ -> pure ()
+            Right _ -> assertFailure (label ++ " should have been rejected")
+      assertRejected "get hook with expression body"
+        "<?php interface Foo { public string $bar { get => 'bar'; } }"
+      assertRejected "set hook with block body"
+        "<?php interface Foo { public string $bar { set(string $v) { $this->bar = $v; } } }"
+      assertRejected "final get hook"
+        "<?php interface Foo { public string $bar { final get; } }"
+      assertRejected "final set hook"
+        "<?php interface Foo { public string $bar { get; final set; } }"
+
   , testCase "bodyless hooks round-trip through pretty printing (Issue #6)" $ do
       let src = "<?php interface I { public string $name { get; set; } }"
       case parseProgram "test.php" src of
