@@ -1682,6 +1682,49 @@ expressionTests = testGroup "Expression Specifications"
           assertParsesOkExpr "$a->b->c(...)"
           assertParsesOkExpr "($obj?->fn)(...)"
       ]
+
+  , testGroup "Positional arguments after argument unpacking rejection (Issue #190)"
+      [ testCase "positional arguments after unpacking are rejected in function, method, and constructor calls" $ do
+          forM_ [ "foo($a, ...$args, $b)" :: Text
+                , "foo(...$args, $b)"
+                , "foo(...$args, $b, $c)"
+                , "foo($a, ...$args, name: $b, $c)"
+                , "$obj->method(...$args, $b)"
+                , "$obj?->method(...$args, $b)"
+                , "Foo::bar(...$args, $b)"
+                , "$fn(...$args, $b)"
+                , "new Foo(...$args, $b)"
+                , "new class(...$args, $b) {}"
+                ] $ \src ->
+            case parseExpression "issue190.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot use positional argument after argument unpacking")
+                  (errorCustom err)
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      , testCase "positional argument after unpacking inside program is rejected" $ do
+          case parseProgram "issue190.php" "<?php foo($a, ...$args, $b);" of
+            Left err ->
+              assertEqual "expected specific error message for program"
+                (Just "Cannot use positional argument after argument unpacking")
+                (errorCustom err)
+            Right prog -> assertFailure ("expected parse error for program, got: " ++ show prog)
+
+      , testCase "valid unpacking and named arguments continue to be accepted" $ do
+          assertParsesOkExpr "foo(...$args)"
+          assertParsesOkExpr "foo($a, $b, ...$args)"
+          assertParsesOkExpr "foo($a, ...$args, name: $b)"
+          assertParsesOkExpr "foo(...$a, ...$b)"
+          assertParsesOkExpr "foo(...$a, b: $b, c: $c)"
+          assertParsesOkExpr "$obj->method(...$args)"
+          assertParsesOkExpr "Foo::bar(...$args)"
+          assertParsesOkExpr "new Foo(...$args)"
+          assertParsesOkExpr "new Foo($a, ...$args)"
+          assertParsesOkExpr "new Foo(...$args, name: $b)"
+          assertParsesOkExpr "new class(...$args) {}"
+          assertParsesOkExpr "new class(...$args, name: $b) {}"
+      ]
   ]
 
 refAB :: Expr ()

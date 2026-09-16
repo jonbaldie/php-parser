@@ -7,6 +7,7 @@ module Language.PHP.Parser.Expression
   , parseExprWithContextAndBody
   , parsePrimaryExpr
   , parseArg
+  , parseArgList
   , parseCallArgs
   , parseParamList
   , parseMatchArm
@@ -21,6 +22,7 @@ module Language.PHP.Parser.Expression
 
 import Control.Applicative ((<|>), optional)
 import Control.Monad (guard, join, void)
+import Data.Maybe (isNothing)
 import qualified Data.Set as S
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
@@ -477,7 +479,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       if isAnon
         then do
           let modif = ClassModifier False False isReadonlyAnon
-          mArgs <- optional (parens (parseArgWith parseExprRec `M.sepEndBy` comma))
+          mArgs <- optional (parens (parseArgList (parseArgWith parseExprRec)))
           let args = maybe [] id mArgs
           mExtends <- optional (keyword "extends" *> qualifiedName)
           impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
@@ -486,7 +488,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         else do
           guard (null attrs)
           target <- parseNewTarget
-          mArgs <- optional (parens (parseArgWith parseExprRec `M.sepEndBy` comma))
+          mArgs <- optional (parens (parseArgList (parseArgWith parseExprRec)))
           case mArgs of
             Nothing -> do
               -- An unparenthesized @new@ over a named class is not
@@ -671,7 +673,7 @@ parseArgWith pExpr = withSpan $ do
 parseCallArgs :: Parser (CallArgs Span)
 parseCallArgs = parens $
   (FirstClassCallable <$ M.try (symbol "..." <* M.lookAhead (symbol ")")))
-  <|> (ArgsList <$> (parseArg `M.sepEndBy` comma))
+  <|> (ArgsList <$> parseArgList parseArg)
 
 -- | Match arm using expression parser.
 parseMatchArm :: Parser (MatchArm Span)
@@ -740,7 +742,7 @@ parseAttributeGroup = withSpan $ do
 parseAttribute :: Parser (Attribute Span)
 parseAttribute = withSpan $ do
   qn <- qualifiedName
-  mArgs <- optional (parens (parseArg `M.sepEndBy` comma))
+  mArgs <- optional (parens (parseArgList parseArg))
   pure (\sp -> Attribute sp qn (maybe [] id mArgs))
 
 parseParamDummy :: Parser (Expr Span) -> Parser (Param Span)
@@ -752,6 +754,24 @@ parseParamDummy pExpr = withSpan $ do
   var <- variableName
   mDef <- optional (symbol "=" *> pExpr)
   pure (\sp -> Param sp attrs Nothing Nothing False False typ byRef isVariadic var mDef)
+
+-- | Parse an argument list and reject positional arguments following argument unpacking.
+parseArgList :: Parser (Arg Span) -> Parser [Arg Span]
+parseArgList p = do
+  args <- p `M.sepEndBy` comma
+  if hasPositionalAfterUnpack args
+    then M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after argument unpacking")) *> pure args
+    else pure args
+  where
+    hasPositionalAfterUnpack = go False
+      where
+        go _ [] = False
+        go seenUnpack (arg : rest)
+          | argUnpack arg = go True rest
+          | isPositional arg && seenUnpack = True
+          | otherwise = go seenUnpack rest
+
+        isPositional a = isNothing (argName a) && not (argUnpack a)
 
 -- | Parse a parameter list and reject variadic parameters before its end.
 parseParamList :: Parser (Param Span) -> Parser [Param Span]
