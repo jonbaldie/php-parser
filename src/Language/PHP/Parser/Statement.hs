@@ -865,6 +865,10 @@ checkMember ctx member =
       | any isPromotedParam (methodParams md) -> forbidden "Enums may not include properties"
     (InterfaceContext, MemberProperty pd)
       | null (propHooks pd) -> forbidden "Interfaces may not include properties"
+      | any (\h -> case hookBody h of HookAbstract -> False; _ -> True) (propHooks pd) ->
+          forbidden "Abstract property hook cannot have body"
+      | any hookFinal (propHooks pd) ->
+          forbidden "Property hook cannot be both abstract and final"
     (InterfaceContext, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
     (ClassLikeContext True, MemberProperty pd) -> do
       when (propStatic (propModifier pd)) $

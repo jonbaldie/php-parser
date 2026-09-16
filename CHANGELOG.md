@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject property hooks with bodies (`get => ...`, `get { ... }`) or the `final` modifier inside interfaces, matching PHP's compile-time fatal errors for abstract hooks that have a body or are declared both abstract and final (#189).
+
 * Include static variable declarations (`StmtStatic`) in `queryStmt` (e.g. `queryStmt allVariables`) and rewrite declared variable names during `transformStmt`, ensuring static variables are discovered and refactored consistently alongside local variables and global declarations (#188).
 
 * Reject combining the nullsafe operator with first-class callables (`$obj?->method(...)`, `$obj?->prop->method(...)`), producing a parse error matching PHP's compile-time fatal error (#187).
