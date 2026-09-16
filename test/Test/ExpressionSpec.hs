@@ -1599,6 +1599,53 @@ expressionTests = testGroup "Expression Specifications"
               Left _ -> pure ()
               Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
       ]
+
+  , testGroup "Binary heredoc and nowdoc prefix (Issue #186)"
+      [ testCase "binary-prefixed heredocs and nowdocs parse as LitHeredoc" $ do
+          forM_ [ "b<<<EOT\nhello\nEOT\n" :: Text
+                , "B<<<EOT\nhello\nEOT\n"
+                , "b<<<'EOT'\nhello\nEOT\n"
+                , "B<<<'EOT'\nhello\nEOT\n"
+                , "b<<<\"EOT\"\nhello\nEOT\n"
+                , "B<<<\"EOT\"\nhello\nEOT\n"
+                ] $ \src ->
+            case parseExpression "issue186.php" src of
+              Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+              Right (ExprLit _ (LitHeredoc _ "EOT" "hello" isNowdoc)) ->
+                if "EOT'" `T.isInfixOf` src
+                  then assertBool "expected nowdoc" isNowdoc
+                  else assertBool "expected heredoc" (not isNowdoc)
+              other -> assertFailure (show src ++ ": expected LitHeredoc, got " ++ show other)
+
+      , testCase "binary-prefixed heredoc inside full program parses successfully" $ do
+          case parseProgram "issue186.php" "<?php\n$a = b<<<EOT\nhello\nEOT;\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right _ -> pure ()
+          case parseProgram "issue186.php" "<?php\n$a = b<<<'EOT'\nhello\nEOT;\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right _ -> pure ()
+          case parseProgram "issue186.php" "<?php\n$a = B<<<EOT\nhello\nEOT;\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right _ -> pure ()
+
+      , testCase "binary-prefixed flexible indented heredoc strips indentation correctly" $ do
+          let src = "b<<<EOT\n    hello\n    world\n    EOT\n" :: Text
+          case parseExpression "issue186.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitHeredoc _ "EOT" "hello\nworld" False)) -> pure ()
+            other -> assertFailure ("expected indented LitHeredoc, got: " ++ show other)
+
+      , testCase "a bare b stays an identifier and a detached prefix is rejected" $ do
+          assertParsesOkExpr "b"
+          assertParsesOkExpr "$b . b"
+          forM_ [ "ab<<<EOT\nhello\nEOT\n" :: Text
+                , "b <<<EOT\nhello\nEOT\n"
+                , "B <<<EOT\nhello\nEOT\n"
+                ] $ \src ->
+            case parseExpression "issue186.php" src of
+              Left _ -> pure ()
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+      ]
   ]
 
 refAB :: Expr ()

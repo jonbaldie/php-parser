@@ -614,7 +614,11 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 literalHeredocOrNowdoc :: Parser (Literal Span)
 literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
   (isNowdoc, tag) <- M.try $ do
-    _ <- C.string "<<<"
+    -- An optional binary prefix @b@ / @B@ (Issue #186) immediately precedes
+    -- the @<<<@ delimiter, mirroring PHP's lexer. Like string literals
+    -- (Issue #143), it must abut @<<<@; @M.try@ keeps an identifier starting
+    -- with @b@ / @B@ available to surrounding expression alternatives.
+    _ <- optional (C.char 'b' <|> C.char 'B') *> C.string "<<<"
     _ <- many (C.char ' ' <|> C.char '\t')
     t <- parseTag
     _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
