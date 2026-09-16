@@ -2,7 +2,7 @@
 
 module Test.PHP84Spec (php84Tests) where
 
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 import qualified Data.Text as T
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -209,6 +209,55 @@ php84Tests = testGroup "PHP 8.4 Specifications"
               _ -> assertFailure "Expected 2 params"
             _ -> assertFailure "Expected MemberMethod"
           _ -> assertFailure "Expected StmtClass"
+
+  , testCase "Reject property declarations and constructor-promoted parameters where read visibility is weaker than set visibility (Issue #193)" $ do
+      let rejectedProps =
+            [ "<?php class Foo { private public(set) string $bar; }"
+            , "<?php class Foo { protected public(set) string $baz; }"
+            , "<?php class Foo { private protected(set) string $bar; }"
+            , "<?php class Foo { public(set) private string $bar; }"
+            , "<?php class Foo { public(set) protected string $baz; }"
+            , "<?php class Foo { protected(set) private string $bar; }"
+            ]
+          rejectedParams =
+            [ "<?php class Bar { public function __construct(private public(set) string $bar) {} }"
+            , "<?php class Bar { public function __construct(protected public(set) string $bar) {} }"
+            , "<?php class Bar { public function __construct(private protected(set) string $bar) {} }"
+            , "<?php class Bar { public function __construct(public(set) private string $bar) {} }"
+            , "<?php class Bar { public function __construct(public(set) protected string $bar) {} }"
+            , "<?php class Bar { public function __construct(protected(set) private string $bar) {} }"
+            ]
+      forM_ (rejectedProps ++ rejectedParams) $ \src ->
+        case parseProgram "test.php" src of
+          Left err ->
+            assertBool ("expected error message on: " ++ show src)
+              (maybe False (T.isInfixOf "Visibility of property must not be weaker than set visibility") (errorCustom err))
+          Right _ -> assertFailure ("expected parse failure for: " ++ show src)
+
+      let validCases =
+            [ "<?php class C { public public(set) string $a; }"
+            , "<?php class C { protected protected(set) string $b; }"
+            , "<?php class C { private private(set) string $c; }"
+            , "<?php class C { public protected(set) string $d; }"
+            , "<?php class C { public private(set) string $e; }"
+            , "<?php class C { protected private(set) string $f; }"
+            , "<?php class C { public(set) string $g; }"
+            , "<?php class C { protected(set) string $h; }"
+            , "<?php class C { private(set) string $i; }"
+            , "<?php class C { public function __construct(public public(set) string $a) {} }"
+            , "<?php class C { public function __construct(protected protected(set) string $b) {} }"
+            , "<?php class C { public function __construct(private private(set) string $c) {} }"
+            , "<?php class C { public function __construct(public protected(set) string $d) {} }"
+            , "<?php class C { public function __construct(public private(set) string $e) {} }"
+            , "<?php class C { public function __construct(protected private(set) string $f) {} }"
+            , "<?php class C { public function __construct(public(set) string $g) {} }"
+            , "<?php class C { public function __construct(protected(set) string $h) {} }"
+            , "<?php class C { public function __construct(private(set) string $i) {} }"
+            ]
+      forM_ validCases $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertFailure ("unexpected parse failure for: " ++ show src ++ ": " ++ show (formatParseError err))
+          Right _ -> pure ()
 
   , testCase "Constructor promotion with final modifier (Issue #145)" $ do
       let src = "<?php class C { function __construct(final private int $x, public final int $y, public private(set) final int $z, final readonly int $w) {} }"

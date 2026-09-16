@@ -636,10 +636,28 @@ conflictingModifiers this that =
 modifierError :: String -> Parser ()
 modifierError = M.registerFancyFailure . S.singleton . M.ErrorFail
 
+-- | Returns True if the first visibility is strictly weaker than the second.
+-- In PHP 8.4 asymmetric visibility, read visibility cannot be weaker than write visibility.
+-- Ordering from weakest to strongest: Private < Protected < Public.
+isWeakerVisibility :: Visibility -> Visibility -> Bool
+isWeakerVisibility Private Protected = True
+isWeakerVisibility Private Public    = True
+isWeakerVisibility Protected Public  = True
+isWeakerVisibility _ _               = False
+
+checkVisibilityOrdering :: Maybe Visibility -> Maybe Visibility -> Parser ()
+checkVisibilityOrdering (Just v) (Just wv)
+  | isWeakerVisibility v wv =
+      modifierError "Visibility of property must not be weaker than set visibility"
+checkVisibilityOrdering _ _ = pure ()
+
 -- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract, var).
 -- Note: @var@ is an alias for @public@ visibility and cannot be combined with explicit visibility.
 parsePropertyModifier :: Parser PropertyModifier
-parsePropertyModifier = loop Nothing Nothing False False False False
+parsePropertyModifier = do
+  modif@(PropertyModifier vis wVis _ _ _ _) <- loop Nothing Nothing False False False False
+  checkVisibilityOrdering vis wVis
+  pure modif
   where
     loop vis wVis isStat isRo isFin isAbs =
       (do
@@ -809,7 +827,10 @@ parseParamInContext pCtx = withSpan $ do
   mDef <- optional (symbol "=" *> parseExpr)
   pure (\sp -> Param sp attrs vis wVis isRo isFin typ byRef isVariadic var mDef)
   where
-    parseParamModifiers = loop Nothing Nothing False False
+    parseParamModifiers = do
+      res@(vis, wVis, _, _) <- loop Nothing Nothing False False
+      checkVisibilityOrdering vis wVis
+      pure res
       where
         loop vis wVis isRo isFin =
           (do
