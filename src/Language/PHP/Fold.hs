@@ -242,6 +242,11 @@ transformHookBody f = \case
   HookAbstract -> HookAbstract
 
 -- | Transform statements recursively.
+--
+-- Traverses statements and embedded expressions. Static variable declarations
+-- (@static $var = $val;@) declare variables in the current function or method
+-- scope and have their variable names rewritten via @f@ in lockstep with body
+-- occurrences, alongside any initializer expressions.
 transformStmt :: (Expr a -> Expr a) -> Stmt a -> Stmt a
 transformStmt f = \case
   StmtExpr a e -> StmtExpr a (transformExpr f e)
@@ -305,7 +310,12 @@ transformStmt f = \case
   StmtEcho a es -> StmtEcho a (map (transformExpr f) es)
   StmtGlobal a es -> StmtGlobal a (map (transformExpr f) es)
   StmtStatic a items ->
-    let items' = map (\(v, me) -> (v, fmap (transformExpr f) me)) items
+    let items' = map (\(vn@(VarName va _), me) ->
+          let vn' = case f (ExprVar va (SimpleVar va vn)) of
+                ExprVar _ (SimpleVar _ newVn) -> newVn
+                _                             -> vn
+              me' = fmap (transformExpr f) me
+          in (vn', me')) items
     in StmtStatic a items'
   StmtDeclare a dirs mBody ->
     StmtDeclare a dirs (fmap (map (transformStmt f)) mBody)
@@ -451,6 +461,11 @@ queryExprWith qExpr qStmt expr = qExpr expr <> case expr of
   ExprConstFetch _ _ -> mempty
 
 -- | Query expressions in statements.
+--
+-- Monoidally accumulates across statements and embedded expressions. Static
+-- variable declarations (@static $var = $val;@) are queried for variable
+-- references, surfacing declared static variable names as well as initializer
+-- expressions.
 queryStmt :: Monoid m => (Expr a -> m) -> Stmt a -> m
 queryStmt q = \case
   StmtExpr _ e -> queryExpr q e
@@ -502,7 +517,8 @@ queryStmt q = \case
     foldMap (queryClassMember q) (enumMembers ed)
   StmtEcho _ es -> foldMap (queryExpr q) es
   StmtGlobal _ es -> foldMap (queryExpr q) es
-  StmtStatic _ items -> foldMap (maybe mempty (queryExpr q) . snd) items
+  StmtStatic _ items ->
+    foldMap (\(vn@(VarName va _), me) -> queryExpr q (ExprVar va (SimpleVar va vn)) <> maybe mempty (queryExpr q) me) items
   StmtDeclare _ _ mBody -> maybe mempty (foldMap (queryStmt q)) mBody
   StmtGoto _ _ -> mempty
   StmtLabel _ _ -> mempty
