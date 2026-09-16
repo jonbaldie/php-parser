@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Include static variable declarations (`StmtStatic`) in `queryStmt` (e.g. `queryStmt allVariables`) and rewrite declared variable names during `transformStmt`, ensuring static variables are discovered and refactored consistently alongside local variables and global declarations (#188).
+
 * Reject combining the nullsafe operator with first-class callables (`$obj?->method(...)`, `$obj?->prop->method(...)`), producing a parse error matching PHP's compile-time fatal error (#187).
 
 * Support binary-prefixed heredocs and nowdocs (`b<<<EOT`, `b<<<'EOT'`, `B<<<EOT`, `B<<<'EOT'`), mirroring PHP's lexer; the prefix must abut `<<<` so a bare `b` remains an identifier (#186).

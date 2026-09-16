@@ -423,6 +423,51 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           case transformed of
             ExprArray _ [_, ArrayItem _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "renamedY"))) False True, _] -> pure ()
             other -> assertFailure ("Expected transformed by-reference array item, got: " ++ show other)
+
+  , testCase "allVariables and transformStmt traverse static variable declarations (Issue #188)" $ do
+      let src = "<?php static $count = 0; $count++;"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [staticStmt, exprStmt]) -> do
+          assertEqual "queryStmt allVariables extracts static variable"
+            ["count"]
+            (queryStmt allVariables staticStmt)
+          let renameVar = \case
+                ExprVar a (SimpleVar sv (VarName vn "count")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "tally"))
+                e -> e
+              transformedStatic = transformStmt renameVar staticStmt
+              transformedExpr = transformStmt renameVar exprStmt
+          assertEqual "transformStmt renames static variable declaration"
+            ["tally"]
+            (queryStmt allVariables transformedStatic)
+          assertEqual "Pretty printed static variable declaration is renamed"
+            "static $tally = 0;"
+            (prettyPrintStmt transformedStatic)
+          assertEqual "Transformed expr statement is renamed"
+            "$tally++;"
+            (prettyPrintStmt transformedExpr)
+        Right other -> assertFailure ("Expected two statements, got: " ++ show other)
+
+      let multiSrc = "<?php static $a = 1, $b, $c = $init;"
+      case parseProgram "test.php" multiSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [multiStmt]) -> do
+          assertEqual "Extracts all declared static variables and initializer variables"
+            ["a", "b", "c", "init"]
+            (queryStmt allVariables multiStmt)
+          let renameB = \case
+                ExprVar a (SimpleVar sv (VarName vn "b")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedB"))
+                e -> e
+              transformedMulti = transformStmt renameB multiStmt
+          assertEqual "Renames specific static variable declaration"
+            ["a", "renamedB", "c", "init"]
+            (queryStmt allVariables transformedMulti)
+          assertEqual "Pretty prints multi static variable declaration with rename"
+            "static $a = 1, $renamedB, $c = $init;"
+            (prettyPrintStmt transformedMulti)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
   ]
 
 foldReturns :: Stmt a -> [Bool]
