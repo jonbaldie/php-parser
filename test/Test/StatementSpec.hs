@@ -1234,6 +1234,47 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php switch ($x): default: break; endswitch;"
         , "<?php switch ($x): case 1: break; default: break; endswitch;"
         ]
+    , testCase "Reject duplicate parameter names in parameter lists (Issue #198)" $ do
+      mapM_ assertParsesFail
+        [ "<?php function foo($a, $a) {}"
+        , "<?php function foo($a, $b, $a) {}"
+        , "<?php function foo($a, ...$a) {}"
+        , "<?php function foo(...$a, $a) {}"
+        , "<?php class Foo { public function bar($x, $x) {} }"
+        , "<?php interface Foo { public function bar($x, $x); }"
+        , "<?php trait Foo { public function bar($x, $x) {} }"
+        , "<?php enum Foo { public function bar($x, $x) {} }"
+        , "<?php abstract class Foo { abstract public function bar($x, $x); }"
+        , "<?php class Foo { public function __construct(public int $x, string $x) {} }"
+        , "<?php $f = function ($x, $x) {};"
+        , "<?php $f = static function ($x, $x) {};"
+        , "<?php $g = fn($x, $x) => 1;"
+        , "<?php $g = static fn($x, $x) => 1;"
+        ]
+      case parseProgram "test.php" "<?php function foo($a, $a) {}" of
+        Left err -> assertBool
+          "error should reject duplicate parameter names"
+          (maybe False (T.isInfixOf "Redefinition of parameter $a") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class Foo { public function bar($x, $y, $x) {} }" of
+        Left err -> assertBool
+          "error should report redefinition of parameter $x"
+          (maybe False (T.isInfixOf "Redefinition of parameter $x") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php function foo($a, $b) {}"
+        , "<?php function foo($a, $A) {}"
+        , "<?php class Foo { public function bar($x, $y) {} }"
+        , "<?php interface Foo { public function bar($x, $y); }"
+        , "<?php trait Foo { public function bar($x, $y) {} }"
+        , "<?php enum Foo { public function bar($x, $y) {} }"
+        , "<?php abstract class Foo { abstract public function bar($x, $y); }"
+        , "<?php class Foo { public function __construct(public int $x, string $y) {} }"
+        , "<?php $f = function ($x, $y) {};"
+        , "<?php $f = static function ($x, $y) {};"
+        , "<?php $g = fn($x, $y) => 1;"
+        , "<?php $g = static fn($x, $y) => 1;"
+        ]
   ]
 
 

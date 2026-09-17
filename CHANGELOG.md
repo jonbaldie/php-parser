@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject duplicate parameter names in parameter lists, matching PHP's compile-time fatal error (#198).
+
 * Reject match expressions containing more than one `default` arm, matching PHP's compile-time fatal error (#196).
 
 * Reject switch statements containing more than one `default` clause, in both brace and alternative (colon) syntax, matching PHP's compile-time fatal error (#195).
