@@ -1340,6 +1340,48 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php interface I { public function f(); function g(); }"
         , "<?php interface I { public static function f(); static function g(); }"
         ]
+
+  , testCase "Reject untyped readonly properties and constructor promotion (Issue #204)" $ do
+      mapM_ assertParsesFail
+        [ "<?php class Foo { public readonly $bar; }"
+        , "<?php class Foo { protected readonly $bar; }"
+        , "<?php class Foo { private readonly $bar; }"
+        , "<?php class Foo { readonly $bar; }"
+        , "<?php class Foo { readonly public $bar; }"
+        , "<?php class Bar { public function __construct(public readonly $baz) {} }"
+        , "<?php class Bar { public function __construct(protected readonly $baz) {} }"
+        , "<?php class Bar { public function __construct(private readonly $baz) {} }"
+        , "<?php class Bar { public function __construct(readonly $baz) {} }"
+        , "<?php trait T { public readonly $bar; }"
+        , "<?php trait T { readonly $bar; }"
+        , "<?php $c = new class { public readonly $bar; };"
+        , "<?php $c = new class { readonly $bar; };"
+        , "<?php readonly class Foo { public function __construct(public $bar) {} }"
+        ]
+      case parseProgram "test.php" "<?php class Foo { public readonly $bar; }" of
+        Left err -> assertBool
+          "error should mention readonly property must have type"
+          (maybe False (T.isInfixOf "Readonly property must have type") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class Bar { public function __construct(public readonly $baz) {} }" of
+        Left err -> assertBool
+          "error should mention readonly property must have type"
+          (maybe False (T.isInfixOf "Readonly property must have type") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php class Foo { public readonly int $bar; }"
+        , "<?php class Foo { readonly string $bar; }"
+        , "<?php class Foo { public $bar; }"
+        , "<?php class Foo { var $bar; }"
+        , "<?php class Foo { public static $bar; }"
+        , "<?php class Bar { public function __construct(public readonly int $baz) {} }"
+        , "<?php class Bar { public function __construct(readonly string $baz) {} }"
+        , "<?php class Bar { public function __construct(public $baz) {} }"
+        , "<?php class Bar { public function __construct(int $baz) {} }"
+        , "<?php class Bar { public function __construct($baz) {} }"
+        , "<?php trait T { public readonly int $bar; }"
+        , "<?php $c = new class { public readonly int $bar; };"
+        ]
   ]
 
 

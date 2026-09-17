@@ -831,6 +831,8 @@ parseParamInContext pCtx = withSpan $ do
   isVariadic <- (True <$ symbol "...") <|> pure False
   when (isPromoted && isVariadic) $
     modifierError "Cannot declare variadic promoted property"
+  when (isRo && isNothing typ) $
+    modifierError "Readonly property must have type"
   var <- variableName
   mDef <- optional (symbol "=" *> parseExpr)
   pure (\sp -> Param sp attrs vis wVis isRo isFin typ byRef isVariadic var mDef)
@@ -925,10 +927,16 @@ checkMember ctx member =
       | any hookFinal (propHooks pd) ->
           forbidden "Property hook cannot be both abstract and final"
     (InterfaceContext _, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
+    (_, MemberProperty pd)
+      | propReadonly (propModifier pd) && isNothing (propType pd) ->
+          forbidden "Readonly property must have type"
     (ClassLikeContext True, MemberProperty pd) -> do
       when (propStatic (propModifier pd)) $
         forbidden "Readonly classes cannot declare static properties"
       when (isNothing (propType pd)) $
+        forbidden "Readonly classes cannot declare untyped properties"
+    (ClassLikeContext True, MemberMethod md) -> do
+      when (any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
         forbidden "Readonly classes cannot declare untyped properties"
     (_, MemberEnumCase _) -> forbidden "Enum cases can only be used inside enum declarations"
     _ -> pure ()
