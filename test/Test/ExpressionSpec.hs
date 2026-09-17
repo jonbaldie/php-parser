@@ -178,6 +178,39 @@ expressionTests = testGroup "Expression Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right _ -> pure ()
 
+  , testCase "Reject duplicate parameter names in closure and arrow functions (Issue #198)" $ do
+      let failCases =
+            [ "function ($x, $x) {}"
+            , "function ($x, $y, $x) {}"
+            , "static function ($x, $x) {}"
+            , "fn($x, $x) => 1"
+            , "fn($x, $y, $x) => 1"
+            , "static fn($x, $x) => 1"
+            , "fn($a, ...$a) => $a"
+            ]
+      forM_ failCases $ \src ->
+        case parseExpression "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("Expected parse failure for: " ++ show src)
+      case parseExpression "test.php" "function ($x, $x) {}" of
+        Left err -> assertBool
+          "error should reject duplicate parameter names in closure"
+          (maybe False (T.isInfixOf "Redefinition of parameter $x") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseExpression "test.php" "fn($x, $x) => 1" of
+        Left err -> assertBool
+          "error should reject duplicate parameter names in arrow function"
+          (maybe False (T.isInfixOf "Redefinition of parameter $x") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      forM_
+        [ "function ($x, $y) {}"
+        , "function ($x, $X) {}"
+        , "static function ($x, $y) {}"
+        , "fn($x, $y) => 1"
+        , "fn($x, $X) => 1"
+        , "static fn($x, $y) => 1"
+        ] assertParsesOkExpr
+
   , testCase "First-class callable syntax: strlen(...) and $obj->method(...)" $ do
       let src1 = "strlen(...)"
           src2 = "$this->process(...)"

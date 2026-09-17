@@ -24,6 +24,7 @@ import Control.Applicative ((<|>), optional)
 import Control.Monad (guard, join, void, when)
 import Data.Maybe (isNothing)
 import qualified Data.Set as S
+import qualified Data.Text as T
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 import Language.PHP.AST
@@ -775,17 +776,31 @@ parseArgList p = do
 
         isPositional a = isNothing (argName a) && not (argUnpack a)
 
--- | Parse a parameter list and reject variadic parameters before its end.
+-- | Parse a parameter list, rejecting duplicate parameter names and
+-- variadic parameters before its end.
 parseParamList :: Parser (Param Span) -> Parser [Param Span]
 parseParamList p = do
   params <- p `M.sepEndBy` comma
-  if hasNonFinalVariadic params
-    then M.registerFancyFailure (S.singleton (M.ErrorFail "Only the last parameter can be variadic")) *> pure params
-    else pure params
+  case firstDuplicateName params of
+    Just name ->
+      M.registerFancyFailure (S.singleton (M.ErrorFail ("Redefinition of parameter $" <> T.unpack name))) *> pure params
+    Nothing ->
+      if hasNonFinalVariadic params
+        then M.registerFancyFailure (S.singleton (M.ErrorFail "Only the last parameter can be variadic")) *> pure params
+        else pure params
   where
     hasNonFinalVariadic [] = False
     hasNonFinalVariadic [_] = False
     hasNonFinalVariadic (param : rest) = paramVariadic param || hasNonFinalVariadic rest
+
+    firstDuplicateName = go S.empty
+      where
+        go _ [] = Nothing
+        go seen (param : rest) =
+          let VarName _ name = paramName param
+          in if S.member name seen
+               then Just name
+               else go (S.insert name seen) rest
 
 parseStmtDummy :: Parser (Stmt Span)
 parseStmtDummy = withSpan $ do
