@@ -1275,6 +1275,54 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php $g = fn($x, $y) => 1;"
         , "<?php $g = static fn($x, $y) => 1;"
         ]
+    , testCase "Reject non-public constants and non-public, final, or abstract methods in interfaces (Issue #199)" $ do
+      mapM_ assertParsesFail
+        [ "<?php interface I { private const X = 1; }"
+        , "<?php interface I { protected const Y = 2; }"
+        , "<?php interface I { private function f(); }"
+        , "<?php interface I { protected function g(); }"
+        , "<?php interface I { final function h(); }"
+        , "<?php interface I { abstract function k(); }"
+        , "<?php interface I { public abstract function k(); }"
+        , "<?php interface I { public final function h(); }"
+        , "<?php interface I { private static function f(); }"
+        , "<?php interface I { static final function f(); }"
+        , "<?php interface I { static abstract function f(); }"
+        ]
+      case parseProgram "test.php" "<?php interface I { private const X = 1; }" of
+        Left err -> assertBool
+          "error should reject non-public interface constant"
+          (maybe False (T.isInfixOf "Access type for interface constant I::X must be public") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php interface I { protected const Y = 2; }" of
+        Left err -> assertBool
+          "error should reject protected interface constant"
+          (maybe False (T.isInfixOf "Access type for interface constant I::Y must be public") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php interface I { private function f(); }" of
+        Left err -> assertBool
+          "error should reject non-public interface method"
+          (maybe False (T.isInfixOf "Access type for interface method I::f() must be public") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php interface I { final function h(); }" of
+        Left err -> assertBool
+          "error should reject final interface method"
+          (maybe False (T.isInfixOf "Interface method I::h() must not be final") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php interface I { abstract function k(); }" of
+        Left err -> assertBool
+          "error should reject abstract interface method"
+          (maybe False (T.isInfixOf "Interface method I::k() must not be abstract") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php interface I { const X = 1; }"
+        , "<?php interface I { public const X = 1; const Y = 2; }"
+        , "<?php interface I { final const Z = 3; }"
+        , "<?php interface I { public final const Z = 3; }"
+        , "<?php interface I { function f(); }"
+        , "<?php interface I { public function f(); function g(); }"
+        , "<?php interface I { public static function f(); static function g(); }"
+        ]
   ]
 
 
