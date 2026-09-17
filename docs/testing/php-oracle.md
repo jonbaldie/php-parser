@@ -165,7 +165,9 @@ decisions**, and whether a lint oracle can see the difference at all.
 | #236 | escape sequences in a heredoc body | accepts | accepts | no |
 
 Every decision in that table was measured against a real interpreter and the
-library, not assumed. The measurement corrected the spec, which had recorded
+library, not assumed. The `php-oracle` CI job re-measures the PHP column against
+all four interpreters on every run, so a row is a claim about PHP 8.2-8.5, not
+about whichever binary happened to be on one machine. The measurement corrected the spec, which had recorded
 #237 as invisible to a verdict oracle; it is not — PHP accepts `$a **= 2;` and
 the library rejects it, so the oracle gates it.
 
@@ -209,21 +211,26 @@ settings with all four interpreters present.** Exceeding it is a defect in this
 suite, not an acceptable cost: the group has to stay runnable in a CI job and,
 for anyone who installs the interpreters, in a local loop.
 
-Measured against that budget on an M-series laptop, GHC 9.12.1, default settings
-(50 QuickCheck tests per property):
+Measured at default settings (50 QuickCheck tests per property):
 
-| Interpreters resolved | Oracle group | Whole suite |
+| Where | Interpreters resolved | Oracle group |
 | --- | --- | --- |
-| 1 (8.5) | 82 s | 91 s (469 tests) |
-| 0 (everything skips) | 0.19 s | — |
+| `php-oracle` CI job, ubuntu-latest | 4 (8.2.33, 8.3.33, 8.4.25, 8.5.10) | **37.6 s** |
+| M-series laptop, macOS | 1 (8.5) | 82 s |
+| M-series laptop, macOS | 0 — everything skips | 0.19 s |
 
-The per-version properties are the bulk of the cost and scale with the number of
-interpreters resolved, which is where the four-interpreter budget comes from:
-four times the measured interpreter-bound work, plus the no-false-accepts
-property, which only runs with all four and lints each program four times. CI is
-where the four-interpreter figure is actually observed; the `php-oracle` job
-prints its own duration. If it lands above 10 minutes, cut the work rather than
-raising the number.
+The full-matrix run is the *fastest* of the three, which is the opposite of what
+scaling by interpreter count predicts. The cost is process spawn, not linting,
+and macOS spawns processes several times more slowly than the Linux runner does;
+the memoisation cache absorbs the rest. Read the CI row as the budget-relevant
+one — it is the only configuration in which every property actually runs, the
+no-false-accepts property included (3.95 s of the 37.6 s).
+
+The laptop rows are still worth keeping: they are what a contributor sees, and
+the skip row is what someone with no PHP installed sees.
+
+If the CI row ever lands above 10 minutes, cut the work rather than raising the
+number.
 
 This is also why the group is a separate CI job rather than part of the GHC
 matrix — the PHP matrix stays orthogonal to the compiler matrix instead of
