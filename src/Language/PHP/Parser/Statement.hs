@@ -823,6 +823,8 @@ parseParamInContext pCtx = withSpan $ do
   typ <- optional parseType
   byRef <- (True <$ symbol "&") <|> pure False
   isVariadic <- (True <$ symbol "...") <|> pure False
+  when (isPromoted && isVariadic) $
+    modifierError "Cannot declare variadic promoted property"
   var <- variableName
   mDef <- optional (symbol "=" *> parseExpr)
   pure (\sp -> Param sp attrs vis wVis isRo isFin typ byRef isVariadic var mDef)
