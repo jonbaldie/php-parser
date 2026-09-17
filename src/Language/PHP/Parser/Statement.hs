@@ -23,7 +23,7 @@ import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
-import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList)
+import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList, hasEmptyDestructure)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
@@ -466,6 +466,8 @@ parseForeach = withSpan $ do
           v <- parseExpr
           pure (Just kOrV, v, byRef)
         else pure (Nothing, kOrV, False)
+  when (hasEmptyDestructure val || maybe False hasEmptyDestructure mKey) $
+    fail "Cannot use empty list"
   _ <- symbol ")"
   altBranch arr mKey val byRef <|> braceBranch arr mKey val byRef
   where
