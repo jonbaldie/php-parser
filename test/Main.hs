@@ -11,6 +11,7 @@ import Test.PrettySpec (prettyTests)
 import Test.RoundTripSpec (roundTripTests)
 import Test.RecursionSchemesSpec (recursionSchemesTests)
 import Test.CompatibilitySpec (compatibilityTests)
+import Test.OracleSpec (oracleTests)
 
 main :: IO ()
 main = defaultMain tests
@@ -27,4 +28,5 @@ tests = testGroup "PHP Parser Test Suite"
   , roundTripTests
   , recursionSchemesTests
   , compatibilityTests
+  , oracleTests
   ]

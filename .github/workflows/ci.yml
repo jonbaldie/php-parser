@@ -51,8 +51,84 @@ jobs:
       - name: Build library and test suite
         run: cabal build all --enable-tests --ghc-options="-Wall -Werror"
 
+      # The differential oracle group needs real PHP interpreters and has its
+      # own job below. Excluding it here keeps the GHC matrix from depending on
+      # whichever PHP the runner image happens to ship.
       - name: Run test suite
-        run: cabal test all --enable-tests --test-show-details=always
+        run: cabal test all --enable-tests --test-show-details=always --test-options='--pattern "!/PHP interpreter oracle/"'
 
       - name: Generate documentation
         run: cabal haddock all
+
+  php-oracle:
+    name: Differential oracle against PHP 8.2-8.5
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        id: setup-haskell
+        with:
+          ghc-version: '9.12.1'
+          cabal-version: 'latest'
+
+      # Each call leaves a versioned binary (php8.2, php8.3, ...) behind, so
+      # after all four the runner has every interpreter the oracle looks for.
+      - name: Install PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Install PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Install PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      # Fail here, with the versions printed, rather than inside a property.
+      - name: Report the interpreters found
+        run: |
+          for v in 8.2 8.3 8.4 8.5; do
+            php$v -n -r 'echo PHP_VERSION, PHP_EOL;'
+          done
+
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.12.1-cabal-${{ hashFiles('**/*.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.12.1-cabal-
+
+      - name: Update Cabal package index
+        run: cabal update
+
+      - name: Build test suite
+        run: cabal build all --enable-tests --ghc-options="-Wall -Werror"
+
+      # PHP_ORACLE_REQUIRED turns a missing interpreter from a skip into a
+      # failure, so this job cannot pass by quietly testing nothing.
+      - name: Run the differential oracle group
+        env:
+          PHP_ORACLE_REQUIRED: '1'
+          PHP82_BIN: php8.2
+          PHP83_BIN: php8.3
+          PHP84_BIN: php8.4
+          PHP85_BIN: php8.5
+        run: cabal test all --enable-tests --test-show-details=always --test-options='--pattern "/PHP interpreter oracle/"'
