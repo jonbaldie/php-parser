@@ -84,6 +84,7 @@ parseUnionOrIntersection = do
     [] -> pure t1
     rest -> do
       let allTypes = t1 : rest
+      failIfNullable allTypes
       let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
       pure (UnionType sp allTypes)
 
@@ -95,8 +96,20 @@ parseIntersectionOrAtomic = do
     [] -> pure t1
     rest -> do
       let allTypes = t1 : rest
+      failIfNullable allTypes
       let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
       pure (IntersectionType sp allTypes)
+
+-- | The nullable shorthand (?Type) is only valid as a standalone type; it
+-- cannot be combined with union or intersection members.
+failIfNullable :: [Type Span] -> Parser ()
+failIfNullable types
+  | any isNullableType types = M.label "type" M.empty
+  | otherwise = pure ()
+  where
+    isNullableType = \case
+      NullableType {} -> True
+      _ -> False
 
 typeSpan :: Type Span -> Span
 typeSpan = \case
