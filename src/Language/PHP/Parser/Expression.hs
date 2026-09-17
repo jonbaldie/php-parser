@@ -22,7 +22,7 @@ module Language.PHP.Parser.Expression
 
 import Control.Applicative ((<|>), optional)
 import Control.Monad (guard, join, void, when)
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Text.Megaparsec as M
@@ -758,13 +758,17 @@ parseParamDummy pExpr = withSpan $ do
   mDef <- optional (symbol "=" *> pExpr)
   pure (\sp -> Param sp attrs Nothing Nothing False False typ byRef isVariadic var mDef)
 
--- | Parse an argument list and reject positional arguments following argument unpacking.
+-- | Parse an argument list and reject positional arguments following argument
+-- unpacking or following named arguments.
 parseArgList :: Parser (Arg Span) -> Parser [Arg Span]
 parseArgList p = do
   args <- p `M.sepEndBy` comma
-  if hasPositionalAfterUnpack args
-    then M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after argument unpacking")) *> pure args
-    else pure args
+  case () of
+    _ | hasPositionalAfterUnpack args ->
+          M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after argument unpacking")) *> pure args
+      | hasPositionalAfterNamed args ->
+          M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after named argument")) *> pure args
+      | otherwise -> pure args
   where
     hasPositionalAfterUnpack = go False
       where
@@ -774,7 +778,15 @@ parseArgList p = do
           | isPositional arg && seenUnpack = True
           | otherwise = go seenUnpack rest
 
-        isPositional a = isNothing (argName a) && not (argUnpack a)
+    hasPositionalAfterNamed = go False
+      where
+        go _ [] = False
+        go seenNamed (arg : rest)
+          | isPositional arg && seenNamed = True
+          | isJust (argName arg) = go True rest
+          | otherwise = go seenNamed rest
+
+    isPositional a = isNothing (argName a) && not (argUnpack a)
 
 -- | Parse a parameter list, rejecting duplicate parameter names and
 -- variadic parameters before its end.

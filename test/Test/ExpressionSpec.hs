@@ -1789,6 +1789,42 @@ expressionTests = testGroup "Expression Specifications"
           assertParsesOkExpr "new class(...$args) {}"
           assertParsesOkExpr "new class(...$args, name: $b) {}"
       ]
+
+  , testGroup "Positional arguments after named arguments rejection (Issue #202)"
+      [ testCase "positional arguments after named arguments are rejected in function, method, and constructor calls" $ do
+          forM_ [ "foo(a: 1, $b)" :: Text
+                , "foo($a, b: 1, $c)"
+                , "$obj->bar(a: 1, $b)"
+                , "$obj?->bar(a: 1, $b)"
+                , "Foo::bar(a: 1, $b)"
+                , "$fn(a: 1, $b)"
+                , "new Foo(a: 1, $b)"
+                , "new class(a: 1, $b) {}"
+                ] $ \src ->
+            case parseExpression "issue202.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot use positional argument after named argument")
+                  (errorCustom err)
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      , testCase "positional argument after named argument inside program is rejected" $ do
+          case parseProgram "issue202.php" "<?php foo(a: 1, $b);" of
+            Left err ->
+              assertEqual "expected specific error message for program"
+                (Just "Cannot use positional argument after named argument")
+                (errorCustom err)
+            Right prog -> assertFailure ("expected parse error for program, got: " ++ show prog)
+
+      , testCase "valid named and positional argument orderings continue to be accepted" $ do
+          assertParsesOkExpr "foo($b, a: 1)"
+          assertParsesOkExpr "foo(1, 2)"
+          assertParsesOkExpr "foo(a: 1, b: 2)"
+          assertParsesOkExpr "foo(...$args, a: 1)"
+          assertParsesOkExpr "$obj->bar($b, a: 1)"
+          assertParsesOkExpr "new Foo($b, a: 1)"
+          assertParsesOkExpr "new class($b, a: 1) {}"
+      ]
   ]
 
 refAB :: Expr ()
