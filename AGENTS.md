@@ -11,3 +11,7 @@ Use the five default canonical triage labels. See `docs/agents/triage-labels.md`
 ### Domain docs
 
 Use the single-context domain-doc layout. See `docs/agents/domain.md`.
+
+### Exploratory testing
+
+Past exploratory passes and their findings are indexed in `docs/exploratory-testing/README.md`.
