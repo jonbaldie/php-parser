@@ -21,7 +21,7 @@ module Language.PHP.Parser.Expression
   ) where
 
 import Control.Applicative ((<|>), optional)
-import Control.Monad (guard, join, void)
+import Control.Monad (guard, join, void, when)
 import Data.Maybe (isNothing)
 import qualified Data.Set as S
 import qualified Text.Megaparsec as M
@@ -554,6 +554,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       _ <- keyword "match"
       subject <- parens parseExprRec
       arms <- braces (M.try (parseMatchArmWith parseExprRec) `M.sepEndBy` comma)
+      when (length [() | MatchDefault {} <- arms] > 1) $
+        fail "Match expressions may only contain one default arm"
       pure (\sp -> ExprMatch sp subject arms)
 
     parseArrowFunction = withSpan $ M.try $ do

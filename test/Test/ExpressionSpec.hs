@@ -147,6 +147,37 @@ expressionTests = testGroup "Expression Specifications"
           Left err -> assertFailure (show okSrc ++ ": " ++ show (formatParseError err))
           Right _ -> pure ()
 
+  , testCase "Reject match expressions with more than one default arm (Issue #196)" $ do
+      let failCases =
+            [ "match ($x) { default => 1, default => 2 }"
+            , "match ($x) { 1 => 'a', default => 'b', default => 'c' }"
+            , "match ($x) { default => 'a', 1 => 'b', default => 'c' }"
+            , "match ($x) { default => 1, default => 2, }"
+            ]
+      forM_ failCases $ \src ->
+        case parseExpression "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("Expected parse failure for: " ++ show src)
+      case parseExpression "test.php" "match ($x) { default => 1, default => 2 }" of
+        Left err -> assertBool
+          "error should reject multiple default arms"
+          (maybe False (T.isInfixOf "Match expressions may only contain one default arm") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php $a = match ($x) { default => 1, default => 2 };" of
+        Left err -> assertBool
+          "error should reject multiple default arms in parseProgram"
+          (maybe False (T.isInfixOf "Match expressions may only contain one default arm") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure for program with duplicate default arms"
+      forM_
+        [ "match ($x) { default => 1 }"
+        , "match ($x) { 1 => 'a', default => 'b' }"
+        , "match ($x) { default => 'b', 1 => 'a' }"
+        , "match ($x) { 1 => 'a', 2 => 'b' }"
+        ] assertParsesOkExpr
+      case parseProgram "test.php" "<?php $a = match ($x) { 1 => 'a', default => 'b' };" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right _ -> pure ()
+
   , testCase "First-class callable syntax: strlen(...) and $obj->method(...)" $ do
       let src1 = "strlen(...)"
           src2 = "$this->process(...)"
