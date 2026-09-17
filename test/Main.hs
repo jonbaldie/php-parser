@@ -10,6 +10,7 @@ import Test.StatementSpec (statementTests)
 import Test.PrettySpec (prettyTests)
 import Test.RoundTripSpec (roundTripTests)
 import Test.RecursionSchemesSpec (recursionSchemesTests)
+import Test.CompatibilitySpec (compatibilityTests)
 
 main :: IO ()
 main = defaultMain tests
@@ -25,4 +26,5 @@ tests = testGroup "PHP Parser Test Suite"
   , prettyTests
   , roundTripTests
   , recursionSchemesTests
+  , compatibilityTests
   ]

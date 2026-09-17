@@ -75,6 +75,8 @@ test-suite php-parser-test
                     , Test.PrettySpec
                     , Test.RoundTripSpec
                     , Test.RecursionSchemesSpec
+                    , Test.CompatibilitySpec
+                    , Test.Gen.PHPSource
     build-depends:    base >= 4.18 && < 5
                     , php-parser
                     , text
