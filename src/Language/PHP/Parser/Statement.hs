@@ -856,8 +856,8 @@ parseParamInContext pCtx = withSpan $ do
 -- | The enclosing declaration kind in which class members are parsed.
 -- PHP applies different member rules to enums, classes, and interfaces.
 data ClassContext
-  = ClassLikeContext !Bool  -- ^ class, trait, or anonymous class; readonly flag
-  | EnumContext
+  = ClassLikeContext !Bool         -- ^ class, trait, or anonymous class; readonly flag
+  | EnumContext !T.Text !Bool      -- ^ enum name, backed flag
   | InterfaceContext
   deriving (Eq, Show)
 
@@ -882,9 +882,13 @@ parseClassMemberInContext ctx = do
 checkMember :: ClassContext -> ClassMember Span -> Parser ()
 checkMember ctx member =
   case (ctx, member) of
-    (EnumContext, MemberEnumCase _) -> pure ()
-    (EnumContext, MemberProperty _) -> forbidden "Enums may not include properties"
-    (EnumContext, MemberMethod md)
+    (EnumContext enumName isBacked, MemberEnumCase (EnumCase _ _ (Ident _ caseName) mVal)) -> do
+      when (not isBacked && isJust mVal) $
+        forbidden ("Case " <> caseName <> " of non-backed enum " <> enumName <> " must not have a value")
+      when (isBacked && isNothing mVal) $
+        forbidden ("Case " <> caseName <> " of backed enum " <> enumName <> " must have a value")
+    (EnumContext _ _, MemberProperty _) -> forbidden "Enums may not include properties"
+    (EnumContext _ _, MemberMethod md)
       | any isPromotedParam (methodParams md) -> forbidden "Enums may not include properties"
     (InterfaceContext, MemberProperty pd)
       | null (propHooks pd) -> forbidden "Interfaces may not include properties"
@@ -1073,10 +1077,10 @@ parseTrait = withSpan $ do
 parseEnum :: Parser (Stmt Span)
 parseEnum = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "enum")
-  name <- declarationIdentifier
+  name@(Ident _ enumName) <- declarationIdentifier
   mBacked <- optional (colon *> parseEnumBackingType)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many (parseClassMemberInContext EnumContext))
+  members <- braces (M.many (parseClassMemberInContext (EnumContext enumName (isJust mBacked))))
   pure (\sp -> StmtEnum sp (EnumDecl sp attrs name mBacked impls members))
 
 -- | Backed enums must be backed by @int@ or @string@; PHP identifiers match case-insensitively.

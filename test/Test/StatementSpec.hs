@@ -91,10 +91,10 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php enum E: \\int { case X; }"
         ]
       mapM_ assertParsesOk
-        [ "<?php enum E: int { case X; }"
-        , "<?php enum E: string { case X; }"
-        , "<?php enum E: INT { case X; }"
-        , "<?php enum E: String { case X; }"
+        [ "<?php enum E: int { case X = 1; }"
+        , "<?php enum E: string { case X = 'x'; }"
+        , "<?php enum E: INT { case X = 1; }"
+        , "<?php enum E: String { case X = 'x'; }"
         , "<?php enum E { case X; }"
         ]
 
@@ -1179,6 +1179,41 @@ statementTests = testGroup "Statement & Declaration Specifications"
         [ "<?php class A { public function __construct(...$x) {} }"
         , "<?php class A { public function __construct(public int $x) {} }"
         , "<?php class A { public function __construct(public int $x, ...$rest) {} }"
+        ]
+    , testCase "Reject pure enum cases with values and backed enum cases without values (Issue #197)" $ do
+      mapM_ assertParsesFail
+        [ "<?php enum Status { case Draft = 1; }"
+        , "<?php enum Status { case Draft = 'draft'; }"
+        , "<?php enum Status { case A; case B = 2; }"
+        , "<?php enum Status { #[Attr] case Draft = 1; }"
+        , "<?php enum BackedStatus: string { case Draft; }"
+        , "<?php enum BackedStatus: int { case Draft; }"
+        , "<?php enum BackedStatus: int { case A = 1; case B; }"
+        , "<?php enum BackedStatus: string { #[Attr] case Draft; }"
+        ]
+      case parseProgram "test.php" "<?php enum Status { case Draft = 1; }" of
+        Left err -> assertBool
+          "error should reject case value in non-backed enum"
+          (maybe False (T.isInfixOf "Case Draft of non-backed enum Status must not have a value") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php enum BackedStatus: string { case Draft; }" of
+        Left err -> assertBool
+          "error should reject missing case value in backed enum"
+          (maybe False (T.isInfixOf "Case Draft of backed enum BackedStatus must have a value") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php enum Status { case Draft; }"
+        , "<?php enum Status { case Draft; case Published; }"
+        , "<?php enum Status { #[Attr] case Draft; }"
+        , "<?php enum Status {}"
+        , "<?php enum Status { case new; case match; }"
+        , "<?php enum Status { case Draft; public function foo() {} const X = 1; }"
+        , "<?php enum BackedStatus: string { case Draft = 'draft'; }"
+        , "<?php enum BackedStatus: int { case Draft = 1; case Published = 2; }"
+        , "<?php enum BackedStatus: int { #[Attr] case Draft = 1; }"
+        , "<?php enum BackedStatus: string {}"
+        , "<?php enum BackedStatus: int { case new = 1; case match = 2; }"
+        , "<?php enum BackedStatus: string { case Draft = 'draft'; public function foo() {} const X = 1; }"
         ]
   ]
 
