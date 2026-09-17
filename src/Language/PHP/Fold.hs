@@ -246,7 +246,9 @@ transformHookBody f = \case
 -- Traverses statements and embedded expressions. Static variable declarations
 -- (@static $var = $val;@) declare variables in the current function or method
 -- scope and have their variable names rewritten via @f@ in lockstep with body
--- occurrences, alongside any initializer expressions.
+-- occurrences, alongside any initializer expressions. Catch clause variable
+-- bindings (@catch (Exception $var)@) have their variable names rewritten via
+-- @f@ in lockstep with catch body occurrences.
 transformStmt :: (Expr a -> Expr a) -> Stmt a -> Stmt a
 transformStmt f = \case
   StmtExpr a e -> StmtExpr a (transformExpr f e)
@@ -275,7 +277,13 @@ transformStmt f = \case
   StmtThrowStmt a e -> StmtThrowStmt a (transformExpr f e)
   StmtTry a tryStmts catches mFinally ->
     let tryStmts' = map (transformStmt f) tryStmts
-        catches' = map (\c -> c { catchBody = map (transformStmt f) (catchBody c) }) catches
+        catches' = map (\c ->
+          let var' = fmap (\vn@(VarName va _) ->
+                case f (ExprVar va (SimpleVar va vn)) of
+                  ExprVar _ (SimpleVar _ newVn) -> newVn
+                  _                             -> vn) (catchVar c)
+              body' = map (transformStmt f) (catchBody c)
+          in c { catchVar = var', catchBody = body' }) catches
         mFinally' = fmap (map (transformStmt f)) mFinally
     in StmtTry a tryStmts' catches' mFinally'
   StmtNamespace a mName mStmts ->
@@ -465,7 +473,9 @@ queryExprWith qExpr qStmt expr = qExpr expr <> case expr of
 -- Monoidally accumulates across statements and embedded expressions. Static
 -- variable declarations (@static $var = $val;@) are queried for variable
 -- references, surfacing declared static variable names as well as initializer
--- expressions.
+-- expressions. Catch clause variable bindings (@catch (Exception $var)@) are
+-- queried for variable references, surfacing bound exception variable names
+-- alongside catch body expressions.
 queryStmt :: Monoid m => (Expr a -> m) -> Stmt a -> m
 queryStmt q = \case
   StmtExpr _ e -> queryExpr q e
@@ -491,7 +501,9 @@ queryStmt q = \case
   StmtThrowStmt _ e -> queryExpr q e
   StmtTry _ tryStmts catches mFinally ->
     foldMap (queryStmt q) tryStmts <>
-    foldMap (\c -> foldMap (queryStmt q) (catchBody c)) catches <>
+    foldMap (\c ->
+      maybe mempty (\(vn@(VarName va _)) -> queryExpr q (ExprVar va (SimpleVar va vn))) (catchVar c) <>
+      foldMap (queryStmt q) (catchBody c)) catches <>
     maybe mempty (foldMap (queryStmt q)) mFinally
   StmtNamespace _ _ mStmts -> maybe mempty (foldMap (queryStmt q)) mStmts
   StmtUse _ _ _ -> mempty

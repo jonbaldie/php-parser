@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Include catch clause variables (`CatchClause`) in `queryStmt` (e.g. `queryStmt allVariables`) and rewrite declared variable names during `transformStmt`, ensuring exception variables are discovered and refactored consistently alongside local variables, closure uses, and static declarations (#194).
+
 * Reject pure enum cases with values and backed enum cases without values, matching PHP's compile-time fatal errors for non-backed and backed enum cases (#197).
 
 * Reject property hooks with bodies (`get => ...`, `get { ... }`) or the `final` modifier inside interfaces, matching PHP's compile-time fatal errors for abstract hooks that have a body or are declared both abstract and final (#189).
