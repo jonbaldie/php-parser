@@ -1475,12 +1475,6 @@ expressionTests = testGroup "Expression Specifications"
             Left err -> assertFailure (show (formatParseError err))
             Right (ExprAssign _ Nothing (ExprList _ [ArrayItem _ Nothing (ExprVar _ _) False False, ArrayItem _ Nothing (ExprVar _ _) False False]) _) -> pure ()
             other -> assertFailure ("Unexpected AST: " ++ show other)
-      , testCase "empty list" $ do
-          assertParsesOkExpr "list() = $arr"
-          case parseExpression "test.php" "list() = $arr" of
-            Left err -> assertFailure (show (formatParseError err))
-            Right (ExprAssign _ Nothing (ExprList _ []) _) -> pure ()
-            other -> assertFailure ("Unexpected AST: " ++ show other)
       , testCase "case insensitivity" $ do
           assertParsesOkExpr "LIST($a, $b) = $arr"
           assertParsesOkExpr "List($a, $b) = $arr"
@@ -1824,6 +1818,84 @@ expressionTests = testGroup "Expression Specifications"
           assertParsesOkExpr "$obj->bar($b, a: 1)"
           assertParsesOkExpr "new Foo($b, a: 1)"
           assertParsesOkExpr "new class($b, a: 1) {}"
+      ]
+
+  , testGroup "Empty array and list destructuring rejection (Issue #206)"
+      [ testCase "empty array destructuring assignment is rejected" $ do
+          forM_ [ "[] = $arr" :: Text
+                , "[,] = $arr"
+                , "[,,] = $arr"
+                , "[[]] = $arr"
+                , "[$a, []] = $arr"
+                , "[\"k\" => []] = $arr"
+                , "[$a, [,,]] = $arr"
+                ] $ \src ->
+            case parseExpression "issue206.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot use empty list")
+                  (errorCustom err)
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      , testCase "empty list destructuring assignment is rejected" $ do
+          forM_ [ "list() = $arr" :: Text
+                , "list(,) = $arr"
+                , "list(,,) = $arr"
+                , "list(list()) = $arr"
+                , "list($a, list()) = $arr"
+                , "list(\"k\" => list()) = $arr"
+                , "list($a, list(,)) = $arr"
+                ] $ \src ->
+            case parseExpression "issue206.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot use empty list")
+                  (errorCustom err)
+              Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      , testCase "empty destructuring in programs is rejected" $ do
+          forM_ [ "<?php [] = $arr;" :: Text
+                , "<?php list() = $arr;"
+                , "<?php [[]] = $arr;"
+                , "<?php list(list()) = $arr;"
+                ] $ \src ->
+            case parseProgram "issue206.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot use empty list")
+                  (errorCustom err)
+              Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+
+      , testCase "empty destructuring in foreach is rejected" $ do
+          forM_ [ "<?php foreach ($arr as []) {}" :: Text
+                , "<?php foreach ($arr as list()) {}"
+                , "<?php foreach ($arr as $k => []) {}"
+                , "<?php foreach ($arr as $k => list()) {}"
+                , "<?php foreach ($arr as [$a, []]) {}"
+                ] $ \src ->
+            case parseProgram "issue206.php" src of
+              Left err ->
+                assertEqual (T.unpack src ++ ": expected specific error message")
+                  (Just "Cannot use empty list")
+                  (errorCustom err)
+              Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+
+      , testCase "valid destructuring and array literals continue to be accepted" $ do
+          assertParsesOkExpr "$x = []"
+          assertParsesOkExpr "$x = [1, 2, 3]"
+          assertParsesOkExpr "foo([])"
+          assertParsesOkExpr "[$a] = $arr"
+          assertParsesOkExpr "[$a, $b] = $arr"
+          assertParsesOkExpr "[$a, , $b] = $arr"
+          assertParsesOkExpr "[, $b] = $arr"
+          assertParsesOkExpr "[[$a]] = $arr"
+          assertParsesOkExpr "[\"k\" => $v] = $arr"
+          assertParsesOkExpr "list($a) = $arr"
+          assertParsesOkExpr "list($a, $b) = $arr"
+          assertParsesOkExpr "list($a, , $b) = $arr"
+          assertParsesOkExpr "list(, $b) = $arr"
+          assertParsesOkExpr "list(list($a)) = $arr"
+          assertParsesOkExpr "list(\"k\" => $v) = $arr"
       ]
   ]
 

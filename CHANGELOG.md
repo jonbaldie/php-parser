@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject empty array and list destructuring patterns (`[] = $arr`, `list() = $arr`, `[,] = $arr`, `[[]] = $arr`, `foreach ($arr as [])`), matching PHP's "Cannot use empty list" compile-time fatal error (#206).
+
 * Reject the nullable shorthand (`?Type`) as a member of union or intersection types (`?int|string`, `int|?string`, `A&?B`), matching PHP's parse error; `?` remains valid only on a standalone type (#205).
 
 * Reject argument unpacking (`...$args`) in attribute argument lists (`#[Attr(...$args)]`), matching PHP's compile-time fatal error (#203).

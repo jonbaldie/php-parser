@@ -18,6 +18,7 @@ module Language.PHP.Parser.Expression
   , parseLiteral
   , parseLiteralWith
   , exprSpan
+  , hasEmptyDestructure
   ) where
 
 import Control.Applicative ((<|>), optional)
@@ -31,6 +32,25 @@ import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
+
+-- | Check whether an expression is an empty destructuring pattern or contains
+-- an empty destructuring pattern at any nested level.
+hasEmptyDestructure :: Expr a -> Bool
+hasEmptyDestructure = \case
+  ExprArray _ items -> isEmptyDestructItems items
+  ExprList _ items  -> isEmptyDestructItems items
+  _                 -> False
+
+-- | Check whether a list of destructuring items is empty or contains an empty destructure.
+isEmptyDestructItems :: [ArrayItem a] -> Bool
+isEmptyDestructItems items = not (any isNonEmptyItem items) || any itemHasEmpty items
+  where
+    isNonEmptyItem = \case
+      ArrayItem {}      -> True
+      ArrayItemEmpty {} -> False
+    itemHasEmpty = \case
+      ArrayItem _ _ val _ _ -> hasEmptyDestructure val
+      ArrayItemEmpty {}     -> False
 
 -- | Whether an expression denotes a PHP @variable@, the only kind of source a
 -- by-reference assignment can bind to.
@@ -97,6 +117,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       where
         assignRest lhs = do
           op <- parseAssignOp
+          when (hasEmptyDestructure lhs) $
+            fail "Cannot use empty list"
           case op of
             Nothing -> assignRefRest lhs <|> assignValueRest Nothing lhs
             Just _  -> assignValueRest op lhs
@@ -105,12 +127,16 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
         -- trivia and share this production (Issue #138).
         assignRefRest lhs = do
+          when (hasEmptyDestructure lhs) $
+            fail "Cannot use empty list"
           _ <- symbol "&"
           rhs <- parseReferenceSource
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssignRef sp lhs rhs)
 
         assignValueRest op lhs = do
+          when (hasEmptyDestructure lhs) $
+            fail "Cannot use empty list"
           rhs <- parseAssignment
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssign sp op lhs rhs)
