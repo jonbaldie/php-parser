@@ -103,6 +103,26 @@ php82Tests = testGroup "PHP 8.2 Specifications"
         case parseProgram "test.php" src of
           Left err -> assertFailure (show (formatParseError err))
           Right _ -> pure ()
+
+  , testCase "Nullable shorthand rejected in union and intersection types (Issue #205)" $ do
+      let rejected = [ "<?php function f(?int|string $x) {}"
+                     , "<?php function g(int|?string $x) {}"
+                     , "<?php function h(A&?B $x) {}"
+                     ]
+          accepted = [ "<?php function f(?int $x) {}"
+                     , "<?php function f(int|string|null $x) {}"
+                     , "<?php function f(?int &$x) {}"
+                     , "<?php function f(A&B $x) {}"
+                     , "<?php function f((A&B)|C $x) {}"
+                     ]
+      forM_ rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("expected parse failure for: " ++ show src)
+      forM_ accepted $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right _ -> pure ()
   ]
 
 assertParsesOk :: Text -> Assertion
