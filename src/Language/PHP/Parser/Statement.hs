@@ -871,7 +871,8 @@ parseParamInContext pCtx = withSpan $ do
 -- | The enclosing declaration kind in which class members are parsed.
 -- PHP applies different member rules to enums, classes, and interfaces.
 data ClassContext
-  = ClassLikeContext !Bool         -- ^ class, trait, or anonymous class; readonly flag
+  = ClassLikeContext !Bool         -- ^ class or anonymous class; readonly flag
+  | TraitContext
   | EnumContext !T.Text !Bool      -- ^ enum name, backed flag
   | InterfaceContext !T.Text       -- ^ interface name
   deriving (Eq, Show)
@@ -942,9 +943,13 @@ checkMember ctx member =
         forbidden "Readonly classes cannot declare static properties"
       when (isNothing (propType pd)) $
         forbidden "Readonly classes cannot declare untyped properties"
-    (ClassLikeContext True, MemberMethod md) -> do
-      when (any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
+    (ClassLikeContext ro, MemberMethod md) -> do
+      let modif = methodModifier md
+          Ident _ mName = methodName md
+      when (ro && any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
         forbidden "Readonly classes cannot declare untyped properties"
+      when (methodAbstract modif && methodVis modif == Just Private) $
+        forbidden ("Abstract method " <> mName <> "() cannot be declared private")
     (_, MemberEnumCase _) -> forbidden "Enum cases can only be used inside enum declarations"
     _ -> pure ()
   where
@@ -1118,7 +1123,7 @@ parseTrait :: Parser (Stmt Span)
 parseTrait = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "trait")
   name <- declarationIdentifier
-  members <- braces (M.many (parseClassMemberInContext (ClassLikeContext False)))
+  members <- braces (M.many (parseClassMemberInContext TraitContext))
   pure (\sp -> StmtTrait sp (TraitDecl sp attrs name members))
 
 -- | Enum declaration (pure or backed).

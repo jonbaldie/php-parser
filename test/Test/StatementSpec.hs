@@ -1436,6 +1436,23 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class Bar { public function __construct(callable $c) {} }"
         , "<?php class Foo { public function bar(callable $c): void {} }"
         ]
+
+  , testCase "Reject abstract private methods in class declarations (Issue #208)" $ do
+      mapM_ assertParsesFail
+        [ "<?php abstract class C { abstract private function f(); }"
+        , "<?php class C { abstract private function f(); }"
+        , "<?php abstract readonly class C { abstract private function f(); }"
+        ]
+      case parseProgram "test.php" "<?php abstract class C { abstract private function f(); }" of
+        Left err -> assertBool
+          "error should reject abstract private method"
+          (maybe False (T.isInfixOf "Abstract method f() cannot be declared private") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php abstract class C { abstract protected function f(); }"
+        , "<?php abstract class C { abstract public function f(); }"
+        , "<?php trait T { abstract private function f(); }"
+        ]
   ]
 
 
