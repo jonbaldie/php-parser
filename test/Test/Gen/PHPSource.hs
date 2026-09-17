@@ -24,6 +24,8 @@ module Test.Gen.PHPSource
   , allFeatures
   , featuresUpTo
   , featuresIntroducedIn
+  , featureByName
+  , renderFeature
 
     -- * Programs
   , Snippet (..)
@@ -31,9 +33,14 @@ module Test.Gen.PHPSource
   , renderProgram
   , genProgram
   , shrinkProgram
+  , appendSnippet
+
+    -- * Imports
   ) where
 
-import Data.List (intercalate)
+import Data.List (find, intercalate)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.QuickCheck
@@ -70,6 +77,16 @@ featuresUpTo v = filter ((<= v) . featureSince) allFeatures
 -- one of these so a version's property actually exercises that version.
 featuresIntroducedIn :: PHPVersion -> [Feature]
 featuresIntroducedIn v = filter ((== v) . featureSince) allFeatures
+
+-- | Look a feature up by name. The mutation layer in "Test.Gen.PHPMutation"
+-- names the feature it perturbs, so a renamed or deleted feature surfaces as a
+-- failing mutation rather than as silently skipped coverage.
+featureByName :: String -> Maybe Feature
+featureByName n = find ((== n) . featureName) allFeatures
+
+-- | Render one feature at the given uniquifying index.
+renderFeature :: Int -> Feature -> Gen Snippet
+renderFeature i f = Snippet (featureName f) (featureSince f) <$> featureBody f i
 
 -- | One rendered feature.
 data Snippet = Snippet
@@ -113,26 +130,51 @@ renderProgram p =
     , "\n"
     ]
 
+-- | The @use@ statements a program may draw from, each paired with the names it
+-- binds in the current namespace. Two statements binding the same name are a
+-- compile error in PHP ("Cannot use ... because the name is already in use"),
+-- which a parser with no import table cannot see, so the collision is removed
+-- here rather than left for the differential oracle to trip over.
+--
+-- Function and constant imports live in separate symbol tables from class
+-- imports, so their bound names are tagged to keep them from colliding with a
+-- class import of the same spelling.
+importCandidates :: [([Text], Text)]
+importCandidates =
+  [ (["Collection"], "use App\\Support\\Collection;")
+  , (["A"], "use App\\Support\\Arr as A;")
+  , (["Str", "Num"], "use App\\Support\\{Str, Num};")
+  , (["Text", "function:slug", "const:VERSION"], "use App\\Support\\{Text, function slug, const VERSION};")
+  , (["function:collect"], "use function App\\Support\\collect;")
+  , (["const:MAX_DEPTH"], "use const App\\Support\\MAX_DEPTH;")
+  ]
+
+-- | Keep the first statement binding any given name and drop later collisions.
+dedupeImports :: [([Text], Text)] -> [Text]
+dedupeImports = go Set.empty
+  where
+    go :: Set Text -> [([Text], Text)] -> [Text]
+    go _ [] = []
+    go seen ((names, stmt) : rest)
+      | any (`Set.member` seen) names = go seen rest
+      | otherwise = stmt : go (foldr Set.insert seen names) rest
+
 genProgram :: PHPVersion -> Gen PHPProgram
 genProgram v = do
   strict <- arbitrary
   ns <- elements [Nothing, Just "App\\Generated", Just "Vendor\\App\\Generated"]
-  imports <- sublistOf
-    [ "use App\\Support\\Collection;"
-    , "use App\\Support\\Arr as A;"
-    , "use App\\Support\\{Str, Num};"
-    , "use App\\Support\\{Str, function slug, const VERSION};"
-    , "use function App\\Support\\collect;"
-    , "use const App\\Support\\MAX_DEPTH;"
-    ]
+  imports <- dedupeImports <$> sublistOf importCandidates
   anchor <- elements (featuresIntroducedIn v)
   extraCount <- choose (0, 5)
   extras <- vectorOf extraCount (elements (featuresUpTo v))
   chosen <- shuffle (anchor : extras)
-  snippets <- traverse render (zip [0 ..] chosen)
+  snippets <- traverse (uncurry renderFeature) (zip [0 ..] chosen)
   pure (PHPProgram v strict ns imports snippets)
-  where
-    render (i, f) = Snippet (featureName f) (featureSince f) <$> featureBody f i
+
+-- | Append a snippet to a program, keeping it last so shrinking can strip the
+-- surrounding context without removing the snippet under test.
+appendSnippet :: Snippet -> PHPProgram -> PHPProgram
+appendSnippet s p = p {programSnippets = programSnippets p ++ [s]}
 
 -- | Shrink by dropping the optional header parts and then whole snippets, so a
 -- counterexample reduces to the smallest set of features that still fails.
@@ -160,7 +202,9 @@ ls = T.intercalate "\n"
 -- | Compound assignment operators the parser is expected to accept.
 --
 -- @**=@, @<<=@ and @>>=@ are deliberately absent: they are rejected today
--- (<https://github.com/jonbaldie/php-parser/issues/237 #237>).
+-- (<https://github.com/jonbaldie/php-parser/issues/237 #237>). The exclusion is
+-- paired with an entry in @knownDivergences@ ("Test.Gen.PHPMutation"), which
+-- fails when the divergence disappears so that both are updated together.
 compoundAssignOps :: [Text]
 compoundAssignOps = ["+=", "-=", "*=", "/=", "%=", ".=", "&=", "|=", "^=", "??="]
 
@@ -172,6 +216,10 @@ visibilities = ["public", "protected", "private"]
 scalarTypes :: [Text]
 scalarTypes = ["int", "string", "float", "bool", "array"]
 
+-- | Every construct excluded below is recorded in @knownDivergences@
+-- ("Test.Gen.PHPMutation") with both sides' decisions and its detectability, and
+-- is exercised there. The exclusions stay here because a corpus containing them
+-- would fail corpus health, which is the premise of every differential property.
 allFeatures :: [Feature]
 allFeatures =
   [ -- PHP 8.2 baseline: syntax the library's floor version already accepts.
@@ -291,9 +339,14 @@ allFeatures =
         , "    $byRef" <> n <> " = null;"
         , "}"
         ]
-  , Feature "functions" PHP82 $ \i -> do
+  , -- Top-level functions have no class scope, so @self@ and @static@ are absent
+    -- from every type position here: PHP rejects them at compile time with
+    -- @Cannot use "static" when no class scope is active@. Their valid use is
+    -- covered by the @classes@ feature, and their invalid use in parameter
+    -- position by the mutation layer.
+    Feature "functions" PHP82 $ \i -> do
       let n = sfx i
-      ret <- elements (scalarTypes ++ ["int|float", "?string", "mixed", "void", "static|null"])
+      ret <- elements (scalarTypes ++ ["int|float", "?string", "mixed", "iterable"])
       pty <- elements scalarTypes
       pure $ ls
         [ "function typed" <> n <> "(" <> pty <> " $a): " <> ret <> " {"
@@ -310,7 +363,7 @@ allFeatures =
         , "function halt" <> n <> "(): never {"
         , "    throw new \\RuntimeException('stop');"
         , "}"
-        , "function mixedArgs" <> n <> "(mixed $a, iterable $b, callable $c, self|static|null $d = null): static|null {"
+        , "function mixedArgs" <> n <> "(mixed $a, iterable $b, callable $c, ?array $d = null): mixed {"
         , "    return $d;"
         , "}"
         ]
@@ -401,6 +454,19 @@ allFeatures =
         , ""
         , "    protected function describe(): string {"
         , "        return self::VERSION . ':' . $this->id;"
+        , "    }"
+        , ""
+        , -- `static` and `self|static|null` are legal in return position but not
+          -- in parameter position, where the library wrongly accepts them (the
+          -- @KnownFalseAccept@ pins in @Test.Gen.PHPMutation@). The corpus
+          -- therefore cannot carry them as parameter types, so it carries them
+          -- here rather than losing the coverage altogether.
+          "    public function itself(): static {"
+        , "        return $this;"
+        , "    }"
+        , ""
+        , "    public function sibling(): self|static|null {"
+        , "        return $this->itself();"
         , "    }"
         , "}"
         ]
