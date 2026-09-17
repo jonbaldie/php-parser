@@ -1159,6 +1159,27 @@ statementTests = testGroup "Statement & Declaration Specifications"
             _ -> assertFailure "Expected 1 param"
           _ -> assertFailure "Expected 1 MemberMethod"
         _ -> assertFailure "Expected StmtClass"
+    , testCase "Reject variadic constructor-promoted properties (Issue #191)" $ do
+      mapM_ assertParsesFail
+        [ "<?php class A { public function __construct(public ...$x) {} }"
+        , "<?php class A { public function __construct(protected ...$x) {} }"
+        , "<?php class A { public function __construct(private ...$x) {} }"
+        , "<?php class A { public function __construct(readonly ...$x) {} }"
+        , "<?php class A { public function __construct(public readonly ...$x) {} }"
+        , "<?php class A { public function __construct(public(set) ...$x) {} }"
+        , "<?php class A { public function __construct(public private(set) ...$x) {} }"
+        , "<?php class A { public function __construct(final public ...$x) {} }"
+        ]
+      case parseProgram "test.php" "<?php class A { public function __construct(public ...$x) {} }" of
+        Left err -> assertBool
+          "error should reject variadic promoted property"
+          (maybe False (T.isInfixOf "Cannot declare variadic promoted property") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php class A { public function __construct(...$x) {} }"
+        , "<?php class A { public function __construct(public int $x) {} }"
+        , "<?php class A { public function __construct(public int $x, ...$rest) {} }"
+        ]
   ]
 
 
