@@ -468,6 +468,78 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             "static $a = 1, $renamedB, $c = $init;"
             (prettyPrintStmt transformedMulti)
         Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+  , testCase "allVariables and transformStmt traverse catch clause variables (Issue #194)" $ do
+      let src = "<?php try { risky(); } catch (Exception $e) {}"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [tryStmt]) -> do
+          assertEqual "queryStmt allVariables extracts catch clause variable with empty body"
+            ["e"]
+            (queryStmt allVariables tryStmt)
+          let renameE = \case
+                ExprVar a (SimpleVar sv (VarName vn "e")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "ex"))
+                e -> e
+              transformedTry = transformStmt renameE tryStmt
+          assertEqual "transformStmt renames catch clause variable with empty body"
+            ["ex"]
+            (queryStmt allVariables transformedTry)
+          assertEqual "Pretty printed empty-body try statement preserves renamed catch variable"
+            "try {\n    risky();\n} catch (Exception $ex) {\n    \n}"
+            (prettyPrintStmt transformedTry)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+      let nonCapturingSrc = "<?php try { risky(); } catch (Exception) {}"
+      case parseProgram "test.php" nonCapturingSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [tryStmt]) -> do
+          assertEqual "queryStmt allVariables returns empty for non-capturing catch"
+            []
+            (queryStmt allVariables tryStmt)
+          let renameE = \case
+                ExprVar a (SimpleVar sv (VarName vn "e")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "ex"))
+                e -> e
+              transformedTry = transformStmt renameE tryStmt
+          assertEqual "Pretty printed non-capturing catch is preserved"
+            "try {\n    risky();\n} catch (Exception) {\n    \n}"
+            (prettyPrintStmt transformedTry)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+      let multiCatchSrc = "<?php try { risky(); } catch (FirstException $e1) { $e1; } catch (SecondException $e2) { $e2; } catch (ThirdException) {}"
+      case parseProgram "test.php" multiCatchSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [tryStmt]) -> do
+          assertEqual "queryStmt allVariables extracts catch clause variables and simple body usages"
+            ["e1", "e1", "e2", "e2"]
+            (queryStmt allVariables tryStmt)
+          let renameE1 = \case
+                ExprVar a (SimpleVar sv (VarName vn "e1")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "ex1"))
+                e -> e
+              transformedTry = transformStmt renameE1 tryStmt
+          assertEqual "transformStmt renames only targeted catch clause variable and body"
+            ["ex1", "ex1", "e2", "e2"]
+            (queryStmt allVariables transformedTry)
+          assertEqual "Pretty printed multi-catch statement preserves renamed variable"
+            "try {\n    risky();\n} catch (FirstException $ex1) {\n    $ex1;\n} catch (SecondException $e2) {\n    $e2;\n} catch (ThirdException) {\n    \n}"
+            (prettyPrintStmt transformedTry)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
+
+      let srcWithBody = "<?php try { risky(); } catch (Exception $e) { log($e); }"
+      case parseProgram "test.php" srcWithBody of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [tryStmt]) -> do
+          let renameE = \case
+                ExprVar a (SimpleVar sv (VarName vn "e")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "ex"))
+                e -> e
+              transformedTry = transformStmt renameE tryStmt
+          assertEqual "Pretty printed try statement preserves renamed catch variable and body call"
+            "try {\n    risky();\n} catch (Exception $ex) {\n    log($ex);\n}"
+            (prettyPrintStmt transformedTry)
+        Right other -> assertFailure ("Expected one statement, got: " ++ show other)
   ]
 
 foldReturns :: Stmt a -> [Bool]
