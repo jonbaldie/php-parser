@@ -1382,7 +1382,63 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php trait T { public readonly int $bar; }"
         , "<?php $c = new class { public readonly int $bar; };"
         ]
+
+  , testCase "Reject void, never, and callable property types (Issue #207)" $ do
+      mapM_ assertParsesFail
+        [ "<?php class Foo { public void $x; }"
+        , "<?php class Foo { public never $y; }"
+        , "<?php class Foo { public callable $z; }"
+        , "<?php class Foo { protected void $x; }"
+        , "<?php class Foo { private never $y; }"
+        , "<?php class Foo { var callable $z; }"
+        , "<?php class Foo { public ?callable $z; }"
+        , "<?php class Foo { public callable|int $z; }"
+        , "<?php class Foo { public (callable&Bar)|int $z; }"
+        , "<?php class Bar { public function __construct(public void $x) {} }"
+        , "<?php class Bar { public function __construct(protected never $y) {} }"
+        , "<?php class Bar { public function __construct(private callable $z) {} }"
+        , "<?php class Bar { public function __construct(readonly void $x) {} }"
+        , "<?php class Bar { public function __construct(public ?callable $z) {} }"
+        , "<?php class Bar { public function __construct(public callable|int $z) {} }"
+        , "<?php trait T { public void $x; }"
+        , "<?php trait T { public never $y; }"
+        , "<?php trait T { public callable $z; }"
+        , "<?php $c = new class { public callable $z; };"
+        , "<?php interface I { public void $x { get; } }"
+        , "<?php interface I { public callable $z { get; } }"
+        ]
+      case parseProgram "test.php" "<?php class Foo { public void $x; }" of
+        Left err -> assertBool
+          "error should mention cannot have type void"
+          (maybe False (T.isInfixOf "cannot have type void") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class Foo { public never $y; }" of
+        Left err -> assertBool
+          "error should mention cannot have type never"
+          (maybe False (T.isInfixOf "cannot have type never") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class Foo { public callable $z; }" of
+        Left err -> assertBool
+          "error should mention cannot have type callable"
+          (maybe False (T.isInfixOf "cannot have type callable") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class Bar { public function __construct(public callable $z) {} }" of
+        Left err -> assertBool
+          "error should mention cannot have type callable"
+          (maybe False (T.isInfixOf "cannot have type callable") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php class Foo { public int $x; public ?string $y; }"
+        , "<?php function f(callable $c) {}"
+        , "<?php function f(): void {}"
+        , "<?php function f(): never {}"
+        , "<?php class Bar { public function __construct(int $x, callable $c) {} }"
+        , "<?php class Bar { public function __construct(callable $c) {} }"
+        , "<?php class Foo { public function bar(callable $c): void {} }"
+        ]
   ]
+
+
 
 
 assertParsesOk :: Text -> Assertion
