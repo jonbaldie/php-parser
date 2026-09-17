@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject match expressions containing more than one `default` arm, matching PHP's compile-time fatal error (#196).
+
 * Reject switch statements containing more than one `default` clause, in both brace and alternative (colon) syntax, matching PHP's compile-time fatal error (#195).
 
 * Include catch clause variables (`CatchClause`) in `queryStmt` (e.g. `queryStmt allVariables`) and rewrite declared variable names during `transformStmt`, ensuring exception variables are discovered and refactored consistently alongside local variables, closure uses, and static declarations (#194).
