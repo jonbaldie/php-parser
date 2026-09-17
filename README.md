@@ -41,6 +41,11 @@ The test suite uses [Tasty](https://hackage.haskell.org/package/tasty) with HUni
 cabal test
 ```
 
+One group, the differential PHP oracle, shells out to real `php -l` binaries. It
+skips itself when no interpreter is on `PATH` and says so in its own test names,
+so `cabal test` is green on a machine with no PHP installed. See
+[docs/testing/php-oracle.md](docs/testing/php-oracle.md) to run it for real.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

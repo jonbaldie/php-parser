@@ -36,8 +36,6 @@ module Test.Gen.PHPSource
   , appendSnippet
 
     -- * Imports
-  , importCandidates
-  , dedupeImports
   ) where
 
 import Data.List (find, intercalate)
@@ -204,7 +202,9 @@ ls = T.intercalate "\n"
 -- | Compound assignment operators the parser is expected to accept.
 --
 -- @**=@, @<<=@ and @>>=@ are deliberately absent: they are rejected today
--- (<https://github.com/jonbaldie/php-parser/issues/237 #237>).
+-- (<https://github.com/jonbaldie/php-parser/issues/237 #237>). The exclusion is
+-- paired with an entry in @knownDivergences@ ("Test.Gen.PHPMutation"), which
+-- fails when the divergence disappears so that both are updated together.
 compoundAssignOps :: [Text]
 compoundAssignOps = ["+=", "-=", "*=", "/=", "%=", ".=", "&=", "|=", "^=", "??="]
 
@@ -216,6 +216,10 @@ visibilities = ["public", "protected", "private"]
 scalarTypes :: [Text]
 scalarTypes = ["int", "string", "float", "bool", "array"]
 
+-- | Every construct excluded below is recorded in @knownDivergences@
+-- ("Test.Gen.PHPMutation") with both sides' decisions and its detectability, and
+-- is exercised there. The exclusions stay here because a corpus containing them
+-- would fail corpus health, which is the premise of every differential property.
 allFeatures :: [Feature]
 allFeatures =
   [ -- PHP 8.2 baseline: syntax the library's floor version already accepts.
@@ -452,7 +456,12 @@ allFeatures =
         , "        return self::VERSION . ':' . $this->id;"
         , "    }"
         , ""
-        , "    public function itself(): static {"
+        , -- `static` and `self|static|null` are legal in return position but not
+          -- in parameter position, where the library wrongly accepts them (the
+          -- @KnownFalseAccept@ pins in @Test.Gen.PHPMutation@). The corpus
+          -- therefore cannot carry them as parameter types, so it carries them
+          -- here rather than losing the coverage altogether.
+          "    public function itself(): static {"
         , "        return $this;"
         , "    }"
         , ""

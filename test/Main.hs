@@ -14,10 +14,14 @@ import Test.CompatibilitySpec (compatibilityTests)
 import Test.OracleSpec (oracleTests)
 
 main :: IO ()
-main = defaultMain tests
+main = do
+  -- The oracle group discovers its interpreters before the tree is built, so a
+  -- missing one can be named in the test names rather than passing silently.
+  oracle <- oracleTests
+  defaultMain (tests oracle)
 
-tests :: TestTree
-tests = testGroup "PHP Parser Test Suite"
+tests :: TestTree -> TestTree
+tests oracle = testGroup "PHP Parser Test Suite"
   [ php82Tests
   , php83Tests
   , php84Tests
@@ -28,5 +32,5 @@ tests = testGroup "PHP Parser Test Suite"
   , roundTripTests
   , recursionSchemesTests
   , compatibilityTests
-  , oracleTests
+  , oracle
   ]

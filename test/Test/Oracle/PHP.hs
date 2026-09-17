@@ -33,22 +33,21 @@ module Test.Oracle.PHP
     -- * Diagnostics
   , classifyDiagnostic
   , outOfContract
-  , outOfContractRules
 
     -- * Environment
   , oracleRequiredVar
   , oracleRequired
   , binaryEnvVar
-  , binaryPathNames
   ) where
 
+import Control.Applicative ((<|>))
 import Control.Exception (IOException, try)
 import Data.Char (isDigit)
 import Data.IORef
 import Data.List (find, isInfixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (findExecutable)
@@ -213,8 +212,7 @@ lint o src = do
   where
     diagnosticFrom out err =
       fromMaybe (unparsed out err) $
-        classifyDiagnostic (T.pack out) `orElse` classifyDiagnostic (T.pack err)
-    orElse a b = maybe b Just a
+        classifyDiagnostic (T.pack out) <|> classifyDiagnostic (T.pack err)
     unparsed out err = Diagnostic CompileFatal (T.strip (T.pack (out ++ err))) 0
 
 -- | Pull the first diagnostic out of @php -l@'s stdout.
@@ -226,14 +224,11 @@ lint o src = do
 classifyDiagnostic :: Text -> Maybe Diagnostic
 classifyDiagnostic out = do
   line <- find (not . T.null) (map T.strip (T.lines out))
-  (kind, rest) <- firstJust [(k, r) | (p, k) <- prefixes, Just r <- [T.stripPrefix p line]]
+  (kind, rest) <- listToMaybe [(k, r) | (p, k) <- prefixes, Just r <- [T.stripPrefix p line]]
   let (body, ln) = splitLocation rest
   pure (Diagnostic kind (T.strip body) ln)
   where
     prefixes = [("Parse error:", ParseError), ("Fatal error:", CompileFatal)]
-    firstJust xs = case xs of
-      [] -> Nothing
-      (x : _) -> Just x
 
 -- | Split @<message> in <file> on line <n>@ into its message and line number.
 -- A diagnostic without a recognisable location keeps its whole text and line 0.

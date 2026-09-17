@@ -29,6 +29,12 @@ module Test.Gen.PHPMutation
   , allMutations
   , mutationsUpTo
 
+    -- * Known divergences
+  , Decision (..)
+  , Detectability (..)
+  , KnownDivergence (..)
+  , knownDivergences
+
     -- * Mutated programs
   , MutatedProgram (..)
   , renderMutated
@@ -88,8 +94,8 @@ mutationsUpTo v = filter available allMutations
       Just f -> featureSince f <= v
 
 -- | Replace the first occurrence, or fail if the anchor is not there.
-at :: Text -> Text -> Text -> Maybe Text
-at anchor replacement src = case T.breakOn anchor src of
+replaceFirst :: Text -> Text -> Text -> Maybe Text
+replaceFirst anchor replacement src = case T.breakOn anchor src of
   (_, rest) | T.null rest -> Nothing
   (before, rest) -> Just (before <> replacement <> T.drop (T.length anchor) rest)
 
@@ -105,7 +111,7 @@ paramType name ty rule stance =
     , mutationFeature = "functions"
     , mutationPHPRule = rule
     , mutationStance = stance
-    , mutationRewrite = at firstParam ("(" <> ty <> " $a, iterable $b")
+    , mutationRewrite = replaceFirst firstParam ("(" <> ty <> " $a, iterable $b")
     }
 
 allMutations :: [Mutation]
@@ -141,7 +147,7 @@ allMutations =
       , mutationFeature = "functions"
       , mutationPHPRule = "Variadic parameter cannot have a default value"
       , mutationStance = KnownFalseAccept "the library accepts a default on a variadic parameter"
-      , mutationRewrite = at "int ...$rest)" "int ...$rest = 1)"
+      , mutationRewrite = replaceFirst "int ...$rest)" "int ...$rest = 1)"
       }
   , -- Modifier combinations that are individually legal.
     Mutation
@@ -149,28 +155,28 @@ allMutations =
       , mutationFeature = "classes"
       , mutationPHPRule = "Private constant cannot be final as it is not visible to other classes"
       , mutationStance = KnownFalseAccept "the library accepts `final private const`"
-      , mutationRewrite = at "    public const VERSION = '1.0';" "    final private const VERSION = '1.0';"
+      , mutationRewrite = replaceFirst "    public const VERSION = '1.0';" "    final private const VERSION = '1.0';"
       }
   , Mutation
       { mutationName = "abstract-final-class"
       , mutationFeature = "classes"
       , mutationPHPRule = "Cannot use the final modifier on an abstract class"
       , mutationStance = Caught
-      , mutationRewrite = at "abstract class Base" "abstract final class Base"
+      , mutationRewrite = replaceFirst "abstract class Base" "abstract final class Base"
       }
   , Mutation
       { mutationName = "untyped-readonly-property"
       , mutationFeature = "classes"
       , mutationPHPRule = "Readonly property must have type"
       , mutationStance = Caught
-      , mutationRewrite = at "    public readonly string $id;" "    public readonly $id;"
+      , mutationRewrite = replaceFirst "    public readonly string $id;" "    public readonly $id;"
       }
   , Mutation
       { mutationName = "readonly-static-property"
       , mutationFeature = "classes"
       , mutationPHPRule = "Static property cannot be readonly"
       , mutationStance = Caught
-      , mutationRewrite = at "    protected static int $count = 0;" "    public readonly static int $count;"
+      , mutationRewrite = replaceFirst "    protected static int $count = 0;" "    public readonly static int $count;"
       }
   , -- Duplicate members within one class. These need a per-declaration member
     -- table, not a program-wide symbol table, so they are in contract.
@@ -180,7 +186,7 @@ allMutations =
       , mutationPHPRule = "Cannot redefine class constant"
       , mutationStance = KnownFalseAccept "the library accepts a class constant declared twice"
       , mutationRewrite =
-          at
+          replaceFirst
             "    public const VERSION = '1.0';"
             "    public const VERSION = '1.0';\n    public const VERSION = '2.0';"
       }
@@ -190,7 +196,7 @@ allMutations =
       , mutationPHPRule = "Cannot redeclare property"
       , mutationStance = KnownFalseAccept "the library accepts a property declared twice"
       , mutationRewrite =
-          at
+          replaceFirst
             "    protected static int $count = 0;"
             "    protected static int $count = 0;\n    protected static int $count = 1;"
       }
@@ -200,7 +206,7 @@ allMutations =
       , mutationPHPRule = "Cannot redeclare method"
       , mutationStance = KnownFalseAccept "the library accepts a method declared twice"
       , mutationRewrite =
-          at
+          replaceFirst
             "    abstract protected function describe(): string;"
             ( T.intercalate
                 "\n"
@@ -223,7 +229,7 @@ allMutations =
       , mutationPHPRule = "Interfaces may only include hooked properties"
       , mutationStance = Caught
       , mutationRewrite =
-          at
+          replaceFirst
             "    public function describe(): string;"
             "    public int $plain;\n\n    public function describe(): string;"
       }
@@ -232,14 +238,14 @@ allMutations =
       , mutationFeature = "enums"
       , mutationPHPRule = "Enum cannot include properties"
       , mutationStance = Caught
-      , mutationRewrite = at "    case Draft;" "    public int $weight = 0;\n\n    case Draft;"
+      , mutationRewrite = replaceFirst "    case Draft;" "    public int $weight = 0;\n\n    case Draft;"
       }
   , Mutation
       { mutationName = "value-on-unbacked-enum-case"
       , mutationFeature = "enums"
       , mutationPHPRule = "Case of non-backed enum must not have a value"
       , mutationStance = Caught
-      , mutationRewrite = at "    case Draft;" "    case Draft = 1;"
+      , mutationRewrite = replaceFirst "    case Draft;" "    case Draft = 1;"
       }
   ]
 
@@ -311,3 +317,121 @@ shrinkMutatedProgram m =
       , last (programSnippets p) == mutant =
           Just p
       | otherwise = Nothing
+
+--------------------------------------------------------------------------------
+-- Known divergences
+--------------------------------------------------------------------------------
+
+-- | An accept/reject decision, recorded for both sides of a divergence.
+data Decision
+  = Accepts
+  | Rejects
+  deriving (Eq, Show)
+
+-- | Whether a lint oracle can see this divergence at all.
+--
+-- The distinction matters because a table that does not record it overclaims:
+-- three of the seven known divergences are cases where PHP and the library both
+-- /accept/ the program and only its meaning differs, which is structurally
+-- invisible to a tool whose entire output is an exit status.
+data Detectability
+  = -- | PHP and the library return different decisions, so the oracle gates it.
+    ByVerdict
+  | -- | They return the same decision. The text says what could catch it
+    -- instead; nothing here does.
+    NotByVerdict String
+  deriving (Eq, Show)
+
+-- | A construct the valid generator deliberately excludes, recorded as data
+-- rather than as a comment above the exclusion.
+--
+-- Each entry carries the issue it belongs to, a self-contained program
+-- exhibiting it, both sides' decisions and its detectability. Entries marked
+-- 'ByVerdict' are asserted in both directions: if the library's decision ever
+-- matches what is recorded here for PHP, the divergence has been fixed and this
+-- table fails, which forces the table and the generator's exclusion to be
+-- updated in the same change as the fix.
+data KnownDivergence = KnownDivergence
+  { divergenceIssue :: Int
+  , divergenceName :: String
+  , -- | A complete program, small enough to read in a failure message.
+    divergenceSource :: Text
+  , divergencePHP :: Decision
+  , divergenceLibrary :: Decision
+  , divergenceDetect :: Detectability
+  }
+
+-- | Every construct "Test.Gen.PHPSource" excludes from the valid corpus.
+--
+-- The exclusions stay in the generator -- a corpus containing them would fail
+-- corpus health, which is the premise of every other property -- but they no
+-- longer live only as prose. Every decision below was measured against a real
+-- interpreter and the library, not assumed.
+knownDivergences :: [KnownDivergence]
+knownDivergences =
+  [ KnownDivergence
+      { divergenceIssue = 232
+      , divergenceName = "concatenation binds at the wrong precedence against + and -"
+      , divergenceSource = "<?php\necho 'x' . 1 + 2;\n"
+      , divergencePHP = Accepts
+      , divergenceLibrary = Accepts
+      , divergenceDetect =
+          NotByVerdict
+            "both accept; the library parses it as ('x' . 1) + 2, PHP as 'x' . (1 + 2). \
+            \Only comparing what the two programs compute can see this."
+      }
+  , KnownDivergence
+      { divergenceIssue = 233
+      , divergenceName = "unbraced \"$a[key]\" is printed as a constant fetch"
+      , divergenceSource = "<?php\n$a = ['key' => 1];\necho \"$a[key]\";\n"
+      , divergencePHP = Accepts
+      , divergenceLibrary = Accepts
+      , divergenceDetect =
+          NotByVerdict
+            "both accept, and the printed form \"{$a[key]}\" is accepted too -- but inside \
+            \braces `key` is a constant, not the string 'key'. Only execution differs."
+      }
+  , KnownDivergence
+      { divergenceIssue = 235
+      , divergenceName = "a negative literal index inside interpolation is rejected"
+      , divergenceSource = "<?php\n$a = [1];\necho \"$a[-1]\";\n"
+      , divergencePHP = Accepts
+      , divergenceLibrary = Rejects
+      , divergenceDetect = ByVerdict
+      }
+  , KnownDivergence
+      { divergenceIssue = 236
+      , divergenceName = "escape sequences in a heredoc body are re-emitted decoded"
+      , divergenceSource = "<?php\n$d = <<<TEXT\n  a\\tb\n  TEXT;\n"
+      , divergencePHP = Accepts
+      , divergenceLibrary = Accepts
+      , divergenceDetect =
+          NotByVerdict
+            "both accept the source and both accept the printed form; the printed form \
+            \carries a literal tab where the source carried an escape."
+      }
+  , KnownDivergence
+      { divergenceIssue = 237
+      , divergenceName = "the **=, <<= and >>= compound assignments are rejected"
+      , divergenceSource = "<?php\n$a = 1;\n$a **= 2;\n"
+      , divergencePHP = Accepts
+      , divergenceLibrary = Rejects
+      , divergenceDetect = ByVerdict
+      }
+  , KnownDivergence
+      { divergenceIssue = 240
+      , divergenceName = "a heredoc closer indented deeper than its body is accepted"
+      , divergenceSource = "<?php\n$d = <<<TEXT\nbody\n    TEXT;\n"
+      , divergencePHP = Rejects
+      , divergenceLibrary = Accepts
+      , divergenceDetect = ByVerdict
+      }
+  , KnownDivergence
+      { divergenceIssue = 241
+      , divergenceName = "the invalid octal literals 08 and 09 are accepted"
+      , divergenceSource = "<?php\n$a = 08;\n"
+      , divergencePHP = Rejects
+      , divergenceLibrary = Accepts
+      , divergenceDetect = ByVerdict
+      }
+  ]

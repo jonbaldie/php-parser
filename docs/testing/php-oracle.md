@@ -15,9 +15,19 @@ behind `Test.Oracle.PHP`.
 ## Running it locally
 
 **Nothing is required.** With no interpreter on `PATH` every differential
-property passes trivially and the group reports a skip. That is the normal local
-outcome, and it is why a fresh checkout does not need PHP installed to run
-`cabal test`.
+property passes trivially, and every group that needed an interpreter says so in
+its own name:
+
+```
+PHP interpreter oracle (differential) [SKIPPED: no PHP interpreter found -- see docs/testing/php-oracle.md]
+  ...
+    PHP 8.2 [SKIPPED: no PHP 8.2 binary found (set PHP82_BIN, or put one of php8.2 php82 php on PATH)]
+```
+
+Discovery therefore runs *before* the test tree is built, so that the names can
+carry the reason. That is the normal local outcome, and it is why a fresh
+checkout does not need PHP installed to run `cabal test` — but a skipped oracle
+can never be mistaken for a passing one.
 
 To actually exercise it, put one or more interpreters where the oracle can find
 them. For each version it tries, in order:
@@ -116,6 +126,11 @@ reports it and the suite fails, rather than silently generating valid programs.
 
 ## The known-divergence table
 
+Expected disagreements live in one place — `Test.Gen.PHPMutation` — and in one
+test group, in two halves.
+
+### Catalogue mutations
+
 Every mutation records what the library *currently* does with it:
 
 - `Caught` — the library rejects it, like PHP.
@@ -130,6 +145,39 @@ The current false accepts are all parameter-position and duplicate-member rules:
 `static`, `self|static|null`, `never`, `void` and `?mixed` as parameter types; a
 default on a variadic; `final private const`; and a class constant, property or
 method declared twice in one class.
+
+### Constructs excluded from the generator
+
+`Test.Gen.PHPSource` leaves seven constructs out of the valid corpus, because
+including them would fail corpus health — which is the premise of every other
+property. They are not merely commented out: `knownDivergences` carries each one
+as data, with the issue it belongs to, a self-contained program, **both sides'
+decisions**, and whether a lint oracle can see the difference at all.
+
+| Issue | Construct | PHP | Library | Gated by this oracle? |
+| --- | --- | --- | --- | --- |
+| #235 | `"$a[-1]"` | accepts | rejects | **yes** — false reject |
+| #237 | `**=`, `<<=`, `>>=` | accepts | rejects | **yes** — false reject |
+| #240 | heredoc closer indented deeper than its body | rejects | accepts | **yes** — false accept |
+| #241 | `08`, `09` | rejects | accepts | **yes** — false accept |
+| #232 | `.` against `+`/`-` precedence | accepts | accepts | no |
+| #233 | unbraced `"$a[key]"` | accepts | accepts | no |
+| #236 | escape sequences in a heredoc body | accepts | accepts | no |
+
+Every decision in that table was measured against a real interpreter and the
+library, not assumed. The measurement corrected the spec, which had recorded
+#237 as invisible to a verdict oracle; it is not — PHP accepts `$a **= 2;` and
+the library rejects it, so the oracle gates it.
+
+The last three rows are cases where **both sides accept** and only the meaning
+differs. No exit status can distinguish them, so their entries are records
+rather than gates, and their test names say `[recorded only: no exit status can
+see this]`. Catching them needs an execution oracle, which is #245.
+
+Both halves of every entry are checked. The library's half needs no interpreter
+and always runs; the interpreter's half skips visibly when none is present. When
+one of these bugs is fixed, the entry fails, which forces the table and the
+generator's exclusion to be updated in the same change as the fix.
 
 ## The contract boundary
 
@@ -150,9 +198,34 @@ Duplicate members *within* one class are deliberately absent from it: they need 
 per-declaration member table, not a program-wide one, so they are in contract —
 and, as the table above records, currently accepted.
 
-## Cost
+## Cost, and the budget
 
-One subprocess per generated program, memoised on the source text. With all four
-interpreters the group is a few minutes of wall clock, which is why it is a
-separate CI job rather than part of the GHC matrix. `--quickcheck-tests=N` raises
-the count when you want a deep fuzz.
+One subprocess per generated program, memoised on the source text. A single
+`php -n -d display_errors=1 -l` over stdin measures a median of 43 ms on the
+machine below, so the cost is process spawn, not parsing.
+
+**The budget is 10 minutes of wall clock for the whole oracle group at default
+settings with all four interpreters present.** Exceeding it is a defect in this
+suite, not an acceptable cost: the group has to stay runnable in a CI job and,
+for anyone who installs the interpreters, in a local loop.
+
+Measured against that budget on an M-series laptop, GHC 9.12.1, default settings
+(50 QuickCheck tests per property):
+
+| Interpreters resolved | Oracle group | Whole suite |
+| --- | --- | --- |
+| 1 (8.5) | 82 s | 91 s (469 tests) |
+| 0 (everything skips) | 0.19 s | — |
+
+The per-version properties are the bulk of the cost and scale with the number of
+interpreters resolved, which is where the four-interpreter budget comes from:
+four times the measured interpreter-bound work, plus the no-false-accepts
+property, which only runs with all four and lints each program four times. CI is
+where the four-interpreter figure is actually observed; the `php-oracle` job
+prints its own duration. If it lands above 10 minutes, cut the work rather than
+raising the number.
+
+This is also why the group is a separate CI job rather than part of the GHC
+matrix — the PHP matrix stays orthogonal to the compiler matrix instead of
+multiplying against it. `--quickcheck-tests=N` raises the count when you want a
+deep fuzz, and deliberately leaves the budget behind.

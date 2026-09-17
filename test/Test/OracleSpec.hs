@@ -32,7 +32,7 @@
 module Test.OracleSpec (oracleTests) where
 
 import Control.Exception (bracket_)
-import Data.List (sort)
+import Data.List (nub, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isNothing)
@@ -59,66 +59,91 @@ import Test.Tasty.QuickCheck
 
 type Oracles = Map PHPVersion (Either String PHPOracle)
 
--- | Each property costs one subprocess per generated program, so the floor is
+-- | Discovery runs once, before the tree is built, so that a missing
+-- interpreter can be named in the /test names/ rather than silently turning
+-- properties into vacuous passes. A skipped oracle and a passing oracle must not
+-- read the same, and on a machine without PHP the skip is the normal outcome.
+--
+-- Each property costs one subprocess per generated program, so the floor is
 -- lower than the hermetic suite's. @--quickcheck-tests=N@ still wins when larger.
-oracleTests :: TestTree
-oracleTests =
-  adjustOption (max (QuickCheckTests 50)) $
-    withResource resolveOracles (const (pure ())) $ \getOracles ->
+oracleTests :: IO TestTree
+oracleTests = do
+  oracles <- resolveOracles
+  pure $
+    adjustOption (max (QuickCheckTests 50)) $
       testGroup
-        "PHP interpreter oracle (differential)"
-        [ testGroup "Oracle handle" (handleTests getOracles)
+        ("PHP interpreter oracle (differential)" ++ groupSkip oracles)
+        [ testGroup "Oracle handle" (handleTests oracles)
         , testGroup "Mutation layer" mutationLayerTests
         , testGroup
             "Differential properties"
-            ( map (versionProperties getOracles) allVersions
-                ++ [noFalseAccepts getOracles, divergenceTable getOracles]
+            ( map (versionProperties oracles) allVersions
+                ++ [noFalseAccepts oracles, divergenceTable oracles]
             )
+        , knownDivergenceTests oracles
         ]
+  where
+    groupSkip oracles
+      | any isRight (M.elems oracles) = ""
+      | otherwise = " [SKIPPED: no PHP interpreter found -- see docs/testing/php-oracle.md]"
+    isRight = either (const False) (const True)
 
 --------------------------------------------------------------------------------
 -- Skipping
 --------------------------------------------------------------------------------
 
+-- | A skip is only honest if it is visible. Every group and property that can
+-- be skipped carries the reason in its own name, so @All tests passed@ can never
+-- be mistaken for evidence that an interpreter agreed with anything.
+skipTag :: String -> String
+skipTag why = " [SKIPPED: " ++ why ++ "]"
+
+-- | Why this version's interpreter is unusable, if it is.
+versionSkip :: Oracles -> PHPVersion -> Maybe String
+versionSkip oracles v = case M.lookup v oracles of
+  Just (Right _) -> Nothing
+  Just (Left why) -> Just why
+  Nothing -> Just ("PHP " ++ versionLabel v ++ " was never looked for")
+
 -- | Run a property against one version's interpreter, or pass trivially when
--- that interpreter is missing. Absence is reported once, by
--- @an interpreter is available for every supported version@, rather than by
--- every property failing for the same reason.
-withOracle :: Testable prop => IO Oracles -> PHPVersion -> (PHPOracle -> prop) -> Property
-withOracle getOracles v k = ioProperty $ do
-  oracles <- getOracles
-  pure $ case M.lookup v oracles of
-    Just (Right o) -> property (k o)
-    _ -> property ()
+-- that interpreter is missing. The name of the enclosing group already says so.
+withOracle :: Testable prop => Oracles -> PHPVersion -> (PHPOracle -> prop) -> Property
+withOracle oracles v k = case M.lookup v oracles of
+  Just (Right o) -> property (k o)
+  _ -> property ()
 
 -- | Run a property that needs every supported version at once. \"No supported
 -- version accepts this\" cannot be established from a subset, so a single
 -- missing interpreter skips the property rather than weakening it.
-withAllOracles :: Testable prop => IO Oracles -> ([(PHPVersion, PHPOracle)] -> prop) -> Property
-withAllOracles getOracles k = ioProperty $ do
-  oracles <- getOracles
-  pure $ case traverse (either (const Nothing) Just) oracles of
-    Just resolved -> property (k (M.toList resolved))
-    Nothing -> property ()
+withAllOracles :: Testable prop => Oracles -> ([(PHPVersion, PHPOracle)] -> prop) -> Property
+withAllOracles oracles k = case traverse (either (const Nothing) Just) oracles of
+  Just resolved -> property (k (M.toList resolved))
+  Nothing -> property ()
 
 -- | Run a property over whichever interpreters resolved. Sound only for claims
 -- of the form \"every one of these rejects it\", which get stronger, not weaker,
 -- as more interpreters appear.
-withAnyOracles :: Testable prop => IO Oracles -> ([(PHPVersion, PHPOracle)] -> prop) -> Property
-withAnyOracles getOracles k = ioProperty $ do
-  oracles <- getOracles
-  pure $ case [(v, o) | (v, Right o) <- M.toList oracles] of
-    [] -> property ()
-    resolved -> property (k resolved)
+withAnyOracles :: Testable prop => Oracles -> ([(PHPVersion, PHPOracle)] -> prop) -> Property
+withAnyOracles oracles k = case resolvedOracles oracles of
+  [] -> property ()
+  resolved -> property (k resolved)
+
+resolvedOracles :: Oracles -> [(PHPVersion, PHPOracle)]
+resolvedOracles oracles = [(v, o) | (v, Right o) <- M.toList oracles]
+
+-- | Tag for anything that needs at least one interpreter.
+anySkip :: Oracles -> String
+anySkip oracles
+  | null (resolvedOracles oracles) = skipTag "no PHP interpreter found"
+  | otherwise = ""
 
 --------------------------------------------------------------------------------
 -- The oracle handle
 --------------------------------------------------------------------------------
 
-handleTests :: IO Oracles -> [TestTree]
-handleTests getOracles =
+handleTests :: Oracles -> [TestTree]
+handleTests oracles =
   [ testCase "an interpreter is available for every supported version" $ do
-      oracles <- getOracles
       required <- oracleRequired
       let missing = [versionLabel v ++ " -- " ++ why | (v, Left why) <- M.toList oracles]
       case missing of
@@ -128,16 +153,14 @@ handleTests getOracles =
               assertFailure . unlines $
                 (oracleRequiredVar ++ " is set, but some interpreters are missing:") : map ("  " ++) missing
           | otherwise -> pure ()
-  , testCase "a resolved interpreter reports the version it was resolved for" $ do
-      oracles <- getOracles
+  , testCase "a resolved interpreter reports the version it was resolved for" $
       sequence_
         [ assertEqual ("binary " ++ oracleBinary o) (T.pack (versionLabel v)) (oracleReportedVersion o)
         | (v, Right o) <- M.toList oracles
         ]
-  , testCase "a binary reporting the wrong version is not used" $ do
-      -- Forces the shared resource to have been resolved already, so setting
-      -- the override below cannot affect any other test.
-      _ <- getOracles
+  , testCase "a binary reporting the wrong version is not used" $
+      -- Discovery has already run, before the tree was built, so the override
+      -- below cannot affect any other test.
       withFakePHP "9.9" $ \fake ->
         bracket_ (setEnv (binaryEnvVar PHP82) fake) (unsetEnv (binaryEnvVar PHP82)) $ do
           resolved <- resolveOracles
@@ -146,8 +169,7 @@ handleTests getOracles =
               | oracleBinary o == fake ->
                   assertFailure "a binary reporting 9.9 was accepted as the PHP 8.2 oracle"
             _ -> pure ()
-  , testCase "an accepted program and a rejected one are told apart" $ do
-      oracles <- getOracles
+  , testCase "an accepted program and a rejected one are told apart" $
       sequence_
         [ do
             good <- checkSource o "<?php echo 1;\n"
@@ -220,7 +242,7 @@ mutationLayerTests :: [TestTree]
 mutationLayerTests =
   [ testCase "every mutation has a distinct name" $
       let names = map mutationName allMutations
-       in assertEqual "names" (sort names) (sort (dedupe (sort names)))
+       in assertEqual "names" (sort names) (sort (nub names))
   , testCase "every mutation names a real catalogue feature" $
       sequence_
         [ assertBool (mutationName m ++ " targets unknown feature " ++ mutationFeature m) $
@@ -241,10 +263,6 @@ mutationLayerTests =
             T.length (renderMutated mp) > 0
               && length (programSnippets (mutatedProgram mp)) >= 1
   ]
-  where
-    dedupe (x : y : rest) | x == y = dedupe (y : rest)
-    dedupe (x : rest) = x : dedupe rest
-    dedupe [] = []
 
 --------------------------------------------------------------------------------
 -- Differential properties
@@ -252,23 +270,16 @@ mutationLayerTests =
 
 -- | Properties 1, 2 and 4: everything that draws from the valid corpus and can
 -- therefore be pinned to a single version.
-versionProperties :: IO Oracles -> PHPVersion -> TestTree
-versionProperties getOracles v =
+versionProperties :: Oracles -> PHPVersion -> TestTree
+versionProperties oracles v =
   testGroup
-    ("PHP " ++ versionLabel v)
+    ("PHP " ++ versionLabel v ++ maybe "" skipTag (versionSkip oracles v))
     [ testProperty "corpus health: the interpreter accepts every generated program" $
-        withOracle getOracles v $ \o ->
+        withOracle oracles v $ \o ->
           forAllProgram v $ \prog src ->
-            ioProperty $ do
-              verdict <- checkSource o src
-              pure $ case verdict of
-                Accepted -> property True
-                Rejected d ->
-                  counterexample
-                    (reportSource prog src ("PHP " ++ versionLabel v ++ " rejected a supposedly valid program") d)
-                    False
+            acceptsOrReports o prog src " rejected a supposedly valid program"
     , testProperty "no false rejects: what the interpreter accepts, the library parses" $
-        withOracle getOracles v $ \o ->
+        withOracle oracles v $ \o ->
           forAllProgram v $ \prog src ->
             ioProperty $ do
               verdict <- checkSource o src
@@ -287,20 +298,25 @@ versionProperties getOracles v =
                     False
                 _ -> property True
     , testProperty "the printer emits source the interpreter still accepts" $
-        withOracle getOracles v $ \o ->
+        withOracle oracles v $ \o ->
           forAllProgram v $ \prog src ->
             case parseProgram "gen.php" src of
               Left _ -> property () -- covered, and reported, by the property above
-              Right ast -> ioProperty $ do
-                let printed = prettyPrint ast
-                verdict <- checkSource o printed
-                pure $ case verdict of
-                  Accepted -> property True
-                  Rejected d ->
-                    counterexample
-                      (reportSource prog printed "the printer produced source PHP rejects" d)
-                      False
+              Right ast ->
+                acceptsOrReports o prog (prettyPrint ast) " rejected the printer's output"
     ]
+  where
+    -- Both the corpus-health and the printer property are the same claim about
+    -- a different piece of text: this interpreter accepts it, and if it does
+    -- not, here is the program that produced it.
+    acceptsOrReports o prog checked headline = ioProperty $ do
+      verdict <- checkSource o checked
+      pure $ case verdict of
+        Accepted -> property True
+        Rejected d ->
+          counterexample
+            (reportSource prog checked ("PHP " ++ versionLabel v ++ headline) d)
+            False
 
 -- | Property 3. Version-agnostic, because the library parses the union of every
 -- supported grammar: it is only wrong to accept something /no/ supported
@@ -308,15 +324,27 @@ versionProperties getOracles v =
 --
 -- Runs only with all four interpreters present, since "no version accepts this"
 -- cannot be established from a subset.
-noFalseAccepts :: IO Oracles -> TestTree
-noFalseAccepts getOracles =
-  testProperty "no false accepts: the library parses only what some supported version accepts" $
-    withAllOracles getOracles $ \oracles ->
+--
+-- The @Caught@ guard suppresses exactly the 'KnownFalseAccept' pins, which
+-- 'divergenceTable' asserts positively, so a fixed bug still turns the suite
+-- red. The gap it leaves is narrow and worth naming: a /new/ false accept that
+-- only shows up in a program built from a pinned mutation is masked, because
+-- the whole program is excused rather than the pinned construct.
+noFalseAccepts :: Oracles -> TestTree
+noFalseAccepts oracles =
+  testProperty
+    ( "no false accepts: the library parses only what some supported version accepts"
+        ++ if length (resolvedOracles oracles) == length allVersions
+          then ""
+          else skipTag "needs all four interpreters; \"no version accepts this\" cannot be checked from a subset"
+    )
+    $ withAllOracles oracles
+    $ \resolved ->
       forAll (elements allVersions) $ \v ->
         forAllShrink (genMutatedProgram v) shrinkMutatedProgram $ \mp ->
           let src = renderMutated mp
            in ioProperty $ do
-                verdicts <- traverse (\(w, o) -> (,) w <$> checkSource o src) oracles
+                verdicts <- traverse (\(w, o) -> (,) w <$> checkSource o src) resolved
                 pure $ case (any (verdictAccepted . snd) verdicts, parseProgram "mutated.php" src) of
                   (False, Right _)
                     | Caught <- mutationStance (mutatedMutation mp) ->
@@ -328,16 +356,16 @@ noFalseAccepts getOracles =
 -- mutation that stops being caught fails, and a 'KnownFalseAccept' that starts
 -- being caught fails too -- the second is a bug fix, and this is where it is
 -- noticed.
-divergenceTable :: IO Oracles -> TestTree
-divergenceTable getOracles =
+divergenceTable :: Oracles -> TestTree
+divergenceTable oracles =
   testGroup
-    "Known divergences"
+    ("Known divergences: catalogue mutations" ++ anySkip oracles)
     [ testProperty (mutationName m) $
-        withAnyOracles getOracles $ \oracles ->
+        withAnyOracles oracles $ \resolved ->
           -- The context is generated for the same version as the interpreter
           -- that judges it, so the only thing the interpreter can be objecting
           -- to is the mutation.
-          forAllShow (elements oracles) (("PHP " ++) . versionLabel . fst) $ \(v, o) ->
+          forAllShow (elements resolved) (("PHP " ++) . versionLabel . fst) $ \(v, o) ->
             forAll (genMutationOf v m) $ \mp ->
               let src = renderMutated mp
                in ioProperty $ do
@@ -413,3 +441,65 @@ forAllProgram v k =
   forAllShrink (genProgram v) shrinkProgram $ \prog ->
     tabulate "features exercised" (map snippetFeature (programSnippets prog)) $
       k prog (renderProgram prog)
+
+--------------------------------------------------------------------------------
+-- The known-divergence table
+--------------------------------------------------------------------------------
+
+-- | The constructs "Test.Gen.PHPSource" excludes from the valid corpus, checked
+-- against both sides.
+--
+-- The table in 'knownDivergences' records, per construct, the issue it belongs
+-- to, PHP's decision, the library's decision and whether a lint oracle can see
+-- the difference at all. Here both halves are checked: the library's decision
+-- needs no interpreter and always runs; PHP's needs one and says so in the test
+-- name when it is missing.
+--
+-- Entries marked 'ByVerdict' are gates. When such a divergence is fixed, the
+-- library's decision stops matching what is recorded and this test fails --
+-- which is the point, because the fix must update the table and remove the
+-- generator's exclusion in the same change.
+--
+-- Entries marked 'NotByVerdict' are records, not gates, and their names say so:
+-- both sides accept the program, so no exit status can distinguish them. They
+-- are listed because a table that silently omitted them would read as if this
+-- oracle covered all seven.
+knownDivergenceTests :: Oracles -> TestTree
+knownDivergenceTests oracles =
+  testGroup
+    "Known divergences: constructs excluded from the generator"
+    [ testCase (divergenceTestName oracles d) $ do
+        assertEqual
+          ("the library's decision on #" ++ show (divergenceIssue d) ++ " changed")
+          (divergenceLibrary d)
+          (libraryDecision (divergenceSource d))
+        sequence_
+          [ do
+              verdict <- checkSource o (divergenceSource d)
+              assertEqual
+                ("PHP " ++ versionLabel v ++ "'s decision on #" ++ show (divergenceIssue d) ++ " changed")
+                (divergencePHP d)
+                (decisionOf verdict)
+          | (v, o) <- resolvedOracles oracles
+          ]
+    | d <- knownDivergences
+    ]
+  where
+    libraryDecision src = either (const Rejects) (const Accepts) (parseProgram "divergence.php" src)
+    decisionOf v = if verdictAccepted v then Accepts else Rejects
+
+divergenceTestName :: Oracles -> KnownDivergence -> String
+divergenceTestName oracles d =
+  "#"
+    ++ show (divergenceIssue d)
+    ++ " "
+    ++ divergenceName d
+    ++ detect
+    ++ phpHalf
+  where
+    detect = case divergenceDetect d of
+      ByVerdict -> " [gated by verdict]"
+      NotByVerdict _ -> " [recorded only: no exit status can see this]"
+    phpHalf
+      | null (resolvedOracles oracles) = skipTag "the PHP half needs an interpreter; the library half still runs"
+      | otherwise = ""
