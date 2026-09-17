@@ -1180,6 +1180,22 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class A { public function __construct(public int $x) {} }"
         , "<?php class A { public function __construct(public int $x, ...$rest) {} }"
         ]
+    , testCase "Reject multiple default clauses in switch statements (Issue #195)" $ do
+      mapM_ assertParsesFail
+        [ "<?php switch ($x) { default: break; default: break; }"
+        , "<?php switch ($x) { case 1: break; default: break; case 2: break; default: break; }"
+        , "<?php switch ($x): default: break; default: break; endswitch;"
+        ]
+      case parseProgram "test.php" "<?php switch ($x) { default: break; default: break; }" of
+        Left err -> assertBool
+          "error should reject multiple default clauses"
+          (maybe False (T.isInfixOf "one default clause") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php switch ($x) { default: break; }"
+        , "<?php switch ($x) { case 1: break; default: break; }"
+        , "<?php switch ($x): default: break; endswitch;"
+        ]
   ]
 
 
