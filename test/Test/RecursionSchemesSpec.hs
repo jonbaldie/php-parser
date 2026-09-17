@@ -110,6 +110,31 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           let Sum exprCount = queryStmt (const (Sum (1 :: Int))) stmt
           assertBool "Expression count is positive" (exprCount >= 3)
 
+  , testCase "queryStmt allVariables does not double- or triple-count variables in compound expressions (Issue #215)" $ do
+      let src = "if ($cond) { $x = 1; return $x + 2; }"
+      case parseStatement "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "Each variable occurrence is reported exactly once"
+            ["cond", "x", "x"]
+            (queryStmt allVariables stmt)
+
+  , testCase "queryStmt allVariables reports a single occurrence for a call argument (Issue #215)" $ do
+      case parseProgram "test.php" "<?php log($e);" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [stmt]) ->
+          assertEqual "Variable is reported exactly once" ["e"] (queryStmt allVariables stmt)
+        Right _ -> assertFailure "Expected exactly one statement"
+
+  , testCase "queryExpr allVariables does not double-count variables in compound expressions (Issue #215)" $ do
+      let src = "$x + $y * $x"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr ->
+          assertEqual "Each variable occurrence is reported exactly once"
+            ["x", "y", "x"]
+            (queryExpr allVariables expr)
+
   , testCase "allVariables and transformExpr handle variable-variables" $ do
       let src = "$$var + $$$nested"
       case parseExpression "test.php" src of
