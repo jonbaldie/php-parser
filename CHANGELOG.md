@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Fix `queryStmt`/`queryExpr` double- and triple-counting matches from fully recursive queries (like `allVariables`) composed into a larger traversal, by short-circuiting once a node's query result is non-empty; `allExprs` and `foldExpr`/`foldStmt` are unaffected and continue to visit every node exactly once (#215).
+
 * Reject empty array and list destructuring patterns (`[] = $arr`, `list() = $arr`, `[,] = $arr`, `[[]] = $arr`, `foreach ($arr as [])`), matching PHP's "Cannot use empty list" compile-time fatal error (#206).
 
 * Reject the nullable shorthand (`?Type`) as a member of union or intersection types (`?int|string`, `int|?string`, `A&?B`), matching PHP's parse error; `?` remains valid only on a standalone type (#205).
