@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.1.5.0
+## 0.1.6.0
 
 * Fix `queryStmt`/`queryExpr` double- and triple-counting matches from fully recursive queries (like `allVariables`) composed into a larger traversal, by short-circuiting once a node's query result is non-empty; `allExprs` and `foldExpr`/`foldStmt` are unaffected and continue to visit every node exactly once (#215).
+
+* Reject `void`, `never`, and `callable` types on property declarations and constructor-promoted parameters (including within compound types), matching PHP's "Property cannot have type <type>" compile-time fatal error (#207).
 
 * Reject empty array and list destructuring patterns (`[] = $arr`, `list() = $arr`, `[,] = $arr`, `[[]] = $arr`, `foreach ($arr as [])`), matching PHP's "Cannot use empty list" compile-time fatal error (#206).
 
 * Reject the nullable shorthand (`?Type`) as a member of union or intersection types (`?int|string`, `int|?string`, `A&?B`), matching PHP's parse error; `?` remains valid only on a standalone type (#205).
 
+* Reject untyped `readonly` property declarations and constructor-promoted parameters (`public readonly $prop`), matching PHP's requirement that readonly properties must have an explicit type (#204).
+
 * Reject argument unpacking (`...$args`) in attribute argument lists (`#[Attr(...$args)]`), matching PHP's compile-time fatal error (#203).
+
+* Reject positional arguments following named arguments in call and instantiation argument lists (`foo(a: 1, $b)`), matching PHP's "Cannot use positional argument after named argument" compile-time fatal error (#202).
 
 * Reject non-public constants and non-public, final, or abstract methods in interfaces, matching PHP's compile-time fatal errors (#199).
 
@@ -22,6 +28,12 @@
 
 * Reject pure enum cases with values and backed enum cases without values, matching PHP's compile-time fatal errors for non-backed and backed enum cases (#197).
 
+* Reject variadic constructor-promoted properties (`public ...$items`), matching PHP's "Cannot declare variadic promoted property" compile-time fatal error (#191).
+
+* Reject property and promoted parameter declarations where explicit read visibility is weaker than asymmetric set visibility (e.g. `private protected(set)`), matching PHP's "Visibility of property must not be weaker than set visibility" compile-time fatal error (#193).
+
+* Reject positional arguments following an unpacked argument in call and instantiation argument lists (`foo(...$args, $pos)`), matching PHP's "Cannot use positional argument after argument unpacking" compile-time fatal error (#190).
+
 * Reject property hooks with bodies (`get => ...`, `get { ... }`) or the `final` modifier inside interfaces, matching PHP's compile-time fatal errors for abstract hooks that have a body or are declared both abstract and final (#189).
 
 * Include static variable declarations (`StmtStatic`) in `queryStmt` (e.g. `queryStmt allVariables`) and rewrite declared variable names during `transformStmt`, ensuring static variables are discovered and refactored consistently alongside local variables and global declarations (#188).
@@ -29,6 +41,8 @@
 * Reject combining the nullsafe operator with first-class callables (`$obj?->method(...)`, `$obj?->prop->method(...)`), producing a parse error matching PHP's compile-time fatal error (#187).
 
 * Support binary-prefixed heredocs and nowdocs (`b<<<EOT`, `b<<<'EOT'`, `B<<<EOT`, `B<<<'EOT'`), mirroring PHP's lexer; the prefix must abut `<<<` so a bare `b` remains an identifier (#186).
+
+## 0.1.5.0
 
 * Accept comma-separated expressions in short echo tags (`<?= $a, $b ?>`) inside alternative-syntax bodies, matching top-level short echo tags and `echo` (#153).
 
