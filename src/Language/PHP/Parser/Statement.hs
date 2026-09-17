@@ -488,13 +488,19 @@ parseSwitch = withSpan $ do
   where
     braceBranch expr = do
       cases <- braces (M.many parseSwitchCase)
+      checkSingleDefault cases
       pure (\sp -> StmtSwitch sp expr cases)
     altBranch expr = do
       _ <- colon
       cases <- concat <$> M.many ((\c -> [c]) <$> parseSwitchCaseWith parseAltBody)
       keyword_ "endswitch"
       _ <- statementTerminator
+      checkSingleDefault cases
       pure (\sp -> StmtSwitch sp expr cases)
+
+    checkSingleDefault cases =
+      when (length [() | SwitchDefault {} <- cases] > 1) $
+        fail "Switch statements may only contain one default clause"
 
 parseSwitchCase :: Parser (SwitchCase Span)
 parseSwitchCase = parseSwitchCaseWith parseMixedBody
