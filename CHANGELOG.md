@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject non-public constants and non-public, final, or abstract methods in interfaces, matching PHP's compile-time fatal errors (#199).
+
 * Reject duplicate parameter names in parameter lists, matching PHP's compile-time fatal error (#198).
 
 * Reject match expressions containing more than one `default` arm, matching PHP's compile-time fatal error (#196).

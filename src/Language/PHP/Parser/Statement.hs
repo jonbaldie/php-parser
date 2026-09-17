@@ -864,7 +864,7 @@ parseParamInContext pCtx = withSpan $ do
 data ClassContext
   = ClassLikeContext !Bool         -- ^ class, trait, or anonymous class; readonly flag
   | EnumContext !T.Text !Bool      -- ^ enum name, backed flag
-  | InterfaceContext
+  | InterfaceContext !T.Text       -- ^ interface name
   deriving (Eq, Show)
 
 -- | Class member declaration.
@@ -896,13 +896,35 @@ checkMember ctx member =
     (EnumContext _ _, MemberProperty _) -> forbidden "Enums may not include properties"
     (EnumContext _ _, MemberMethod md)
       | any isPromotedParam (methodParams md) -> forbidden "Enums may not include properties"
-    (InterfaceContext, MemberProperty pd)
+    (InterfaceContext ifaceName, MemberConst cd) ->
+      case constVis cd of
+        Just Private ->
+          case constItems cd of
+            (Ident _ constName, _) : _ ->
+              forbidden ("Access type for interface constant " <> ifaceName <> "::" <> constName <> " must be public")
+            [] -> pure ()
+        Just Protected ->
+          case constItems cd of
+            (Ident _ constName, _) : _ ->
+              forbidden ("Access type for interface constant " <> ifaceName <> "::" <> constName <> " must be public")
+            [] -> pure ()
+        _ -> pure ()
+    (InterfaceContext ifaceName, MemberMethod md) -> do
+      let Ident _ mName = methodName md
+          modif = methodModifier md
+      when (methodAbstract modif) $
+        forbidden ("Interface method " <> ifaceName <> "::" <> mName <> "() must not be abstract")
+      when (methodVis modif == Just Private || methodVis modif == Just Protected) $
+        forbidden ("Access type for interface method " <> ifaceName <> "::" <> mName <> "() must be public")
+      when (methodFinal modif) $
+        forbidden ("Interface method " <> ifaceName <> "::" <> mName <> "() must not be final")
+    (InterfaceContext _, MemberProperty pd)
       | null (propHooks pd) -> forbidden "Interfaces may not include properties"
       | any (\h -> case hookBody h of HookAbstract -> False; _ -> True) (propHooks pd) ->
           forbidden "Abstract property hook cannot have body"
       | any hookFinal (propHooks pd) ->
           forbidden "Property hook cannot be both abstract and final"
-    (InterfaceContext, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
+    (InterfaceContext _, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
     (ClassLikeContext True, MemberProperty pd) -> do
       when (propStatic (propModifier pd)) $
         forbidden "Readonly classes cannot declare static properties"
@@ -934,7 +956,8 @@ parseMethod ctx attrs = withSpan $ do
   name <- semiReservedIdentifier
   let Ident _ nameText = name
       isCtor = T.toLower nameText == "__construct"
-      isAbs = methodAbstract modif || ctx == InterfaceContext
+      isIface = case ctx of InterfaceContext _ -> True; _ -> False
+      isAbs = methodAbstract modif || isIface
       paramCtx
         | not isCtor = NonConstructorParam
         | isAbs      = AbstractConstructorParam
@@ -1066,9 +1089,9 @@ parseClass = withSpan $ do
 parseInterface :: Parser (Stmt Span)
 parseInterface = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "interface")
-  name <- declarationIdentifier
+  name@(Ident _ ifaceName) <- declarationIdentifier
   extends <- (keyword "extends" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many (parseClassMemberInContext InterfaceContext))
+  members <- braces (M.many (parseClassMemberInContext (InterfaceContext ifaceName)))
   pure (\sp -> StmtInterface sp (InterfaceDecl sp attrs name extends members))
 
 -- | Trait declaration.
