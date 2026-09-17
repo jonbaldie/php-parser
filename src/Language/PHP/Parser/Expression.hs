@@ -746,7 +746,10 @@ parseAttribute :: Parser (Attribute Span)
 parseAttribute = withSpan $ do
   qn <- qualifiedName
   mArgs <- optional (parens (parseArgList parseArg))
-  pure (\sp -> Attribute sp qn (maybe [] id mArgs))
+  let args = maybe [] id mArgs
+  if any argUnpack args
+    then fail "Cannot use unpacking in attribute argument list"
+    else pure (\sp -> Attribute sp qn args)
 
 parseParamDummy :: Parser (Expr Span) -> Parser (Param Span)
 parseParamDummy pExpr = withSpan $ do

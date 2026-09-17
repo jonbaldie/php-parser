@@ -2,6 +2,8 @@
 
 ## 0.1.5.0
 
+* Reject argument unpacking (`...$args`) in attribute argument lists (`#[Attr(...$args)]`), matching PHP's compile-time fatal error (#203).
+
 * Reject non-public constants and non-public, final, or abstract methods in interfaces, matching PHP's compile-time fatal errors (#199).
 
 * Reject duplicate parameter names in parameter lists, matching PHP's compile-time fatal error (#198).

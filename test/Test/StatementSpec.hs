@@ -2,6 +2,7 @@
 
 module Test.StatementSpec (statementTests) where
 
+import Control.Monad (forM_)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Text (Text)
@@ -34,6 +35,22 @@ statementTests = testGroup "Statement & Declaration Specifications"
         Right (Program _ [StmtClass _ cd]) ->
           assertEqual "class attrs" 1 (length (classAttrs cd))
         other -> assertFailure ("Expected class with attribute, got: " ++ show other)
+
+  , testCase "Argument unpacking in attribute argument list is rejected (Issue #203)" $ do
+      forM_ [ "<?php #[Attr(...$args)] class Foo {}" :: Text
+            , "<?php #[Attr(...$args)] function bar() {}"
+            , "<?php #[Attr($a, ...$args)] class Foo {}"
+            ] $ \src ->
+        case parseProgram "issue203.php" src of
+          Left err ->
+            assertEqual (T.unpack src ++ ": expected specific error message")
+              (Just "Cannot use unpacking in attribute argument list")
+              (errorCustom err)
+          Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+
+      assertParsesOk "<?php #[Attr(1, 2)] class Foo {}"
+      assertParsesOk "<?php #[Attr(name: 1)] class Foo {}"
+      assertParsesOk "<?php #[Attr] class Foo {}"
 
   , testCase "Constructor property promotion" $ do
       let src = "<?php class Customer { public function __construct(public string $name, private readonly int $age = 18) {} }"
