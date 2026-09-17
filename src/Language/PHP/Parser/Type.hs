@@ -3,7 +3,9 @@
 module Language.PHP.Parser.Type
   ( parseType
   , parseReturnType
+  , disallowedPropertyType
   ) where
+
 
 import Control.Applicative ((<|>))
 import Data.Text (Text)
@@ -118,4 +120,18 @@ typeSpan = \case
   UnionType sp _        -> sp
   IntersectionType sp _ -> sp
   DNFType sp _          -> sp
+
+-- | Check whether a type contains void, never, or callable, which are
+-- forbidden as property and promoted parameter types in PHP.
+disallowedPropertyType :: Type a -> Maybe Text
+disallowedPropertyType = \case
+  SimpleType _ (QualifiedName _ _ parts) ->
+    case parts of
+      [name] | T.toLower name `elem` ["void", "never", "callable"] -> Just (T.toLower name)
+      _ -> Nothing
+  NullableType _ inner -> disallowedPropertyType inner
+  UnionType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
+  IntersectionType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
+  DNFType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
+
 

@@ -22,7 +22,7 @@ import qualified Text.Megaparsec.Char as C
 import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
-import Language.PHP.Parser.Type (parseType, parseReturnType)
+import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
 import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList, hasEmptyDestructure)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
@@ -835,6 +835,11 @@ parseParamInContext pCtx = withSpan $ do
     modifierError "Cannot declare variadic promoted property"
   when (isRo && isNothing typ) $
     modifierError "Readonly property must have type"
+  when isPromoted $
+    case typ of
+      Just t | Just bad <- disallowedPropertyType t ->
+        modifierError ("Property cannot have type " <> T.unpack bad)
+      _ -> pure ()
   var <- variableName
   mDef <- optional (symbol "=" *> parseExpr)
   pure (\sp -> Param sp attrs vis wVis isRo isFin typ byRef isVariadic var mDef)
@@ -984,6 +989,10 @@ parseProperty :: Bool -> [AttributeGroup Span] -> Parser (PropertyDecl Span)
 parseProperty enclosingReadonly attrs = withSpan $ do
   modif <- parsePropertyModifier
   mType <- optional parseType
+  case mType of
+    Just typ | Just bad <- disallowedPropertyType typ ->
+      modifierError ("Property cannot have type " <> T.unpack bad)
+    _ -> pure ()
   firstVar <- variableName
   mFirstVal <- optional (symbol "=" *> parseExpr)
   hasHooks <- (True <$ M.lookAhead (symbol "{")) <|> pure False
