@@ -380,17 +380,6 @@ data KnownDivergence = KnownDivergence
 knownDivergences :: [KnownDivergence]
 knownDivergences =
   [ KnownDivergence
-      { divergenceIssue = 232
-      , divergenceName = "concatenation binds at the wrong precedence against + and -"
-      , divergenceSource = "<?php\necho 'x' . 1 + 2;\n"
-      , divergencePHP = Accepts
-      , divergenceLibrary = Accepts
-      , divergenceDetect =
-          NotByVerdict
-            "both accept; the library parses it as ('x' . 1) + 2, PHP as 'x' . (1 + 2). \
-            \Only comparing what the two programs compute can see this."
-      }
-  , KnownDivergence
       { divergenceIssue = 233
       , divergenceName = "unbraced \"$a[key]\" is printed as a constant fetch"
       , divergenceSource = "<?php\n$a = ['key' => 1];\necho \"$a[key]\";\n"
