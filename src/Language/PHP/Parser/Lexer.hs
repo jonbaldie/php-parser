@@ -626,7 +626,7 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
 
   (content, _) <- parseLines tag
   let value = if isNowdoc then content else decodeDoubleQuotedEscapes content
-  pure (\sp -> LitHeredoc sp tag value isNowdoc)
+  pure (\sp -> LitHeredoc sp tag value isNowdoc content)
   where
     parseTag =
       (do
