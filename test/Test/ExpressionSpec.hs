@@ -1597,6 +1597,15 @@ expressionTests = testGroup "Expression Specifications"
             other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
 
+  , testGroup "Compound assignment with **=, <<=, >>= (Issue #237)"
+      [ testCase (T.unpack src) $ case parseExpression "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right (ExprAssign _ op _ _) -> op @?= Just expected
+          other -> assertFailure ("Unexpected AST: " ++ show other)
+      | (src, expected) <-
+          [ ("$a **= 2", OpPow), ("$a <<= 2", OpShiftLeft), ("$a >>= 2", OpShiftRight) ]
+      ]
+
   , testGroup "By-reference array items (Issue #139)"
       [ testCase "Square bracket array with by-reference item parses with itemByRef = True" $ do
           assertParsesOkExpr "[&$a]"
