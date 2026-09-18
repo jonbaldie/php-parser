@@ -256,7 +256,14 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       , (void (lexeme (M.try (C.char '>' <* M.notFollowedBy (C.char '>' <|> C.char '=')))), OpGt)
       ]
 
-    parsePipe = parseBinaryLeft parseShift [ (void (symbol "|>"), OpPipe) ]
+    parsePipe = parseBinaryLeft parseConcat [ (void (symbol "|>"), OpPipe) ]
+
+    -- Since PHP 8.0 (https://wiki.php.net/rfc/concatenation_precedence), "."
+    -- binds looser than "<<"/">>" and the additive/multiplicative operators,
+    -- so it sits on its own level below "parsePipe" and above "parseShift".
+    parseConcat = parseBinaryLeft parseShift
+      [ (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=')))), OpConcat)
+      ]
 
     parseShift = parseBinaryLeft parseAddSub
       [ (void (symbol "<<"), OpShiftLeft)
@@ -266,7 +273,6 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     parseAddSub = parseBinaryLeft parseMulDivMod
       [ (void (lexeme (M.try (C.char '+' <* M.notFollowedBy (C.char '+' <|> C.char '=')))), OpAdd)
       , (void (lexeme (M.try (C.char '-' <* M.notFollowedBy (C.char '-' <|> C.char '>' <|> C.char '=')))), OpSub)
-      , (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=')))), OpConcat)
       ]
 
     -- @instanceof@ binds below unary operators and exponentiation, but above

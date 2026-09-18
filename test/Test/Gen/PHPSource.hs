@@ -238,10 +238,7 @@ allFeatures =
         , "echo \"value {$bag" <> n <> "['key']} and {$bag" <> n <> "['nested']['deep']}\";"
         , "echo 'single quoted', PHP_EOL;"
         ]
-  , -- Concatenation is never mixed with @+@, @-@, @<<@ or @>>@ in one
-    -- expression: it is currently bound at the wrong precedence level
-    -- (<https://github.com/jonbaldie/php-parser/issues/232 #232>).
-    Feature "arithmetic-and-compound-assignment" PHP82 $ \i -> do
+  , Feature "arithmetic-and-compound-assignment" PHP82 $ \i -> do
       let n = sfx i
       op <- elements compoundAssignOps
       pure $ ls
@@ -249,6 +246,7 @@ allFeatures =
         , "$acc" <> n <> " " <> op <> " 2;"
         , "$acc" <> n <> " = $acc" <> n <> " ** 2;"
         , "$acc" <> n <> " = ($acc" <> n <> " << 1) | ($acc" <> n <> " >> 1) ^ ~$acc" <> n <> ";"
+        , "$mix" <> n <> " = 'v' . $acc" <> n <> " + 1;"
         , "$acc" <> n <> "++;"
         , "--$acc" <> n <> ";"
         ]

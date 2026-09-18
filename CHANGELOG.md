@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Bind `.` below `<<`, `>>`, `+`, and `-` (its own precedence level, above comparison operators), matching PHP 8.0's [concatenation precedence change](https://wiki.php.net/rfc/concatenation_precedence); `"a" . 1 + 2` now parses as `"a" . (1 + 2)` rather than `("a" . 1) + 2` (#232).
+
 * Fix `queryStmt`/`queryExpr` double- and triple-counting matches from fully recursive queries (like `allVariables`) composed into a larger traversal, by short-circuiting once a node's query result is non-empty; `allExprs` and `foldExpr`/`foldStmt` are unaffected and continue to visit every node exactly once (#215).
 
 * Reject `void`, `never`, and `callable` types on property declarations and constructor-promoted parameters (including within compound types), matching PHP's "Property cannot have type <type>" compile-time fatal error (#207).
