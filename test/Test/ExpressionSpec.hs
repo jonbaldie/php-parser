@@ -77,6 +77,42 @@ expressionTests = testGroup "Expression Specifications"
                   (stripAnnotations expr)
                   (stripAnnotations reparsed)
 
+  , testCase "Concatenation binds looser than additive/shift, tighter than comparison (Issue #232)" $ do
+      let cases =
+            [ ("looser than addition", "\"a\" . 1 + 2", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpAdd _ _) -> True
+                _ -> False)
+            , ("looser than subtraction", "\"a\" . 5 - 2", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpSub _ _) -> True
+                _ -> False)
+            , ("looser than shift left", "1 . 2 << 3", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpShiftLeft _ _) -> True
+                _ -> False)
+            , ("looser than shift right", "8 . 4 >> 1", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpShiftRight _ _) -> True
+                _ -> False)
+            , ("tighter than multiplication (unaffected)", "\"a\" . 2 * 3", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpMul _ _) -> True
+                _ -> False)
+            , ("left-associative with addition on the left", "1 + 2 . \"x\"", \case
+                ExprBinary _ OpConcat (ExprBinary _ OpAdd _ _) _ -> True
+                _ -> False)
+            ]
+      forM_ cases $ \(name, src, matches) ->
+        case parseExpression "issue232.php" src of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right expr -> do
+            assertBool (name ++ ": concat precedence") (matches expr)
+            let printed = prettyPrintExpr expr
+            case parseExpression "issue232.php" printed of
+              Left err -> assertFailure (name ++ ": pretty output does not parse: "
+                                         ++ T.unpack printed ++ "\n"
+                                         ++ show (formatParseError err))
+              Right reparsed ->
+                assertEqual (name ++ ": pretty-print round trip")
+                  (stripAnnotations expr)
+                  (stripAnnotations reparsed)
+
   , testCase "Successful AST spans report input offsets (Issue #47)" $ do
       case parseExpression "offsets.php" "  $a + $b" of
         Left err -> assertFailure (show (formatParseError err))

@@ -331,7 +331,7 @@ data Decision
 -- | Whether a lint oracle can see this divergence at all.
 --
 -- The distinction matters because a table that does not record it overclaims:
--- three of the seven known divergences are cases where PHP and the library both
+-- two of the six known divergences are cases where PHP and the library both
 -- /accept/ the program and only its meaning differs, which is structurally
 -- invisible to a tool whose entire output is an exit status.
 data Detectability
@@ -370,17 +370,6 @@ data KnownDivergence = KnownDivergence
 knownDivergences :: [KnownDivergence]
 knownDivergences =
   [ KnownDivergence
-      { divergenceIssue = 232
-      , divergenceName = "concatenation binds at the wrong precedence against + and -"
-      , divergenceSource = "<?php\necho 'x' . 1 + 2;\n"
-      , divergencePHP = Accepts
-      , divergenceLibrary = Accepts
-      , divergenceDetect =
-          NotByVerdict
-            "both accept; the library parses it as ('x' . 1) + 2, PHP as 'x' . (1 + 2). \
-            \Only comparing what the two programs compute can see this."
-      }
-  , KnownDivergence
       { divergenceIssue = 233
       , divergenceName = "unbraced \"$a[key]\" is printed as a constant fetch"
       , divergenceSource = "<?php\n$a = ['key' => 1];\necho \"$a[key]\";\n"

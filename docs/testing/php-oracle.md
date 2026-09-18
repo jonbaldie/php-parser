@@ -148,7 +148,7 @@ method declared twice in one class.
 
 ### Constructs excluded from the generator
 
-`Test.Gen.PHPSource` leaves seven constructs out of the valid corpus, because
+`Test.Gen.PHPSource` leaves six constructs out of the valid corpus, because
 including them would fail corpus health — which is the premise of every other
 property. They are not merely commented out: `knownDivergences` carries each one
 as data, with the issue it belongs to, a self-contained program, **both sides'
@@ -160,7 +160,6 @@ decisions**, and whether a lint oracle can see the difference at all.
 | #237 | `**=`, `<<=`, `>>=` | accepts | rejects | **yes** — false reject |
 | #240 | heredoc closer indented deeper than its body | rejects | accepts | **yes** — false accept |
 | #241 | `08`, `09` | rejects | accepts | **yes** — false accept |
-| #232 | `.` against `+`/`-` precedence | accepts | accepts | no |
 | #233 | unbraced `"$a[key]"` | accepts | accepts | no |
 | #236 | escape sequences in a heredoc body | accepts | accepts | no |
 
@@ -171,7 +170,11 @@ about whichever binary happened to be on one machine. The measurement corrected 
 #237 as invisible to a verdict oracle; it is not — PHP accepts `$a **= 2;` and
 the library rejects it, so the oracle gates it.
 
-The last three rows are cases where **both sides accept** and only the meaning
+#232 (`.` against `+`/`-`/`<<`/`>>` precedence) was in this table until it was
+fixed: both sides always accepted the program, so the entry never gated on
+verdict, but the table forced the fix to update it in the same change.
+
+The last two rows are cases where **both sides accept** and only the meaning
 differs. No exit status can distinguish them, so their entries are records
 rather than gates, and their test names say `[recorded only: no exit status can
 see this]`. Catching them needs an execution oracle, which is #245.
