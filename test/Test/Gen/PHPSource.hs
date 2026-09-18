@@ -224,10 +224,7 @@ allFeatures :: [Feature]
 allFeatures =
   [ -- PHP 8.2 baseline: syntax the library's floor version already accepts.
     --
-    -- Uses only braced interpolation: the unbraced @"$a[key]"@ form is printed
-    -- back as an unquoted constant fetch today
-    -- (<https://github.com/jonbaldie/php-parser/issues/233 #233>), and @"$a[-1]"@
-    -- is rejected outright
+    -- @"$a[-1]"@ is rejected outright
     -- (<https://github.com/jonbaldie/php-parser/issues/235 #235>).
     Feature "echo-and-interpolation" PHP82 $ \i -> do
       let n = sfx i
@@ -236,6 +233,7 @@ allFeatures =
         , "$bag" <> n <> " = ['key' => 1, 'nested' => ['deep' => 2]];"
         , "echo \"hello {$name" <> n <> "}\";"
         , "echo \"value {$bag" <> n <> "['key']} and {$bag" <> n <> "['nested']['deep']}\";"
+        , "echo \"unbraced $bag" <> n <> "[key]\";"
         , "echo 'single quoted', PHP_EOL;"
         ]
   , Feature "arithmetic-and-compound-assignment" PHP82 $ \i -> do

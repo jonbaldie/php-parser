@@ -676,7 +676,7 @@ prettyLiteral :: HasLeadingTrivia a => Literal a -> Doc ann
 prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case literal of
   LitInt _ _ raw -> pretty raw
   LitFloat _ _ raw -> pretty raw
-  LitString _ _ raw -> pretty raw
+  LitString _ _ raw -> pretty (if isQuotedString raw then raw else quoteString raw)
   LitInterpolated _ parts -> "\"" <> foldMap prettyPart parts <> "\""
   LitHeredoc _ tag content False -> "<<<" <> pretty tag <> line <> pretty content <> line <> pretty tag
   LitHeredoc _ tag content True -> "<<<'" <> pretty tag <> "'" <> line <> pretty content <> line <> pretty tag
@@ -686,7 +686,21 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   where
     prettyPart = \case
       StrLit t -> pretty (escapeInterpText t)
-      StrExpr e -> "{" <> prettyExpr e <> "}"
+      StrExpr e -> case isSimpleUnquotedArrayAccess e of
+        Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
+        Nothing -> "{" <> prettyExpr e <> "}"
+    isSimpleUnquotedArrayAccess = \case
+      ExprArrayAccess _ (ExprVar _ v@(SimpleVar _ _)) (Just (ExprLit _ (LitString _ _ raw)))
+        | not (isQuotedString raw) -> Just (v, raw)
+      _ -> Nothing
+    isQuotedString t =
+      let t' = if T.isPrefixOf "b" t || T.isPrefixOf "B" t then T.drop 1 t else t
+      in (T.isPrefixOf "'" t' && T.isSuffixOf "'" t' && T.length t' >= 2) ||
+         (T.isPrefixOf "\"" t' && T.isSuffixOf "\"" t' && T.length t' >= 2)
+    quoteString t = "'" <> T.concatMap escapeSingleChar t <> "'"
+    escapeSingleChar '\\' = "\\\\"
+    escapeSingleChar '\'' = "\\'"
+    escapeSingleChar c = T.singleton c
 
 -- | Re-emit the escapes the lexer decoded away in interpolated-string text
 -- parts: a backslash is doubled so it survives re-decoding, double quotes are
