@@ -463,7 +463,7 @@ forAllProgram v k =
 -- Entries marked 'NotByVerdict' are records, not gates, and their names say so:
 -- both sides accept the program, so no exit status can distinguish them. They
 -- are listed because a table that silently omitted them would read as if this
--- oracle covered all seven.
+-- oracle covered all six.
 knownDivergenceTests :: Oracles -> TestTree
 knownDivergenceTests oracles =
   testGroup

@@ -380,17 +380,6 @@ data KnownDivergence = KnownDivergence
 knownDivergences :: [KnownDivergence]
 knownDivergences =
   [ KnownDivergence
-      { divergenceIssue = 233
-      , divergenceName = "unbraced \"$a[key]\" is printed as a constant fetch"
-      , divergenceSource = "<?php\n$a = ['key' => 1];\necho \"$a[key]\";\n"
-      , divergencePHP = Accepts
-      , divergenceLibrary = Accepts
-      , divergenceDetect =
-          NotByVerdict
-            "both accept, and the printed form \"{$a[key]}\" is accepted too -- but inside \
-            \braces `key` is a constant, not the string 'key'. Only execution differs."
-      }
-  , KnownDivergence
       { divergenceIssue = 235
       , divergenceName = "a negative literal index inside interpolation is rejected"
       , divergenceSource = "<?php\n$a = [1];\necho \"$a[-1]\";\n"

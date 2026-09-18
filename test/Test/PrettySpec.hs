@@ -5,6 +5,7 @@ module Test.PrettySpec (prettyTests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Data.Text as T
+import Control.Monad (forM_)
 import Language.PHP
 
 prettyTests :: TestTree
@@ -503,5 +504,44 @@ prettyTests = testGroup "Pretty Printer Specifications"
           Right reparsed ->
             assertEqual (name ++ " round-trip") (stripAnnotations expr) (stripAnnotations reparsed)
         ) contexts
+
+  , testCase "prettyPrint on interpolated array dimension with unquoted string key preserves string key (Issue #233)" $ do
+      let cases =
+            [ ("simple unquoted key", "\"$a[k]\"", "\"$a[k]\"")
+            , ("simple unquoted key with underscore and digits", "\"$a[k_1]\"", "\"$a[k_1]\"")
+            , ("mixed complex and simple interpolation", "\"{$a['k']} $a[k]\"", "\"{$a['k']} $a[k]\"")
+            , ("control: numeric key", "\"$a[0]\"", "\"{$a[0]}\"")
+            , ("control: variable key", "\"$a[$k]\"", "\"{$a[$k]}\"")
+            , ("control: already quoted key", "\"{$a['k']}\"", "\"{$a['k']}\"")
+            ]
+      forM_ cases $ \(label, src, expected) -> do
+        case parseExpression "test.php" src of
+          Left err -> assertFailure (label ++ ": parse failed: " ++ show (formatParseError err))
+          Right ast -> do
+            let printed = prettyPrintExpr ast
+            assertEqual (label ++ ": printed form") expected printed
+            case parseExpression "reparsed.php" printed of
+              Left err -> assertFailure (label ++ ": reparse failed: " ++ show (formatParseError err))
+              Right reparsed ->
+                assertEqual (label ++ ": round-trip AST") (stripAnnotations ast) (stripAnnotations reparsed)
+
+      -- Standalone ExprArrayAccess with unquoted LitString is quoted to preserve string semantics outside interpolation
+      let varA = ExprVar () (SimpleVar () (VarName () "a"))
+          litKey = ExprLit () (LitString () "k" "k")
+          arrAccess = ExprArrayAccess () varA (Just litKey)
+      assertEqual "standalone array access with unquoted LitString quotes the key" "$a['k']" (prettyPrintExpr arrAccess)
+
+      -- Program round-trip preserves working code
+      let progSrc = "<?php\n$a = ['k' => 'v'];\necho \"$a[k]\";\n"
+      case parseProgram "test.php" progSrc of
+        Left err -> assertFailure ("program parse failed: " ++ show (formatParseError err))
+        Right progAst -> do
+          let progPrinted = prettyPrint progAst
+          assertBool "program prettyPrint retains unquoted simple interpolation $a[k]" ("$a[k]" `T.isInfixOf` progPrinted)
+          assertBool "program prettyPrint does not emit constant fetch {$a[k]}" (not ("{$a[k]}" `T.isInfixOf` progPrinted))
+          case parseProgram "reparsed.php" progPrinted of
+            Left err -> assertFailure ("program reparse failed: " ++ show (formatParseError err))
+            Right reparsedProg ->
+              assertEqual "program round-trip AST matches" (stripAnnotations progAst) (stripAnnotations reparsedProg)
   ]
 
