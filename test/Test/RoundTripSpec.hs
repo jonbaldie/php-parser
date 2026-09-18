@@ -430,6 +430,12 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php\n$a = B<<<EOT\nhello\nEOT;\n"
       assertRoundTrips "<?php\n$a = B<<<'EOT'\nhello\nEOT;\n"
 
+  , testCase "Round-trip interpolated heredocs (Issue #234)" $ do
+      assertRoundTrips "<?php\n$a = <<<EOT\nhello {$name}\nEOT;\n"
+      assertRoundTrips "<?php\n$a = <<<EOT\nval={$x} and {$y}\nEOT;\n"
+      assertRoundTrips "<?php\n$a = <<<EOT\nplain text\nEOT;\n"
+      assertRoundTrips "<?php\n$a = <<<'EOT'\nraw $notVar\nEOT;\n"
+
   , testCase "Round-trip constructor promotion with final modifier (Issue #145)" $ do
       assertRoundTrips "<?php\nclass C {\n    function __construct(final private int $x, public final int $y, public private(set) final int $z, final readonly int $w) {}\n}\n"
 

@@ -45,6 +45,7 @@ import Control.Applicative (Alternative (..), optional)
 import Control.Monad (void, when)
 import Control.Monad.State.Strict (State, runState, get, modify', put)
 import Data.Char (digitToInt, isAlpha, isAlphaNum, isDigit, isHexDigit)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -491,118 +492,126 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
     -- failed interpolation attempt backtracks into literal text, so unmatched
     -- @{@ and stray @$@ stay ordinary characters.
     doublePart =
-      (StrExpr <$> (interpolatedExpr <|> dollarBraceInterp <|> simpleInterp))
+      (StrExpr <$> (interpolatedExpr parseInterpExpr <|> dollarBraceInterp <|> simpleInterp))
       <|> literalRun
       <|> strayDollar
       <|> strayBrace
 
-    -- Complex syntax @{$expr}@: an arbitrary expression between braces, which
-    -- must start with @$@, as in PHP. Once @{@$ matches, the expression is
-    -- committed, so an unterminated one is a parse error, as in PHP.
-    interpolatedExpr = do
-      _ <- M.try (C.char '{' *> M.lookAhead (C.char '$'))
-      e <- parseInterpExpr
-      _ <- C.char '}'
-      pure e
-
-    -- Dollar-brace syntax @${ident}@: interpolates @$ident@, as in PHP
-    -- (deprecated in 8.2, still parsed through 8.5). Once @${@ is followed by
-    -- an identifier, the closing @}@ is required. Variable-variable @${$var}@
-    -- does not match here and falls through.
-    dollarBraceInterp = do
-      start <- sourcePosHere
-      _ <- M.try (C.string "${" *> M.lookAhead identStartChar)
-      name <- rawIdentifier
-      _ <- C.char '}'
-      end <- sourcePosHere
-      let sp = mkSpan start end
-      pure (ExprVar sp (SimpleVar sp (VarName sp name)))
-
-    identStartChar = M.satisfy (\c -> isAlpha c || c == '_' || c >= '\x80')
-
-    -- Simple syntax: @$name@ followed by at most one @->prop@ or @[key]@
-    -- dereference, matching PHP's greedy scan of the variable expression. A
-    -- @->@ without a property name stays literal; once @[@ opens a subscript,
-    -- the key and @]@ are required, as in PHP.
-    simpleInterp = do
-      (sp, name) <- M.try (spanned (C.char '$' *> rawIdentifier))
-      let var = ExprVar sp (SimpleVar sp (VarName sp name))
-      simpleStep sp var <|> pure var
-
-    simpleStep sp base = propStep <|> subscriptStep
-      where
-        propStep = M.try $ do
-          _ <- C.string "->"
-          (idSp, prop) <- spanned rawIdentifier
-          pure (ExprPropertyFetch (combineSpans sp idSp) base (MemberIdent (Ident idSp prop)))
-        subscriptStep = do
-          _ <- C.char '['
-          (_, key) <- spanned subscriptKey
-          (endSp, _) <- spanned (C.char ']')
-          pure (ExprArrayAccess (combineSpans sp endSp) base (Just key))
-
-    -- Subscript keys in simple syntax: a variable, or a run of identifier
-    -- characters — plain decimal digits give an integer key, anything else
-    -- (including @0x1F@) is taken as a string, as in PHP.
-    subscriptKey =
-      varKey <|> wordKey
-      where
-        varKey = do
-          _ <- C.char '$'
-          (sp, name) <- spanned rawIdentifier
-          pure (ExprVar sp (SimpleVar sp (VarName sp name)))
-        wordKey = do
-          (sp, tok) <- spanned word
-          pure $
-            if T.all isDigit tok
-              then ExprLit sp (LitInt sp (read (T.unpack tok)) tok)
-              else ExprLit sp (LitString sp tok tok)
-        word = do
-          c <- M.satisfy (\x -> isAlphaNum x || x == '_' || x >= '\x80')
-          rest <- M.takeWhileP Nothing (\x -> isAlphaNum x || x == '_' || x >= '\x80')
-          pure (T.cons c rest)
-
-    -- A run of ordinary characters. Dollars, braces, backslashes and quotes end
-    -- the run; a dollar or brace at which interpolation just failed becomes a
-    -- one-character literal part below, so the surrounding 'many' retries
-    -- interpolation at the next character.
     literalRun = StrLit . T.concat <$> some litCh
 
     litCh =
       escapedText
       <|> T.singleton <$> M.satisfy (\c -> c /= '"' && c /= '\\' && c /= '$' && c /= '{')
 
-    -- Stray characters that look like interpolation starts but did not parse
-    -- as one: a trailing @$@, @$@ before a non-identifier char, or an
-    -- unmatched @{@. Consumed one at a time so later interpolations still get
-    -- their chance.
-    strayDollar = StrLit . T.singleton <$> C.char '$'
+-- | Complex syntax @{$expr}@: an arbitrary expression between braces, which
+-- must start with @$@, as in PHP. Once @{@$ matches, the expression is
+-- committed, so an unterminated one is a parse error, as in PHP.
+interpolatedExpr :: Parser (Expr Span) -> Parser (Expr Span)
+interpolatedExpr parseInterpExpr = do
+  _ <- M.try (C.char '{' *> M.lookAhead (C.char '$'))
+  e <- parseInterpExpr
+  _ <- C.char '}'
+  pure e
 
-    strayBrace = StrLit . T.singleton <$> C.char '{'
+-- | Dollar-brace syntax @${ident}@: interpolates @$ident@, as in PHP
+-- (deprecated in 8.2, still parsed through 8.5). Once @${@ is followed by
+-- an identifier, the closing @}@ is required. Variable-variable @${$var}@
+-- does not match here and falls through.
+dollarBraceInterp :: Parser (Expr Span)
+dollarBraceInterp = do
+  start <- sourcePosHere
+  _ <- M.try (C.string "${" *> M.lookAhead identStartChar)
+  name <- rawIdentifier
+  _ <- C.char '}'
+  end <- sourcePosHere
+  let sp = mkSpan start end
+  pure (ExprVar sp (SimpleVar sp (VarName sp name)))
 
-    escapedText = do
-      _ <- C.char '\\'
-      body <- M.try octalBody <|> M.try hexBody <|> (T.singleton <$> M.anySingle)
-      pure (decodeDoubleQuotedEscapes (T.cons '\\' body))
+identStartChar :: Parser Char
+identStartChar = M.satisfy (\c -> isAlpha c || c == '_' || c >= '\x80')
 
-    octalBody = do
-      first <- M.satisfy (\c -> c >= '0' && c <= '7')
-      second <- optional (M.satisfy (\c -> c >= '0' && c <= '7'))
-      third <- optional (M.satisfy (\c -> c >= '0' && c <= '7'))
-      pure (T.pack (first : [c | Just c <- [second, third]]))
+-- | Simple syntax: @$name@ followed by at most one @->prop@ or @[key]@
+-- dereference, matching PHP's greedy scan of the variable expression. A
+-- @->@ without a property name stays literal; once @[@ opens a subscript,
+-- the key and @]@ are required, as in PHP.
+simpleInterp :: Parser (Expr Span)
+simpleInterp = do
+  (sp, name) <- M.try (spanned (C.char '$' *> rawIdentifier))
+  let var = ExprVar sp (SimpleVar sp (VarName sp name))
+  simpleStep sp var <|> pure var
 
-    hexBody = do
-      _ <- C.char 'x'
-      first <- M.satisfy isHexDigit
-      second <- optional (M.satisfy isHexDigit)
-      pure (T.cons 'x' (T.pack (first : [c | Just c <- [second]])))
+simpleStep :: Span -> Expr Span -> Parser (Expr Span)
+simpleStep sp base = propStep <|> subscriptStep
+  where
+    propStep = M.try $ do
+      _ <- C.string "->"
+      (idSp, prop) <- spanned rawIdentifier
+      pure (ExprPropertyFetch (combineSpans sp idSp) base (MemberIdent (Ident idSp prop)))
+    subscriptStep = do
+      _ <- C.char '['
+      (_, key) <- spanned subscriptKey
+      (endSp, _) <- spanned (C.char ']')
+      pure (ExprArrayAccess (combineSpans sp endSp) base (Just key))
 
-    -- Merge neighbouring literal chunks left over from backtracking into
-    -- single parts, keeping the AST canonical.
-    mergeLiterals = \case
-      [] -> []
-      StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
-      p : rest -> p : mergeLiterals rest
+-- | Subscript keys in simple syntax: a variable, or a run of identifier
+-- characters — plain decimal digits give an integer key, anything else
+-- (including @0x1F@) is taken as a string, as in PHP.
+subscriptKey :: Parser (Expr Span)
+subscriptKey =
+  varKey <|> wordKey
+  where
+    varKey = do
+      _ <- C.char '$'
+      (sp, name) <- spanned rawIdentifier
+      pure (ExprVar sp (SimpleVar sp (VarName sp name)))
+    wordKey = do
+      (sp, tok) <- spanned word
+      pure $
+        if T.all isDigit tok
+          then ExprLit sp (LitInt sp (read (T.unpack tok)) tok)
+          else ExprLit sp (LitString sp tok tok)
+    word = do
+      c <- M.satisfy (\x -> isAlphaNum x || x == '_' || x >= '\x80')
+      rest <- M.takeWhileP Nothing (\x -> isAlphaNum x || x == '_' || x >= '\x80')
+      pure (T.cons c rest)
+
+-- | Stray characters that look like interpolation starts but did not parse
+-- as one: a trailing @$@, @$@ before a non-identifier char, or an
+-- unmatched @{@. Consumed one at a time so later interpolations still get
+-- their chance.
+strayDollar :: Parser (StringPart Span)
+strayDollar = StrLit . T.singleton <$> C.char '$'
+
+strayBrace :: Parser (StringPart Span)
+strayBrace = StrLit . T.singleton <$> C.char '{'
+
+escapedText :: Parser Text
+escapedText = do
+  _ <- C.char '\\'
+  body <- M.try octalBody <|> M.try hexBody <|> (T.singleton <$> M.anySingle)
+  pure (decodeDoubleQuotedEscapes (T.cons '\\' body))
+
+octalBody :: Parser Text
+octalBody = do
+  first <- M.satisfy (\c -> c >= '0' && c <= '7')
+  second <- optional (M.satisfy (\c -> c >= '0' && c <= '7'))
+  third <- optional (M.satisfy (\c -> c >= '0' && c <= '7'))
+  pure (T.pack (first : [c | Just c <- [second, third]]))
+
+hexBody :: Parser Text
+hexBody = do
+  _ <- C.char 'x'
+  first <- M.satisfy isHexDigit
+  second <- optional (M.satisfy isHexDigit)
+  pure (T.cons 'x' (T.pack (first : [c | Just c <- [second]])))
+
+-- | Merge neighbouring literal chunks left over from backtracking into
+-- single parts, keeping the AST canonical.
+mergeLiterals :: [StringPart a] -> [StringPart a]
+mergeLiterals = \case
+  [] -> []
+  StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
+  p : rest -> p : mergeLiterals rest
 
 -- | Heredoc and Nowdoc (including flexible indented syntax).
 --
@@ -611,8 +620,8 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 -- #84) must propagate without rolling back, so megaparsec reports it as the
 -- furthest error instead of the offset-0 failure of the surrounding
 -- alternatives.
-literalHeredocOrNowdoc :: Parser (Literal Span)
-literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
+literalHeredocOrNowdoc :: Parser (Expr Span) -> Parser (Literal Span)
+literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
   (isNowdoc, tag) <- M.try $ do
     -- An optional binary prefix @b@ / @B@ (Issue #186) immediately precedes
     -- the @<<<@ delimiter, mirroring PHP's lexer. Like string literals
@@ -625,9 +634,27 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
     pure t
 
   (content, _) <- parseLines tag
-  let value = if isNowdoc then content else decodeDoubleQuotedEscapes content
-  pure (\sp -> LitHeredoc sp tag value isNowdoc)
+  parts <- if isNowdoc
+    then pure (if T.null content then [] else [StrLit content])
+    else case runState (M.runParserT (many (heredocPart parseInterpExpr) <* M.eof) "" content) initialLexerState of
+      (Left errBundle, _) ->
+        let (firstErr NE.:| _) = M.bundleErrors errBundle
+        in M.parseError firstErr
+      (Right rawParts, _) -> pure (mergeLiterals rawParts)
+  pure (\sp -> LitHeredoc sp tag parts isNowdoc)
   where
+    heredocPart pExpr =
+      (StrExpr <$> (interpolatedExpr pExpr <|> dollarBraceInterp <|> simpleInterp))
+      <|> heredocLiteralRun
+      <|> strayDollar
+      <|> strayBrace
+
+    heredocLiteralRun = StrLit . T.concat <$> some heredocLitCh
+
+    heredocLitCh =
+      escapedText
+      <|> T.singleton <$> M.satisfy (\c -> c /= '\\' && c /= '$' && c /= '{')
+
     parseTag =
       (do
         _ <- C.char '\''

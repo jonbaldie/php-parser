@@ -678,8 +678,8 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitFloat _ _ raw -> pretty raw
   LitString _ _ raw -> pretty (if isQuotedString raw then raw else quoteString raw)
   LitInterpolated _ parts -> "\"" <> foldMap prettyPart parts <> "\""
-  LitHeredoc _ tag content False -> "<<<" <> pretty tag <> line <> pretty content <> line <> pretty tag
-  LitHeredoc _ tag content True -> "<<<'" <> pretty tag <> "'" <> line <> pretty content <> line <> pretty tag
+  LitHeredoc _ tag parts False -> "<<<" <> pretty tag <> line <> foldMap prettyHeredocPart parts <> line <> pretty tag
+  LitHeredoc _ tag parts True -> "<<<'" <> pretty tag <> "'" <> line <> foldMap prettyNowdocPart parts <> line <> pretty tag
   LitBool _ True -> "true"
   LitBool _ False -> "false"
   LitNull _ -> "null"
@@ -689,6 +689,14 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
       StrExpr e -> case isSimpleUnquotedArrayAccess e of
         Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
         Nothing -> "{" <> prettyExpr e <> "}"
+    prettyHeredocPart = \case
+      StrLit t -> pretty (escapeHeredocText t)
+      StrExpr e -> case isSimpleUnquotedArrayAccess e of
+        Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
+        Nothing -> "{" <> prettyExpr e <> "}"
+    prettyNowdocPart = \case
+      StrLit t -> pretty t
+      StrExpr e -> "{" <> prettyExpr e <> "}"
     isSimpleUnquotedArrayAccess = \case
       ExprArrayAccess _ (ExprVar _ v@(SimpleVar _ _)) (Just (ExprLit _ (LitString _ _ raw)))
         | not (isQuotedString raw) -> Just (v, raw)
@@ -701,6 +709,26 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
     escapeSingleChar '\\' = "\\\\"
     escapeSingleChar '\'' = "\\'"
     escapeSingleChar c = T.singleton c
+
+-- | Re-emit escapes in heredoc text parts: backslashes are doubled so they
+-- survive re-decoding, and dollars that would otherwise reparse as
+-- variable interpolation are escaped. Double quotes do not terminate heredocs
+-- and are not escaped.
+escapeHeredocText :: Text -> Text
+escapeHeredocText = T.concat . go
+  where
+    go input = case T.uncons input of
+      Nothing -> []
+      Just ('\\', rest) -> "\\\\" : go rest
+      Just ('$', rest) -> (if startsInterpolation rest then "\\$" else "$") : go rest
+      Just (c, rest) -> T.singleton c : go rest
+    startsInterpolation rest = case T.uncons rest of
+      Just (c, _) | isIdentStart c -> True
+      Just ('{', afterBrace) -> case T.uncons afterBrace of
+        Just (c, _) -> isIdentStart c
+        Nothing -> False
+      _ -> False
+    isIdentStart c = isAlpha c || c == '_' || c >= '\x80'
 
 -- | Re-emit the escapes the lexer decoded away in interpolated-string text
 -- parts: a backslash is doubled so it survives re-decoding, double quotes are
