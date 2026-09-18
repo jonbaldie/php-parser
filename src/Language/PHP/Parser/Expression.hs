@@ -266,8 +266,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       ]
 
     parseShift = parseBinaryLeft parseAddSub
-      [ (void (symbol "<<"), OpShiftLeft)
-      , (void (symbol ">>"), OpShiftRight)
+      [ (void (lexeme (M.try (C.string "<<" <* M.notFollowedBy (C.char '=')))), OpShiftLeft)
+      , (void (lexeme (M.try (C.string ">>" <* M.notFollowedBy (C.char '=')))), OpShiftRight)
       ]
 
     parseAddSub = parseBinaryLeft parseMulDivMod
@@ -290,7 +290,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     parseExponentiation = do
       lhs <- parseUnary
       (do
-        _ <- symbol "**"
+        _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
         rhs <- parseExponentiation
         let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs

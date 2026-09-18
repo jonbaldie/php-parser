@@ -200,13 +200,8 @@ ls :: [Text] -> Text
 ls = T.intercalate "\n"
 
 -- | Compound assignment operators the parser is expected to accept.
---
--- @**=@, @<<=@ and @>>=@ are deliberately absent: they are rejected today
--- (<https://github.com/jonbaldie/php-parser/issues/237 #237>). The exclusion is
--- paired with an entry in @knownDivergences@ ("Test.Gen.PHPMutation"), which
--- fails when the divergence disappears so that both are updated together.
 compoundAssignOps :: [Text]
-compoundAssignOps = ["+=", "-=", "*=", "/=", "%=", ".=", "&=", "|=", "^=", "??="]
+compoundAssignOps = ["+=", "-=", "*=", "**=", "/=", "%=", ".=", "&=", "|=", "^=", "<<=", ">>=", "??="]
 
 -- | Visibility keywords accepted on class members.
 visibilities :: [Text]

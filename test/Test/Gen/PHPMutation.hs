@@ -399,14 +399,6 @@ knownDivergences =
             \carries a literal tab where the source carried an escape."
       }
   , KnownDivergence
-      { divergenceIssue = 237
-      , divergenceName = "the **=, <<= and >>= compound assignments are rejected"
-      , divergenceSource = "<?php\n$a = 1;\n$a **= 2;\n"
-      , divergencePHP = Accepts
-      , divergenceLibrary = Rejects
-      , divergenceDetect = ByVerdict
-      }
-  , KnownDivergence
       { divergenceIssue = 240
       , divergenceName = "a heredoc closer indented deeper than its body is accepted"
       , divergenceSource = "<?php\n$d = <<<TEXT\nbody\n    TEXT;\n"
