@@ -27,7 +27,7 @@ import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttribu
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
-parseExpr = parseExprWithContextAndBody parseMixedBody (\ro -> parseClassMemberInContext (ClassLikeContext ro))
+parseExpr = parseExprWithContextAndBody parseMixedBody (\ro -> parseClassMemberInContext (AnonClassContext ro))
 
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
 parseProgram :: Parser (Program Span)
@@ -869,21 +869,24 @@ parseParamInContext pCtx = withSpan $ do
           <|> pure (vis, wVis, isRo, isFin)
 
 -- | The enclosing declaration kind in which class members are parsed.
--- PHP applies different member rules to enums, classes, and interfaces.
+-- PHP applies different member rules to enums, classes, traits, and interfaces.
 data ClassContext
-  = ClassLikeContext !Bool         -- ^ class, trait, or anonymous class; readonly flag
+  = ClassContext !T.Text !Bool     -- ^ class name, readonly flag
+  | AnonClassContext !Bool         -- ^ anonymous class; readonly flag
+  | TraitContext                   -- ^ trait
   | EnumContext !T.Text !Bool      -- ^ enum name, backed flag
   | InterfaceContext !T.Text       -- ^ interface name
   deriving (Eq, Show)
 
 -- | Class member declaration.
 parseClassMember :: Parser (ClassMember Span)
-parseClassMember = parseClassMemberInContext (ClassLikeContext False)
+parseClassMember = parseClassMemberInContext (ClassContext "" False)
 
 parseClassMemberInContext :: ClassContext -> Parser (ClassMember Span)
 parseClassMemberInContext ctx = do
   enclosingReadonly <- pure $ case ctx of
-    ClassLikeContext ro -> ro
+    ClassContext _ ro -> ro
+    AnonClassContext ro -> ro
     _ -> False
   member <-
     (MemberConst <$> M.try parseConstDecl)
@@ -934,21 +937,33 @@ checkMember ctx member =
       | any hookFinal (propHooks pd) ->
           forbidden "Property hook cannot be both abstract and final"
     (InterfaceContext _, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
+    (ClassContext className ro, MemberMethod md) -> do
+      let Ident _ mName = methodName md
+          modif = methodModifier md
+          target = if T.null className then mName else className <> "::" <> mName
+      when (methodAbstract modif && methodVis modif == Just Private) $
+        forbidden ("Abstract function " <> target <> "() cannot be declared private")
+      when (ro && any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
+        forbidden "Readonly classes cannot declare untyped properties"
+    (AnonClassContext True, MemberMethod md) -> do
+      when (any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
+        forbidden "Readonly classes cannot declare untyped properties"
     (_, MemberProperty pd)
       | propReadonly (propModifier pd) && isNothing (propType pd) ->
           forbidden "Readonly property must have type"
-    (ClassLikeContext True, MemberProperty pd) -> do
-      when (propStatic (propModifier pd)) $
-        forbidden "Readonly classes cannot declare static properties"
-      when (isNothing (propType pd)) $
-        forbidden "Readonly classes cannot declare untyped properties"
-    (ClassLikeContext True, MemberMethod md) -> do
-      when (any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
-        forbidden "Readonly classes cannot declare untyped properties"
+    (ctx', MemberProperty pd)
+      | isReadonlyCtx ctx' -> do
+          when (propStatic (propModifier pd)) $
+            forbidden "Readonly classes cannot declare static properties"
+          when (isNothing (propType pd)) $
+            forbidden "Readonly classes cannot declare untyped properties"
     (_, MemberEnumCase _) -> forbidden "Enum cases can only be used inside enum declarations"
     _ -> pure ()
   where
     forbidden msg = M.fancyFailure (S.singleton (M.ErrorFail (T.unpack msg)))
+    isReadonlyCtx (ClassContext _ ro) = ro
+    isReadonlyCtx (AnonClassContext ro) = ro
+    isReadonlyCtx _ = False
 
 parseMethodOrProperty :: ClassContext -> Bool -> Parser (ClassMember Span)
 parseMethodOrProperty ctx enclosingReadonly = do
@@ -1098,10 +1113,10 @@ parseClass = withSpan $ do
     modif <- parseClassModifier
     keyword_ "class"
     pure (attrs, modif)
-  name <- declarationIdentifier
+  name@(Ident _ className) <- declarationIdentifier
   mExtends <- optional (keyword "extends" *> qualifiedName)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many (parseClassMemberInContext (ClassLikeContext (classReadonly modif))))
+  members <- braces (M.many (parseClassMemberInContext (ClassContext className (classReadonly modif))))
   pure (\sp -> StmtClass sp (ClassDecl sp attrs modif name mExtends impls members))
 
 -- | Interface declaration.
@@ -1118,7 +1133,7 @@ parseTrait :: Parser (Stmt Span)
 parseTrait = withSpan $ do
   attrs <- M.try (parseAttributes <* keyword_ "trait")
   name <- declarationIdentifier
-  members <- braces (M.many (parseClassMemberInContext (ClassLikeContext False)))
+  members <- braces (M.many (parseClassMemberInContext TraitContext))
   pure (\sp -> StmtTrait sp (TraitDecl sp attrs name members))
 
 -- | Enum declaration (pure or backed).

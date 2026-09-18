@@ -1436,6 +1436,36 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class Bar { public function __construct(callable $c) {} }"
         , "<?php class Foo { public function bar(callable $c): void {} }"
         ]
+    , testCase "Reject abstract private methods in classes (Issue #208)" $ do
+      mapM_ assertParsesFail
+        [ "<?php abstract class C { abstract private function f(); }"
+        , "<?php abstract class C { private abstract function f(); }"
+        , "<?php class C { abstract private function f(); }"
+        , "<?php class C { private abstract function f(); }"
+        , "<?php abstract class Foo { static abstract private function bar(); }"
+        , "<?php abstract readonly class Foo { abstract private function bar(); }"
+        , "<?php class Foo { static private abstract function bar(); }"
+        ]
+      case parseProgram "test.php" "<?php abstract class Foo { abstract private function bar(); }" of
+        Left err -> assertBool
+          "error should reject abstract private method with class and method name"
+          (maybe False (T.isInfixOf "Abstract function Foo::bar() cannot be declared private") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php class C { private abstract function f(); }" of
+        Left err -> assertBool
+          "error should reject abstract private method in non-abstract class"
+          (maybe False (T.isInfixOf "Abstract function C::f() cannot be declared private") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php abstract class C { abstract public function f(); }"
+        , "<?php abstract class C { abstract protected function f(); }"
+        , "<?php abstract class C { abstract function f(); }"
+        , "<?php class C { private function f() {} }"
+        , "<?php class C { private static function f() {} }"
+        , "<?php trait T { abstract private function f(); }"
+        , "<?php trait T { private abstract function f(); }"
+        , "<?php trait T { static abstract private function f(); }"
+        ]
   ]
 
 
