@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Parse interpolating heredocs into `[StringPart a]` segments in `LitHeredoc` (matching `LitInterpolated`), so `allExprs`, `allVariables`, `queryExpr`, and `transformExpr` traverse embedded variables and expressions instead of treating heredoc bodies as flat, opaque text; nowdocs remain opaque single literal parts (#234).
+
 * Give concatenation (`.`) its own precedence level, below `<<`/`>>` and above comparison operators, matching PHP 8.0's [concatenation precedence RFC](https://wiki.php.net/rfc/concatenation_precedence); `.` no longer binds at the same level as `+`/`-`, so `"a" . 1 + 2` now parses (and prints) as `"a" . (1 + 2)` instead of `("a" . 1) + 2` (#232).
 
 * Reject abstract private methods in class declarations, matching PHP's "Abstract function <class>::<method>() cannot be declared private" compile-time fatal error (#208).

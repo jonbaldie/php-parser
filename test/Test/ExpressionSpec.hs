@@ -508,25 +508,25 @@ expressionTests = testGroup "Expression Specifications"
       let hereSrc = "<<<EOF\nEOF_MORE\nEOF"
       case parseExpression "test.php" hereSrc of
         Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
-          assertEqual "content matches" "EOF_MORE" content
+          assertEqual "content matches" [StrLit "EOF_MORE"] content
         other -> assertFailure ("Heredoc prefix in body failed: " ++ show other)
 
       let nowSrc = "<<<'NOW'\nNOW_MORE\nNOW123\nNOW"
       case parseExpression "test.php" nowSrc of
         Right (ExprLit _ (LitHeredoc _ "NOW" content True)) ->
-          assertEqual "nowdoc content matches" "NOW_MORE\nNOW123" content
+          assertEqual "nowdoc content matches" [StrLit "NOW_MORE\nNOW123"] content
         other -> assertFailure ("Nowdoc prefix in body failed: " ++ show other)
 
       let indentedSrc = "<<<EOF\n    EOF_MORE\n    EOF123\n    EOF"
       case parseExpression "test.php" indentedSrc of
         Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
-          assertEqual "indented content matches" "EOF_MORE\nEOF123" content
+          assertEqual "indented content matches" [StrLit "EOF_MORE\nEOF123"] content
         other -> assertFailure ("Indented heredoc prefix in body failed: " ++ show other)
 
       let doubleQuotedSrc = "<<<\"EOF\"\nEOF_MORE\nEOF"
       case parseExpression "test.php" doubleQuotedSrc of
         Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
-          assertEqual "double quoted heredoc content matches" "EOF_MORE" content
+          assertEqual "double quoted heredoc content matches" [StrLit "EOF_MORE"] content
         other -> assertFailure ("Double quoted heredoc prefix in body failed: " ++ show other)
 
   , testCase "Unterminated heredoc or nowdoc terminates with a parse error (Issue #84)" $ do
@@ -1273,12 +1273,12 @@ expressionTests = testGroup "Expression Specifications"
           case parseExpression "issue87.php" heredoc of
             Left err -> assertFailure (show (formatParseError err))
             Right (ExprLit _ (LitHeredoc _ "EOF" content False)) ->
-              assertEqual "heredoc content" "\\q A A \n" content
+              assertEqual "heredoc content" [StrLit "\\q A A \n"] content
             other -> assertFailure ("Expected heredoc, got " ++ show other)
           case parseExpression "issue87.php" nowdoc of
             Left err -> assertFailure (show (formatParseError err))
             Right (ExprLit _ (LitHeredoc _ "EOF" content True)) ->
-              assertEqual "nowdoc content" body content
+              assertEqual "nowdoc content" [StrLit body] content
             other -> assertFailure ("Expected nowdoc, got " ++ show other)
       ]
 
@@ -1699,7 +1699,7 @@ expressionTests = testGroup "Expression Specifications"
                 ] $ \src ->
             case parseExpression "issue186.php" src of
               Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
-              Right (ExprLit _ (LitHeredoc _ "EOT" "hello" isNowdoc)) ->
+              Right (ExprLit _ (LitHeredoc _ "EOT" [StrLit "hello"] isNowdoc)) ->
                 if "EOT'" `T.isInfixOf` src
                   then assertBool "expected nowdoc" isNowdoc
                   else assertBool "expected heredoc" (not isNowdoc)
@@ -1720,7 +1720,7 @@ expressionTests = testGroup "Expression Specifications"
           let src = "b<<<EOT\n    hello\n    world\n    EOT\n" :: Text
           case parseExpression "issue186.php" src of
             Left err -> assertFailure (show (formatParseError err))
-            Right (ExprLit _ (LitHeredoc _ "EOT" "hello\nworld" False)) -> pure ()
+            Right (ExprLit _ (LitHeredoc _ "EOT" [StrLit "hello\nworld"] False)) -> pure ()
             other -> assertFailure ("expected indented LitHeredoc, got: " ++ show other)
 
       , testCase "a bare b stays an identifier and a detached prefix is rejected" $ do

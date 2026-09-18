@@ -423,6 +423,67 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           let exprCount = length (allExprs expr)
           assertBool "Counts outer and literal expressions" (exprCount > 0)
 
+  , testCase "allVariables traverses heredoc expression (Issue #234 minimal)" $ do
+      let src = "<<<EOT\n$v\nEOT"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr ->
+          assertEqual "Extracts variable inside heredoc" ["v"] (allVariables expr)
+
+  , testCase "allVariables and transformExpr traverse heredocs (Issue #234)" $ do
+      let src = "<?php $v = 3; echo <<<EOT\nn=$v\nEOT;"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ ss) -> do
+          assertEqual "Extracts variables inside heredoc"
+            ["v", "v"]
+            (concatMap (queryStmt allVariables) ss)
+          let renamed = map (transformStmt (\case
+                ExprVar a (SimpleVar sv (VarName vn "v")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "renamedv"))
+                e -> e)) ss
+          assertEqual "Renamed variables inside heredoc"
+            ["renamedv", "renamedv"]
+            (concatMap (queryStmt allVariables) renamed)
+
+  , testCase "allVariables and transformExpr handle complex expressions in heredocs (Issue #234)" $ do
+      let src = "<<<EOT\nprefix {$user->name} {$calc($a + $b)} ${bar} suffix\nEOT"
+      case parseExpression "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "Extracts all variables from complex expressions in heredoc"
+            ["user", "calc", "a", "b", "bar"]
+            (allVariables expr)
+          let renamed = transformExpr (\case
+                ExprVar a (SimpleVar sv (VarName vn "a")) ->
+                  ExprVar a (SimpleVar sv (VarName vn "alpha"))
+                e -> e) expr
+          assertEqual "Renamed nested variable inside heredoc expression"
+            ["user", "calc", "alpha", "b", "bar"]
+            (allVariables renamed)
+
+  , testCase "prettyPrint preserves and updates heredocs correctly (Issue #234)" $ do
+      let src = "<?php\n$v = 3;\necho <<<EOT\nn=$v\nEOT;\n"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program a ss) -> do
+          let renamed = Program a (map (transformStmt (\case
+                ExprVar va (SimpleVar sv (VarName vn "v")) ->
+                  ExprVar va (SimpleVar sv (VarName vn "renamedv"))
+                e -> e)) ss)
+          assertEqual "Pretty-printed renamed program"
+            "<?php\n\n$renamedv = 3;\necho <<<EOT\nn={$renamedv}\nEOT;"
+            (prettyPrint (stripAnnotations renamed))
+
+  , testCase "nowdocs stay opaque to allVariables and transformExpr (Issue #234)" $ do
+      let src = "<?php $v = 3; echo <<<'EOT'\nn=$v\nEOT;"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ ss) -> do
+          assertEqual "Nowdoc does not extract variables"
+            ["v"]
+            (concatMap (queryStmt allVariables) ss)
+
   , testCase "allExprs, allVariables, and transformExpr traverse by-reference assignment (Issue #138)" $ do
       case parseExpression "test.php" "$target =& $source" of
         Left err -> assertFailure (show (formatParseError err))

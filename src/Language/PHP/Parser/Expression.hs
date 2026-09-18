@@ -674,7 +674,7 @@ parseLiteralWith pExpr =
   literalFloat
   <|> literalInt
   <|> literalString pExpr
-  <|> literalHeredocOrNowdoc
+  <|> literalHeredocOrNowdoc pExpr
   <|> parseBool
   <|> parseNull
   where

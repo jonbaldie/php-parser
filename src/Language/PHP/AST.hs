@@ -453,7 +453,7 @@ data Literal a
   | LitFloat !a !Double !Text    -- ^ Float value + original text representation
   | LitString !a !Text !Text     -- ^ Unescaped value + original raw text
   | LitInterpolated !a ![StringPart a]
-  | LitHeredoc !a !Text !Text !Bool -- ^ Label, content, isNowdoc
+  | LitHeredoc !a !Text ![StringPart a] !Bool -- ^ Label, content parts, isNowdoc
   | LitBool !a !Bool
   | LitNull !a
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
