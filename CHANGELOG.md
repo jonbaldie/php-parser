@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Reject abstract private methods in class declarations, matching PHP's "Abstract function <class>::<method>() cannot be declared private" compile-time fatal error (#208).
+
 * Fix `queryStmt`/`queryExpr` double- and triple-counting matches from fully recursive queries (like `allVariables`) composed into a larger traversal, by short-circuiting once a node's query result is non-empty; `allExprs` and `foldExpr`/`foldStmt` are unaffected and continue to visit every node exactly once (#215).
 
 * Reject `void`, `never`, and `callable` types on property declarations and constructor-promoted parameters (including within compound types), matching PHP's "Property cannot have type <type>" compile-time fatal error (#207).

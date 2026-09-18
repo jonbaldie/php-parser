@@ -224,6 +224,16 @@ allMutations =
       }
   , -- Members where the declaration kind forbids them.
     Mutation
+      { mutationName = "abstract-private-method"
+      , mutationFeature = "classes"
+      , mutationPHPRule = "Abstract function cannot be declared private"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "    abstract protected function describe(): string;"
+            "    abstract private function describe(): string;"
+      }
+  , Mutation
       { mutationName = "property-in-interface"
       , mutationFeature = "interfaces-and-traits"
       , mutationPHPRule = "Interfaces may only include hooked properties"
