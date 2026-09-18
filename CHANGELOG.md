@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Give concatenation (`.`) its own precedence level, below `<<`/`>>` and above comparison operators, matching PHP 8.0's [concatenation precedence RFC](https://wiki.php.net/rfc/concatenation_precedence); `.` no longer binds at the same level as `+`/`-`, so `"a" . 1 + 2` now parses (and prints) as `"a" . (1 + 2)` instead of `("a" . 1) + 2` (#232).
+
 * Reject abstract private methods in class declarations, matching PHP's "Abstract function <class>::<method>() cannot be declared private" compile-time fatal error (#208).
 
 * Fix `queryStmt`/`queryExpr` double- and triple-counting matches from fully recursive queries (like `allVariables`) composed into a larger traversal, by short-circuiting once a node's query result is non-empty; `allExprs` and `foldExpr`/`foldStmt` are unaffected and continue to visit every node exactly once (#215).

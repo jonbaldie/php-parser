@@ -77,6 +77,36 @@ expressionTests = testGroup "Expression Specifications"
                   (stripAnnotations expr)
                   (stripAnnotations reparsed)
 
+  , testCase "Concatenation binds looser than additive and shift operators (Issue #232)" $ do
+      let cases =
+            [ ("addition", "\"a\" . 1 + 2", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpAdd _ _) -> True
+                _ -> False)
+            , ("subtraction", "\"a\" . 5 - 2", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpSub _ _) -> True
+                _ -> False)
+            , ("shift left", "1 . 2 << 3", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpShiftLeft _ _) -> True
+                _ -> False)
+            , ("shift right", "8 . 4 >> 1", \case
+                ExprBinary _ OpConcat _ (ExprBinary _ OpShiftRight _ _) -> True
+                _ -> False)
+            ]
+      forM_ cases $ \(name, src, matches) ->
+        case parseExpression "issue232.php" src of
+          Left err -> assertFailure (name ++ ": " ++ show (formatParseError err))
+          Right expr -> do
+            assertBool (name ++ ": concat precedence") (matches expr)
+            let printed = prettyPrintExpr expr
+            case parseExpression "issue232.php" printed of
+              Left err -> assertFailure (name ++ ": pretty output does not parse: "
+                                         ++ T.unpack printed ++ "\n"
+                                         ++ show (formatParseError err))
+              Right reparsed ->
+                assertEqual (name ++ ": pretty-print round trip")
+                  (stripAnnotations expr)
+                  (stripAnnotations reparsed)
+
   , testCase "Successful AST spans report input offsets (Issue #47)" $ do
       case parseExpression "offsets.php" "  $a + $b" of
         Left err -> assertFailure (show (formatParseError err))
