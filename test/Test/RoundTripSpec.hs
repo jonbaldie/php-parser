@@ -430,6 +430,9 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php\n$a = B<<<EOT\nhello\nEOT;\n"
       assertRoundTrips "<?php\n$a = B<<<'EOT'\nhello\nEOT;\n"
 
+  , testCase "Round-trip heredoc escape sequences (Issue #236)" $ do
+      assertRoundTrips "<?php\necho <<<EOT\ntab\\there \\$notvar \\\\ \\x41 \\\"q\\\"\nEOT;\n"
+
   , testCase "Round-trip constructor promotion with final modifier (Issue #145)" $ do
       assertRoundTrips "<?php\nclass C {\n    function __construct(final private int $x, public final int $y, public private(set) final int $z, final readonly int $w) {}\n}\n"
 

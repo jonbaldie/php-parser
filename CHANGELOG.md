@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Fix the pretty-printer re-emitting decoded heredoc bodies, which turned `\t` into a literal tab and `\$notvar` into a live interpolation. `LitHeredoc` now carries a fifth field, the raw body text with escapes intact (as `LitString` does), and the printer emits it (#236).
+
 * Give concatenation (`.`) its own precedence level, below `<<`/`>>` and above comparison operators, matching PHP 8.0's [concatenation precedence RFC](https://wiki.php.net/rfc/concatenation_precedence); `.` no longer binds at the same level as `+`/`-`, so `"a" . 1 + 2` now parses (and prints) as `"a" . (1 + 2)` instead of `("a" . 1) + 2` (#232).
 
 * Reject abstract private methods in class declarations, matching PHP's "Abstract function <class>::<method>() cannot be declared private" compile-time fatal error (#208).

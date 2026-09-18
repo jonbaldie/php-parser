@@ -678,8 +678,8 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitFloat _ _ raw -> pretty raw
   LitString _ _ raw -> pretty (if isQuotedString raw then raw else quoteString raw)
   LitInterpolated _ parts -> "\"" <> foldMap prettyPart parts <> "\""
-  LitHeredoc _ tag content False -> "<<<" <> pretty tag <> line <> pretty content <> line <> pretty tag
-  LitHeredoc _ tag content True -> "<<<'" <> pretty tag <> "'" <> line <> pretty content <> line <> pretty tag
+  LitHeredoc _ tag _ False raw -> "<<<" <> pretty tag <> line <> pretty raw <> line <> pretty tag
+  LitHeredoc _ tag _ True raw -> "<<<'" <> pretty tag <> "'" <> line <> pretty raw <> line <> pretty tag
   LitBool _ True -> "true"
   LitBool _ False -> "false"
   LitNull _ -> "null"
@@ -736,7 +736,7 @@ literalAnnotation = \case
   LitFloat annotation _ _ -> annotation
   LitString annotation _ _ -> annotation
   LitInterpolated annotation _ -> annotation
-  LitHeredoc annotation _ _ _ -> annotation
+  LitHeredoc annotation _ _ _ _ -> annotation
   LitBool annotation _ -> annotation
   LitNull annotation -> annotation
 
