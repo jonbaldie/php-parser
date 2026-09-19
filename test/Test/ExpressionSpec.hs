@@ -408,6 +408,33 @@ expressionTests = testGroup "Expression Specifications"
             assertEqual ("Value for " ++ show s) expectedVal val
           other -> assertFailure ("Failed on float " ++ show s ++ ": " ++ show other)) floatTests
 
+  , testCase "legacy octal literal with a digit 8 or 9 is rejected, as in PHP (Issue #241)" $
+      forM_ [ "<?php echo 08;" :: Text
+            , "<?php echo 09;"
+            , "<?php echo 0_8;"
+            , "<?php echo 080;"
+            , "<?php echo 0128;"
+            , "<?php echo 08_1;"
+            , "<?php echo 0009;"
+            ] $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right p -> assertFailure ("Expected " ++ show src ++ " to be rejected, got: " ++ show p)
+
+  , testCase "leading-zero literals PHP accepts still parse (Issue #241)" $ do
+      forM_ [ ("0", 0, "0"), ("00", 0, "00"), ("07", 7, "07"), ("010", 8, "010"), ("0_1", 1, "0_1") ] $
+        \(s, expectedVal, expectedRaw) ->
+          case parseExpression "test.php" s of
+            Right (ExprLit _ (LitInt _ val raw)) -> do
+              assertEqual ("Value for " ++ show s) expectedVal val
+              assertEqual ("Raw for " ++ show s) expectedRaw raw
+            other -> assertFailure ("Failed on " ++ show s ++ ": " ++ show other)
+      -- A leading zero is only octal for an integer; these are decimal floats.
+      forM_ [ ("08.5", 8.5), ("09e1", 90.0) ] $ \(s, expectedVal) ->
+        case parseExpression "test.php" s of
+          Right (ExprLit _ (LitFloat _ val _)) -> assertEqual ("Value for " ++ show s) expectedVal val
+          other -> assertFailure ("Failed on float " ++ show s ++ ": " ++ show other)
+
   , testCase "Float literals with a trailing dot and exponent (Issue #86)" $ do
       -- Each case: source, PHP's value, and the raw text the AST must keep
       -- (the original spelling, never a normalized form like "1.e+2").

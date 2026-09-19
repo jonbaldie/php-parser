@@ -241,9 +241,7 @@ allFeatures =
         , "$acc" <> n <> "++;"
         , "--$acc" <> n <> ";"
         ]
-  , -- @08@ and @09@ are absent: they are accepted today but rejected by PHP
-    -- (<https://github.com/jonbaldie/php-parser/issues/241 #241>).
-    Feature "numeric-literals" PHP82 $ \i -> do
+  , Feature "numeric-literals" PHP82 $ \i -> do
       let n = sfx i
       pure $ ls
         [ "$nums" <> n <> " = [0x1F, 0b1010, 0o17, 017, 1_000_000, 1.5e3, 0.5, 7];"
