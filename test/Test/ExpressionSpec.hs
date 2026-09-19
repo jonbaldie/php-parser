@@ -529,6 +529,23 @@ expressionTests = testGroup "Expression Specifications"
           assertEqual "double quoted heredoc content matches" "EOF_MORE" content
         other -> assertFailure ("Double quoted heredoc prefix in body failed: " ++ show other)
 
+  , testCase "Interpolating heredoc bodies parse into string parts (Issue #234)" $ do
+      case parseExpression "test.php" "<<<EOF\n    a $v\n\n      {$o->p}\\\"\n    EOF" of
+        Right (ExprLit _ (LitHeredocInterpolated _ "EOF" parts)) -> case parts of
+          [ StrLit "a "
+           , StrExpr (ExprVar _ (SimpleVar _ (VarName _ "v")))
+           , StrLit "\n\n  "
+           , StrExpr (ExprPropertyFetch _ _ _)
+           , StrLit "\\\""
+           ] -> pure ()
+          _ -> assertFailure ("Unexpected heredoc parts: " ++ show parts)
+        other -> assertFailure ("Expected LitHeredocInterpolated, got: " ++ show other)
+
+      case parseExpression "test.php" "<<<EOF\na\\\"b\n\nEOF" of
+        Right (ExprLit _ (LitHeredoc _ "EOF" content False _)) ->
+          assertEqual "backslash-quote is not an escape, blank last line kept" "a\\\"b\n" content
+        other -> assertFailure ("Expected LitHeredoc, got: " ++ show other)
+
   , testCase "Unterminated heredoc or nowdoc terminates with a parse error (Issue #84)" $ do
       -- The heredoc scanner used to loop forever at end of input. Bound each
       -- case with an in-process timeout so a regression fails instead of
