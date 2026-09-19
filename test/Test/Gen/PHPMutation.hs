@@ -398,12 +398,4 @@ knownDivergences =
       , divergenceLibrary = Accepts
       , divergenceDetect = ByVerdict
       }
-  , KnownDivergence
-      { divergenceIssue = 241
-      , divergenceName = "the invalid octal literals 08 and 09 are accepted"
-      , divergenceSource = "<?php\n$a = 08;\n"
-      , divergencePHP = Rejects
-      , divergenceLibrary = Accepts
-      , divergenceDetect = ByVerdict
-      }
   ]

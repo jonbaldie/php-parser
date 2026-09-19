@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Reject a leading-zero integer literal containing an `8` or `9`, such as `08`, `09` or `0128`, which PHP refuses as an invalid numeric literal but the lexer decoded as decimal. Leading-zero floats such as `08.5` and `09e1` are still accepted, as in PHP (#241).
+
 * Parse an interpolating heredoc body like a double-quoted string, so `allVariables`, `allExprs`, `queryExpr` and `transformExpr` reach the variables and expressions embedded in it; renaming a variable no longer leaves its heredoc occurrences behind. A heredoc that embeds expressions is now the new `LitHeredocInterpolated` constructor, holding its label and `StringPart`s; one that embeds none stays a `LitHeredoc`, and a nowdoc stays literal. Heredoc text also no longer treats `\"` as an escape (PHP keeps the backslash), and a blank line just before the closing label is kept (#234).
 
 * Accept a negative number as a simple-interpolation subscript, as in `"$a[-1]"`, which PHP allows but the key parser rejected. `-1` parses to the same unary-minus key as the braced form `"{$a[-1]}"`; a non-canonical number such as `-0` or `-0x1F` is the string key PHP makes of it. `+1`, `-x` and `-$i` stay rejected (#235).

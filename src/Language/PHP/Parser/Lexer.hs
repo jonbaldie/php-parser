@@ -353,10 +353,14 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
       let clean = T.filter (/= '_') raw
       -- Check if float follows (decimal point or exponent)
       isFloat <- (True <$ M.lookAhead (C.char '.' <|> C.char 'e' <|> C.char 'E')) <|> pure False
+      -- A leading zero makes an integer octal, so 8 and 9 are invalid there
+      -- (PHP: "Invalid numeric literal"); as a float's integer part they are fine.
       if isFloat
         then M.empty
-        else if d0 == '0' && not (T.null rest) && T.all (\c -> c >= '0' && c <= '7') clean
-          then pure (readOctStr clean, raw)
+        else if d0 == '0' && not (T.null rest)
+          then if T.all (\c -> c >= '0' && c <= '7') clean
+            then pure (readOctStr clean, raw)
+            else fail ("Invalid numeric literal " ++ T.unpack raw)
           else pure (read (T.unpack clean), raw)
 
     readHexStr s = case reads ("0x" ++ T.unpack s) of
