@@ -433,6 +433,12 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
   , testCase "Round-trip heredoc escape sequences (Issue #236)" $ do
       assertRoundTrips "<?php\necho <<<EOT\ntab\\there \\$notvar \\\\ \\x41 \\\"q\\\"\nEOT;\n"
 
+  , testCase "Round-trip interpolating heredocs (Issue #234)" $ do
+      assertRoundTrips "<?php\necho <<<EOT\nn=$v and {$o->p} and $a[k]\\\" \\$x\nEOT;\n"
+      assertRoundTrips "<?php\nfunction f() {\n    echo <<<EOT\n        $v\n\n          indented\n        EOT;\n}\n"
+      -- A decoded line break followed by the label must not end the printed heredoc.
+      assertRoundTrips "<?php\necho <<<EOT\n$v\\nEOT;\\n  EOT\nEOT;\n"
+
   , testCase "Round-trip constructor promotion with final modifier (Issue #145)" $ do
       assertRoundTrips "<?php\nclass C {\n    function __construct(final private int $x, public final int $y, public private(set) final int $z, final readonly int $w) {}\n}\n"
 

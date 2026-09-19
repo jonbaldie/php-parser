@@ -18,9 +18,10 @@ module Language.PHP.Pretty
   , HasLeadingTrivia (..)
   ) where
 
-import Data.Char (isAlpha)
+import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Numeric (showHex)
 import Prettyprinter
 import Prettyprinter.Render.Text (renderStrict)
 
@@ -683,15 +684,24 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitInterpolated _ parts -> "\"" <> foldMap prettyPart parts <> "\""
   LitHeredoc _ tag _ False raw -> "<<<" <> pretty tag <> line <> pretty raw <> line <> pretty tag
   LitHeredoc _ tag _ True raw -> "<<<'" <> pretty tag <> "'" <> line <> pretty raw <> line <> pretty tag
+  LitHeredocInterpolated _ tag parts ->
+    "<<<" <> pretty tag <> line <> prettyHeredocParts tag parts <> line <> pretty tag
   LitBool _ True -> "true"
   LitBool _ False -> "false"
   LitNull _ -> "null"
   where
     prettyPart = \case
       StrLit t -> pretty (escapeInterpText t)
-      StrExpr e -> case isSimpleUnquotedArrayAccess e of
-        Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
-        Nothing -> "{" <> prettyExpr e <> "}"
+      StrExpr e -> prettyInterpExpr e
+    -- Only the first part of a heredoc body starts a line: every later text
+    -- part follows an expression.
+    prettyHeredocParts tag = mconcat . zipWith (prettyHeredocPart tag) (True : repeat False)
+    prettyHeredocPart tag atBodyStart = \case
+      StrLit t -> pretty (escapeHeredocText tag atBodyStart t)
+      StrExpr e -> prettyInterpExpr e
+    prettyInterpExpr e = case isSimpleUnquotedArrayAccess e of
+      Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
+      Nothing -> "{" <> prettyExpr e <> "}"
     isSimpleUnquotedArrayAccess = \case
       ExprArrayAccess _ (ExprVar _ v@(SimpleVar _ _)) (Just (ExprLit _ (LitString _ _ raw)))
         | not (isQuotedString raw) -> Just (v, raw)
@@ -711,12 +721,36 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
 -- would otherwise reparse as @$name@ or @${name}@ interpolation is escaped
 -- (Issue #88, Issue #144).
 escapeInterpText :: Text -> Text
-escapeInterpText = T.concat . go
+escapeInterpText = escapeInterpolatingText True
+
+-- | Re-emit the escapes the lexer decoded away in heredoc text parts. They are
+-- those of 'escapeInterpText', except that a double quote needs none. A line
+-- that would read as the closing label has the label's first character written
+-- as a hex escape, so the printed heredoc does not end early (Issue #234).
+escapeHeredocText :: Text -> Bool -> Text -> Text
+escapeHeredocText tag atBodyStart =
+  T.intercalate "\n" . zipWith escapeLine (atBodyStart : repeat True) . T.splitOn "\n"
+  where
+    escapeLine atLineStart l
+      | atLineStart
+      , (lead, rest) <- T.span (\c -> c == ' ' || c == '\t') l
+      , Just (c, afterFirst) <- T.uncons rest
+      , closesHeredoc rest
+      , c < '\x80'
+      = lead <> "\\x" <> T.justifyRight 2 '0' (T.pack (showHex (ord c) "")) <> escapeInterpolatingText False afterFirst
+      | otherwise = escapeInterpolatingText False l
+    closesHeredoc rest = case T.stripPrefix tag rest of
+      Just after -> maybe True (not . isIdentChar . fst) (T.uncons after)
+      Nothing -> False
+    isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
+
+escapeInterpolatingText :: Bool -> Text -> Text
+escapeInterpolatingText escapeQuotes = T.concat . go
   where
     go input = case T.uncons input of
       Nothing -> []
       Just ('\\', rest) -> "\\\\" : go rest
-      Just ('"', rest) -> "\\\"" : go rest
+      Just ('"', rest) | escapeQuotes -> "\\\"" : go rest
       Just ('$', rest) -> (if startsInterpolation rest then "\\$" else "$") : go rest
       Just (c, rest) -> T.singleton c : go rest
     startsInterpolation rest = case T.uncons rest of
@@ -740,6 +774,7 @@ literalAnnotation = \case
   LitString annotation _ _ -> annotation
   LitInterpolated annotation _ -> annotation
   LitHeredoc annotation _ _ _ _ -> annotation
+  LitHeredocInterpolated annotation _ _ -> annotation
   LitBool annotation _ -> annotation
   LitNull annotation -> annotation
 

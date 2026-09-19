@@ -46,6 +46,7 @@ import Control.Applicative (Alternative (..), optional)
 import Control.Monad (void, when)
 import Control.Monad.State.Strict (State, runState, get, modify', put)
 import Data.Char (digitToInt, isAlpha, isAlphaNum, isDigit, isHexDigit)
+import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -415,7 +416,15 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
       pure (T.cons e (maybe T.empty T.singleton sgn) <> digits)
 
 decodeDoubleQuotedEscapes :: Text -> Text
-decodeDoubleQuotedEscapes = T.concat . go
+decodeDoubleQuotedEscapes = decodeEscapes True
+
+-- | Heredoc bodies decode the escapes of a double-quoted string, except @\\"@:
+-- a heredoc has no quote to escape, so PHP keeps the backslash.
+decodeHeredocEscapes :: Text -> Text
+decodeHeredocEscapes = decodeEscapes False
+
+decodeEscapes :: Bool -> Text -> Text
+decodeEscapes quoteEscapes = T.concat . go
   where
     go input = case T.uncons input of
       Nothing -> []
@@ -444,7 +453,7 @@ decodeDoubleQuotedEscapes = T.concat . go
       "f" -> "\f"
       "\\" -> "\\"
       "$" -> "$"
-      "\"" -> "\""
+      "\"" | quoteEscapes -> "\""
       _
         | not (T.null body) && T.all isOctalDigit body -> numericEscape 8 body
         | T.length body >= 2 && T.head body == 'x' && T.all isHexDigit (T.tail body) ->
@@ -483,19 +492,25 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
       <|> M.satisfy (/= '\'')
 
     doubleQuoted = do
-      (raw, parts) <- M.match $ do
-        _ <- openQuote '"'
-        ps <- many doublePart
-        _ <- C.char '"'
-        pure ps
+      (raw, parts) <- M.match $
+        openQuote '"'
+          *> interpolatedParts parseInterpExpr (== '"') decodeDoubleQuotedEscapes
+          <* C.char '"'
       pure $ \sp -> case [e | StrExpr e <- parts] of
         [] -> LitString sp (T.concat [t | StrLit t <- parts]) raw
-        _  -> LitInterpolated sp (mergeLiterals parts)
+        _  -> LitInterpolated sp parts
 
+-- | The content of a double-quoted string or of one heredoc line: literal text
+-- and interpolated expressions, up to the first character satisfying @stop@
+-- outside an escape. Literal text is decoded with @decode@.
+interpolatedParts
+  :: Parser (Expr Span) -> (Char -> Bool) -> (Text -> Text) -> Parser [StringPart Span]
+interpolatedParts parseInterpExpr stop decode = mergeLiterals <$> many part
+  where
     -- One chunk of content: an interpolated expression, or literal text. A
     -- failed interpolation attempt backtracks into literal text, so unmatched
     -- @{@ and stray @$@ stay ordinary characters.
-    doublePart =
+    part =
       (StrExpr <$> (interpolatedExpr <|> dollarBraceInterp <|> simpleInterp))
       <|> literalRun
       <|> strayDollar
@@ -578,15 +593,15 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
           rest <- M.takeWhileP Nothing (\x -> isAlphaNum x || x == '_' || x >= '\x80')
           pure (T.cons c rest)
 
-    -- A run of ordinary characters. Dollars, braces, backslashes and quotes end
-    -- the run; a dollar or brace at which interpolation just failed becomes a
-    -- one-character literal part below, so the surrounding 'many' retries
-    -- interpolation at the next character.
+    -- A run of ordinary characters. Dollars, braces, backslashes and stop
+    -- characters end the run; a dollar or brace at which interpolation just
+    -- failed becomes a one-character literal part below, so the surrounding
+    -- 'many' retries interpolation at the next character.
     literalRun = StrLit . T.concat <$> some litCh
 
     litCh =
       escapedText
-      <|> T.singleton <$> M.satisfy (\c -> c /= '"' && c /= '\\' && c /= '$' && c /= '{')
+      <|> T.singleton <$> M.satisfy (\c -> not (stop c) && c /= '\\' && c /= '$' && c /= '{')
 
     -- Stray characters that look like interpolation starts but did not parse
     -- as one: a trailing @$@, @$@ before a non-identifier char, or an
@@ -596,10 +611,12 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 
     strayBrace = StrLit . T.singleton <$> C.char '{'
 
+    -- An escape never swallows a line break, which ends a heredoc line; a
+    -- backslash before one is literal, as it is in PHP.
     escapedText = do
       _ <- C.char '\\'
-      body <- M.try octalBody <|> M.try hexBody <|> (T.singleton <$> M.anySingle)
-      pure (decodeDoubleQuotedEscapes (T.cons '\\' body))
+      body <- M.try octalBody <|> M.try hexBody <|> (T.singleton <$> M.satisfy (/= '\n')) <|> pure T.empty
+      pure (decode (T.cons '\\' body))
 
     octalBody = do
       first <- M.satisfy (\c -> c >= '0' && c <= '7')
@@ -613,22 +630,27 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
       second <- optional (M.satisfy isHexDigit)
       pure (T.cons 'x' (T.pack (first : [c | Just c <- [second]])))
 
-    -- Merge neighbouring literal chunks left over from backtracking into
-    -- single parts, keeping the AST canonical.
-    mergeLiterals = \case
-      [] -> []
-      StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
-      p : rest -> p : mergeLiterals rest
+-- | Merge neighbouring literal chunks left over from backtracking or line
+-- joining into single parts, keeping the AST canonical.
+mergeLiterals :: [StringPart a] -> [StringPart a]
+mergeLiterals = \case
+  [] -> []
+  StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
+  p : rest -> p : mergeLiterals rest
 
 -- | Heredoc and Nowdoc (including flexible indented syntax).
+--
+-- A heredoc body interpolates like a double-quoted string, so one that embeds
+-- expressions parses to 'LitHeredocInterpolated' parts (Issue #234); one that
+-- does not stays a 'LitHeredoc'. A nowdoc body is always literal.
 --
 -- Only the header (up to and including the opening newline) is guarded by
 -- @M.try@; the body is not. A body failure (an unterminated heredoc, Issue
 -- #84) must propagate without rolling back, so megaparsec reports it as the
 -- furthest error instead of the offset-0 failure of the surrounding
 -- alternatives.
-literalHeredocOrNowdoc :: Parser (Literal Span)
-literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
+literalHeredocOrNowdoc :: Parser (Expr Span) -> Parser (Literal Span)
+literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
   (isNowdoc, tag) <- M.try $ do
     -- An optional binary prefix @b@ / @B@ (Issue #186) immediately precedes
     -- the @<<<@ delimiter, mirroring PHP's lexer. Like string literals
@@ -640,9 +662,21 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
     _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
     pure t
 
-  (content, _) <- parseLines tag
-  let value = if isNowdoc then content else decodeDoubleQuotedEscapes content
-  pure (\sp -> LitHeredoc sp tag value isNowdoc content)
+  -- Every body line loses the closing label's indentation, so find it first.
+  indent <- M.lookAhead (closingIndent tag)
+  if isNowdoc
+    then do
+      content <- T.intercalate "\n" <$> bodyLines tag indent (\lead -> (lead <>) <$> M.takeWhileP Nothing (/= '\n'))
+      pure (\sp -> LitHeredoc sp tag content True content)
+    else do
+      bodyParts <- bodyLines tag indent $ \lead -> do
+        (raw, parts) <- M.match (interpolatedParts parseInterpExpr (== '\n') decodeHeredocEscapes)
+        pure (lead <> raw, [StrLit lead | not (T.null lead)] ++ parts)
+      let raw = T.intercalate "\n" (map fst bodyParts)
+          parts = mergeLiterals (intercalate [StrLit "\n"] (map snd bodyParts))
+      pure $ \sp -> case [e | StrExpr e <- parts] of
+        [] -> LitHeredoc sp tag (T.concat [t | StrLit t <- parts]) False raw
+        _  -> LitHeredocInterpolated sp tag parts
   where
     parseTag =
       (do
@@ -659,29 +693,46 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
         t <- rawIdentifier
         pure (False, t))
 
-    parseLines tag = do
-      lineIndent <- many (C.char ' ' <|> C.char '\t')
-      let isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
-      isEnd <- (True <$ M.lookAhead (M.try (C.string tag *> M.notFollowedBy (M.satisfy isIdentChar)))) <|> pure False
-      if isEnd
-        then do
-          _ <- C.string tag
-          pure ("", T.pack lineIndent)
-        else do
-          -- At end of input without a closing label, nothing can be consumed
-          -- and the recursion below would never advance: fail with a parse
-          -- error instead of looping (Issue #84).
-          atEof <- M.atEnd
-          when atEof
-            (M.label ("heredoc end (" <> T.unpack tag <> ")") M.empty)
-          restOfLine <- M.takeWhileP Nothing (/= '\n')
-          _ <- optional (C.char '\n')
-          (following, closingIndent) <- parseLines tag
-          let fullLine = T.pack lineIndent <> restOfLine
-          let strippedLine = stripIndent closingIndent fullLine
-          let sep = if T.null following then "" else "\n"
-          pure (strippedLine <> sep <> following, closingIndent)
+    lineIndent = T.pack <$> many (C.char ' ' <|> C.char '\t')
 
-    stripIndent ind line
-      | T.isPrefixOf ind line = T.drop (T.length ind) line
-      | otherwise = line
+    atClosingLabel tag =
+      (True <$ M.lookAhead (M.try (C.string tag *> M.notFollowedBy (M.satisfy isIdentChar)))) <|> pure False
+
+    isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
+
+    -- At end of input without a closing label, nothing can be consumed and
+    -- the recursion would never advance: fail with a parse error instead of
+    -- looping (Issue #84).
+    failAtEof tag = do
+      atEof <- M.atEnd
+      when atEof
+        (M.label ("heredoc end (" <> T.unpack tag <> ")") M.empty)
+
+    closingIndent tag = do
+      ind <- lineIndent
+      isEnd <- atClosingLabel tag
+      if isEnd
+        then pure ind
+        else do
+          failAtEof tag
+          _ <- M.takeWhileP Nothing (/= '\n')
+          _ <- optional (C.char '\n')
+          closingIndent tag
+
+    -- The body lines up to and including the closing label. Each line's
+    -- leading whitespace, less the closing indentation, is handed to @line@.
+    bodyLines :: Text -> Text -> (Text -> Parser l) -> Parser [l]
+    bodyLines tag ind line = do
+      lead <- lineIndent
+      isEnd <- atClosingLabel tag
+      if isEnd
+        then [] <$ C.string tag
+        else do
+          failAtEof tag
+          l <- line (stripIndent ind lead)
+          _ <- optional (C.char '\n')
+          (l :) <$> bodyLines tag ind line
+
+    stripIndent ind lead
+      | T.isPrefixOf ind lead = T.drop (T.length ind) lead
+      | otherwise = lead
