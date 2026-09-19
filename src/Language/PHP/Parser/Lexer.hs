@@ -47,6 +47,7 @@ import Control.Monad (void, when)
 import Control.Monad.State.Strict (State, runState, get, modify', put)
 import Data.Char (digitToInt, isAlpha, isAlphaNum, isDigit, isHexDigit)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -629,7 +630,8 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
     _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
     pure t
 
-  (content, _) <- parseLines tag
+  (content, closingIndent, bodyLines) <- parseLines tag
+  checkBodyIndentation isNowdoc closingIndent bodyLines
   let value = if isNowdoc then content else decodeDoubleQuotedEscapes content
   pure (\sp -> LitHeredoc sp tag value isNowdoc content)
   where
@@ -649,13 +651,14 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
         pure (False, t))
 
     parseLines tag = do
+      lineStart <- M.getOffset
       lineIndent <- many (C.char ' ' <|> C.char '\t')
       let isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
       isEnd <- (True <$ M.lookAhead (M.try (C.string tag *> M.notFollowedBy (M.satisfy isIdentChar)))) <|> pure False
       if isEnd
         then do
           _ <- C.string tag
-          pure ("", T.pack lineIndent)
+          pure ("", T.pack lineIndent, [])
         else do
           -- At end of input without a closing label, nothing can be consumed
           -- and the recursion below would never advance: fail with a parse
@@ -665,11 +668,56 @@ literalHeredocOrNowdoc = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
             (M.label ("heredoc end (" <> T.unpack tag <> ")") M.empty)
           restOfLine <- M.takeWhileP Nothing (/= '\n')
           _ <- optional (C.char '\n')
-          (following, closingIndent) <- parseLines tag
+          (following, closingIndent, bodyLines) <- parseLines tag
           let fullLine = T.pack lineIndent <> restOfLine
           let strippedLine = stripIndent closingIndent fullLine
           let sep = if T.null following then "" else "\n"
-          pure (strippedLine <> sep <> following, closingIndent)
+          pure (strippedLine <> sep <> following, closingIndent, (lineStart, fullLine) : bodyLines)
+
+    -- Since PHP 7.3 the closer's indentation is removed from every body line,
+    -- so PHP rejects a body line indented less than the closer (Issue #240).
+    -- Blank lines are exempt, as are heredoc lines that start inside a
+    -- multi-line @{$...}@ / @${...}@ interpolation: they are expression text,
+    -- not body text.
+    checkBodyIndentation isNowdoc closingIndent bodyLines =
+      let startsInside
+            | isNowdoc = map (const False) bodyLines
+            | otherwise = map (/= 0) (scanl interpolationDepth 0 (map snd bodyLines))
+          offending =
+            [ offset
+            | ((offset, line), inside) <- zip bodyLines startsInside
+            , not inside
+            , not (T.all (`elem` [' ', '\t', '\r']) line)
+            , not (T.isPrefixOf closingIndent line)
+            ]
+      in case offending of
+           [] -> pure ()
+           offset : _ ->
+             M.parseError $ M.FancyError offset $ Set.singleton $ M.ErrorFail $
+               "Invalid body indentation level (expecting an indentation level of at least "
+               <> show (T.length closingIndent) <> ")"
+
+    -- Brace depth of an open heredoc interpolation after scanning one line
+    -- plus its newline; 0 means the next line starts in body text.
+    interpolationDepth :: Int -> Text -> Int
+    interpolationDepth depth0 = go depth0 Nothing . T.unpack
+      where
+        go :: Int -> Maybe Char -> String -> Int
+        go depth _ [] = depth
+        go depth (Just q) (c : cs)
+          | c == '\\' = go depth (Just q) (drop 1 cs)
+          | c == q = go depth Nothing cs
+          | otherwise = go depth (Just q) cs
+        go 0 Nothing (c : cs)
+          | c == '\\' = go 0 Nothing (drop 1 cs)
+          | c == '{', take 1 cs == "$" = go 1 Nothing cs
+          | c == '$', take 1 cs == "{" = go 1 Nothing (drop 1 cs)
+          | otherwise = go 0 Nothing cs
+        go depth Nothing (c : cs)
+          | c == '{' = go (depth + 1) Nothing cs
+          | c == '}' = go (depth - 1) Nothing cs
+          | c == '\'' || c == '"' = go depth (Just c) cs
+          | otherwise = go depth Nothing cs
 
     stripIndent ind line
       | T.isPrefixOf ind line = T.drop (T.length ind) line

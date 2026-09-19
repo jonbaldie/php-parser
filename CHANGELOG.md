@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Reject a heredoc or nowdoc whose closing marker is indented deeper than a non-blank body line, matching PHP's "Invalid body indentation level (expecting an indentation level of at least N)" parse error. Blank lines, and heredoc lines that start inside a multi-line `{$...}` / `${...}` interpolation, are exempt, as in PHP (#240).
+
 * Keep comments that follow the last statement of a file, which were dropped because trivia only attaches to a following node. A `Program`'s annotation trivia now holds this trailing trivia, and `prettyPrint` re-emits it after the last statement, so `<?php $x = 1; // note` and `<?php /* only a comment */` round-trip (#238).
 
 * Accept the `**=`, `<<=` and `>>=` compound assignments, which the `**`, `<<` and `>>` operator parsers were swallowing before the assignment could see the `=` (#237).
