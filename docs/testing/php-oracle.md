@@ -148,7 +148,7 @@ method declared twice in one class.
 
 ### Constructs excluded from the generator
 
-`Test.Gen.PHPSource` leaves five constructs out of the valid corpus, because
+`Test.Gen.PHPSource` leaves four constructs out of the valid corpus, because
 including them would fail corpus health — which is the premise of every other
 property. They are not merely commented out: `knownDivergences` carries each one
 as data, with the issue it belongs to, a self-contained program, **both sides'
@@ -156,7 +156,6 @@ decisions**, and whether a lint oracle can see the difference at all.
 
 | Issue | Construct | PHP | Library | Gated by this oracle? |
 | --- | --- | --- | --- | --- |
-| #235 | `"$a[-1]"` | accepts | rejects | **yes** — false reject |
 | #240 | heredoc closer indented deeper than its body | rejects | accepts | **yes** — false accept |
 | #241 | `08`, `09` | rejects | accepts | **yes** — false accept |
 | #232 | `.` against `+`/`-` precedence | accepts | accepts | no |

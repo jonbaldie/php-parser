@@ -548,14 +548,25 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 
     -- Subscript keys in simple syntax: a variable, or a run of identifier
     -- characters — plain decimal digits give an integer key, anything else
-    -- (including @0x1F@) is taken as a string, as in PHP.
+    -- (including @0x1F@) is taken as a string, as in PHP. A leading @-@ is
+    -- allowed before a number only: @-1@ is the integer @-1@, shaped like the
+    -- braced form's unary minus, while a non-canonical number such as @-0@ or
+    -- @-0x1F@ stays the string key PHP makes of it (Issue #235).
     subscriptKey =
-      varKey <|> wordKey
+      varKey <|> negativeKey <|> wordKey
       where
         varKey = do
           _ <- C.char '$'
           (sp, name) <- spanned rawIdentifier
           pure (ExprVar sp (SimpleVar sp (VarName sp name)))
+        negativeKey = do
+          (minusSp, _) <- spanned (C.char '-')
+          (sp, tok) <- spanned (M.lookAhead (M.satisfy isDigit) *> word)
+          let whole = combineSpans minusSp sp
+          pure $
+            if T.all isDigit tok && T.head tok /= '0'
+              then ExprUnary whole OpUnaryMinus (ExprLit sp (LitInt sp (read (T.unpack tok)) tok))
+              else ExprLit whole (LitString whole ("-" <> tok) ("-" <> tok))
         wordKey = do
           (sp, tok) <- spanned word
           pure $

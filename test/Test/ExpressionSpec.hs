@@ -1316,6 +1316,35 @@ expressionTests = testGroup "Expression Specifications"
                 _ -> assertFailure ("Unexpected string parts: " ++ show parts)
             other -> assertFailure ("Expected LitInterpolated, got: " ++ show other)
 
+      , testCase "simple syntax subscript accepts a negative integer key (Issue #235)" $ do
+          simple <- case parseExpression "test.php" "\"$a[-1]\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrExpr e@(ExprArrayAccess _ _ (Just key))])) -> do
+              case key of
+                ExprUnary _ OpUnaryMinus (ExprLit _ (LitInt _ 1 "1")) -> pure ()
+                _ -> assertFailure ("Expected key -1, got: " ++ show key)
+              pure e
+            other -> assertFailure ("Expected one array access part, got: " ++ show other)
+          braced <- case parseExpression "test.php" "\"{$a[-1]}\"" of
+            Right (ExprLit _ (LitInterpolated _ [StrExpr e])) -> pure e
+            other -> assertFailure ("Expected braced array access, got: " ++ show other)
+          assertEqual "same AST as the braced form" (stripAnnotations braced) (stripAnnotations simple)
+
+      , testCase "simple syntax subscript -0 is the string key \"-0\", as in PHP (Issue #235)" $
+          case parseExpression "test.php" "\"$a[-0]\"" of
+            Right (ExprLit _ (LitInterpolated _ [StrExpr (ExprArrayAccess _ _ (Just (ExprLit _ (LitString _ "-0" _))))])) -> pure ()
+            other -> assertFailure ("Expected string key \"-0\", got: " ++ show other)
+
+      , testCase "simple syntax subscript rejects a sign not followed by a number (Issue #235)" $
+          forM_ [ "\"$a[+1]\"" :: Text
+                , "\"$a[-x]\""
+                , "\"$a[-$i]\""
+                , "\"$a[-]\""
+                ] $ \src ->
+            case parseExpression "test.php" src of
+              Left _ -> pure ()
+              Right e -> assertFailure ("Expected " ++ show src ++ " to be rejected, got: " ++ show e)
+
       , testCase "complex curly syntax parses the full expression" $ do
           case parseExpression "test.php" "\"a{$arr['k']}b{$obj->b->c}c{ $name }d{notvar}e\"" of
             Left err -> assertFailure (show (formatParseError err))
@@ -1360,6 +1389,7 @@ expressionTests = testGroup "Expression Specifications"
           forM_ [ "\"hello $name\"" :: Text
                 , "\"$obj->a and $arr[0]\""
                 , "\"a{$arr['k']}b\""
+                , "\"$a[-1] and $a[-0] and $a[-0x1F]\""
                 ] $ \src -> do
             expr <- case parseExpression "test.php" src of
               Left err -> assertFailure (show (formatParseError err))
