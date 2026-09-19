@@ -547,7 +547,8 @@ data DeclareDirective a = DeclareDirective
   , declareDirectiveValue :: !(Literal a)
   } deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
--- | Top-level PHP program.
+-- | Top-level PHP program. Nothing precedes a program, so the trivia in its
+-- annotation is the trailing trivia after the last statement.
 data Program a = Program !a ![Stmt a]
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 

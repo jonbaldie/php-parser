@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Keep comments that follow the last statement of a file, which were dropped because trivia only attaches to a following node. A `Program`'s annotation trivia now holds this trailing trivia, and `prettyPrint` re-emits it after the last statement, so `<?php $x = 1; // note` and `<?php /* only a comment */` round-trip (#238).
+
 * Accept the `**=`, `<<=` and `>>=` compound assignments, which the `**`, `<<` and `>>` operator parsers were swallowing before the assignment could see the `=` (#237).
 
 * Fix the pretty-printer re-emitting decoded heredoc bodies, which turned `\t` into a literal tab and `\$notvar` into a live interpolation. `LitHeredoc` now carries a fifth field, the raw body text with escapes intact (as `LitString` does), and the printer emits it (#236).
