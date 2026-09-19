@@ -376,6 +376,32 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Right reparsed -> assertEqual "printed output reparses to the same program" (stripAnnotations ast) (stripAnnotations reparsed)
         other -> assertFailure ("Expected an empty program, got: " ++ show other)
 
+  , testCase "A close tag ends a line comment and keeps the rest of the file (Issue #239)" $ do
+      forM_ ["//", "#"] $ \opener -> do
+        let src = "<?php echo \"x\"; " <> opener <> " c ?>tail<?php echo \"y\";"
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right ast@(Program _ [StmtEcho _ _, StmtInlineHtml _ html, StmtEcho _ _]) -> do
+            assertEqual "inline HTML after the close tag" "tail" html
+            case parseProgram "test.php" (prettyPrint ast) of
+              Left err -> assertFailure (show (formatParseError err))
+              Right reparsed -> assertEqual "printed output reparses to the same program" (stripAnnotations ast) (stripAnnotations reparsed)
+          other -> assertFailure ("Expected echo, inline HTML, echo for " ++ T.unpack opener ++ ", got: " ++ show other)
+
+  , testCase "A close tag ends a line comment on a statement without a semicolon (Issue #239)" $ do
+      let src = "<?php echo \"x\" // c ?>tail"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtEcho _ _, StmtInlineHtml _ "tail"]) -> pure ()
+        other -> assertFailure ("Expected echo then inline HTML, got: " ++ show other)
+
+  , testCase "A question mark not followed by > stays in a line comment (Issue #239)" $ do
+      let src = "<?php // why? because\necho 1;"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtEcho ann _]) -> assertEqual "comment text" [CommentLine " why? because"] (annTrivia ann)
+        other -> assertFailure ("Expected one echo, got: " ++ show other)
+
   , testCase "Parse errors report precise source spans" $ do
       let src = "<?php class Invalid { public string ; }"
       case parseProgram "test.php" src of

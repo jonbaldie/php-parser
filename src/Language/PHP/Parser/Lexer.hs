@@ -146,15 +146,25 @@ scNoNewline = L.space
 lineComment :: Parser ()
 lineComment = do
   _ <- C.string "//"
-  txt <- M.takeWhileP (Just "comment text") (/= '\n')
+  txt <- lineCommentText
   addTrivia (CommentLine txt)
 
 hashComment :: Parser ()
 hashComment = M.try $ do
   _ <- C.char '#'
   _ <- M.notFollowedBy (C.char '[')
-  txt <- M.takeWhileP (Just "comment text") (/= '\n')
+  txt <- lineCommentText
   addTrivia (CommentLine txt)
+
+-- | The text of a line comment. As in PHP, it ends at a newline or before a
+-- close tag, so the @?>@ is left to end the PHP block.
+lineCommentText :: Parser T.Text
+lineCommentText = do
+  chunk <- M.takeWhileP (Just "comment text") (\c -> c /= '\n' && c /= '?')
+  lone <- optional (M.try (C.char '?' <* M.notFollowedBy (C.char '>')))
+  case lone of
+    Nothing -> pure chunk
+    Just q -> ((chunk <> T.singleton q) <>) <$> lineCommentText
 
 blockOrDocComment :: Parser ()
 blockOrDocComment = do

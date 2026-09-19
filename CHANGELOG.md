@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* End a `//` or `#` line comment at a `?>` close tag, as PHP does, instead of swallowing the tag and the rest of the line. `<?php echo "x"; // c ?>tail<?php echo "y";` used to parse as a single `echo`, silently dropping the inline HTML and the following PHP block; it now keeps both (#239).
+
 * Parse an interpolating heredoc body like a double-quoted string, so `allVariables`, `allExprs`, `queryExpr` and `transformExpr` reach the variables and expressions embedded in it; renaming a variable no longer leaves its heredoc occurrences behind. A heredoc that embeds expressions is now the new `LitHeredocInterpolated` constructor, holding its label and `StringPart`s; one that embeds none stays a `LitHeredoc`, and a nowdoc stays literal. Heredoc text also no longer treats `\"` as an escape (PHP keeps the backslash), and a blank line just before the closing label is kept (#234).
 
 * Accept a negative number as a simple-interpolation subscript, as in `"$a[-1]"`, which PHP allows but the key parser rejected. `-1` parses to the same unary-minus key as the braced form `"{$a[-1]}"`; a non-canonical number such as `-0` or `-0x1F` is the string key PHP makes of it. `+1`, `-x` and `-$i` stay rejected (#235).
