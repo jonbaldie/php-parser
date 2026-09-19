@@ -44,8 +44,8 @@ mapAnnotation = fmap
 -- alpha-renaming of formal parameters is intentionally beyond the scope of
 -- this syntax-directed fold.
 --
--- Subexpressions embedded within interpolated strings ('LitInterpolated') are
--- recursively rewritten.
+-- Subexpressions embedded within interpolated strings and heredocs
+-- ('LitInterpolated', 'LitHeredocInterpolated') are recursively rewritten.
 transformExpr :: (Expr a -> Expr a) -> Expr a -> Expr a
 transformExpr f = f . \case
   ExprVar a v -> case v of
@@ -54,6 +54,8 @@ transformExpr f = f . \case
   ExprLit a l -> case l of
     LitInterpolated la parts ->
       ExprLit a (LitInterpolated la (map (transformStringPart f) parts))
+    LitHeredocInterpolated la tag parts ->
+      ExprLit a (LitHeredocInterpolated la tag (map (transformStringPart f) parts))
     _ -> ExprLit a l
   ExprBinary a op e1 e2 -> ExprBinary a op (transformExpr f e1) (transformExpr f e2)
   ExprUnary a op e -> ExprUnary a op (transformExpr f e)
@@ -393,6 +395,7 @@ queryExprWith qExpr qStmt expr = qExpr expr <> case expr of
     SimpleVar {} -> mempty
   ExprLit _ l -> case l of
     LitInterpolated _ parts -> foldMap (queryStringPartWith qExpr qStmt) parts
+    LitHeredocInterpolated _ _ parts -> foldMap (queryStringPartWith qExpr qStmt) parts
     _ -> mempty
   ExprBinary _ _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
   ExprUnary _ _ e -> queryExprWith qExpr qStmt e
@@ -656,6 +659,7 @@ exprChildren recE recS expr = case expr of
     SimpleVar {} -> mempty
   ExprLit _ l -> case l of
     LitInterpolated _ parts -> foldMap (queryStringPartChildren recE) parts
+    LitHeredocInterpolated _ _ parts -> foldMap (queryStringPartChildren recE) parts
     _ -> mempty
   ExprBinary _ _ e1 e2 -> recE e1 <> recE e2
   ExprUnary _ _ e -> recE e
@@ -842,8 +846,8 @@ stmtChildren recE recS = \case
 -- references to enclosing scope variables, allowing queries such as 'allVariables'
 -- to surface both closure capture bindings and body occurrences.
 --
--- Subexpressions embedded within interpolated strings ('LitInterpolated') are
--- recursively queried.
+-- Subexpressions embedded within interpolated strings and heredocs
+-- ('LitInterpolated', 'LitHeredocInterpolated') are recursively queried.
 --
 -- Unlike a naive structural traversal, this query short-circuits: once @q@
 -- matches a non-'mempty' result at a node, its subtree is not visited again.

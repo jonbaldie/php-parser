@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Parse an interpolating heredoc body like a double-quoted string, so `allVariables`, `allExprs`, `queryExpr` and `transformExpr` reach the variables and expressions embedded in it; renaming a variable no longer leaves its heredoc occurrences behind. A heredoc that embeds expressions is now the new `LitHeredocInterpolated` constructor, holding its label and `StringPart`s; one that embeds none stays a `LitHeredoc`, and a nowdoc stays literal. Heredoc text also no longer treats `\"` as an escape (PHP keeps the backslash), and a blank line just before the closing label is kept (#234).
+
 * Accept a negative number as a simple-interpolation subscript, as in `"$a[-1]"`, which PHP allows but the key parser rejected. `-1` parses to the same unary-minus key as the braced form `"{$a[-1]}"`; a non-canonical number such as `-0` or `-0x1F` is the string key PHP makes of it. `+1`, `-x` and `-$i` stay rejected (#235).
 
 * Keep comments that follow the last statement of a file, which were dropped because trivia only attaches to a following node. A `Program`'s annotation trivia now holds this trailing trivia, and `prettyPrint` re-emits it after the last statement, so `<?php $x = 1; // note` and `<?php /* only a comment */` round-trip (#238).

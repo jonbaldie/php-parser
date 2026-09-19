@@ -412,6 +412,33 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             varsAfter
         Right other -> assertFailure ("Expected one statement, got: " ++ show other)
 
+  , testCase "queryStmt, transformStmt and prettyPrint reach variables inside heredocs (Issue #234)" $ do
+      let src = "<?php $v = 3; echo <<<EOT\nn=$v {$o->p} $a[k]\nEOT;"
+          vars = concatMap (queryStmt allVariables)
+          rename = transformStmt (\case
+            ExprVar a (SimpleVar sv (VarName vn "v")) ->
+              ExprVar a (SimpleVar sv (VarName vn "renamedv"))
+            e -> e)
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program a stmts) -> do
+          assertEqual "Variables inside the heredoc are visible"
+            ["v", "v", "o", "a"]
+            (vars stmts)
+          let printed = prettyPrint (Program a (map rename stmts))
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure (show (formatParseError err) ++ "\n" ++ show printed)
+            Right (Program _ reparsed) ->
+              assertEqual "Every occurrence is renamed and survives printing"
+                ["renamedv", "renamedv", "o", "a"]
+                (vars reparsed)
+
+  , testCase "nowdoc bodies stay opaque to traversals (Issue #234)" $ do
+      case parseProgram "test.php" "<?php $v = 3; echo <<<'EOT'\nn=$v {$w}\nEOT;" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ stmts) ->
+          assertEqual "Only the assignment is a variable" ["v"] (concatMap (queryStmt allVariables) stmts)
+
   , testCase "non-interpolated literals remain atomic terminal nodes (Issue #122)" $ do
       let src = "42 + 3.14 + 'plain string' + true + null"
       case parseExpression "test.php" src of

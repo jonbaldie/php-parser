@@ -454,6 +454,7 @@ data Literal a
   | LitString !a !Text !Text     -- ^ Unescaped value + original raw text
   | LitInterpolated !a ![StringPart a]
   | LitHeredoc !a !Text !Text !Bool !Text -- ^ Label, decoded content, isNowdoc, raw body text (escapes intact)
+  | LitHeredocInterpolated !a !Text ![StringPart a] -- ^ Label, body parts of a heredoc that embeds expressions
   | LitBool !a !Bool
   | LitNull !a
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
