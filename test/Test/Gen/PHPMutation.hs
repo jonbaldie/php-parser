@@ -380,14 +380,6 @@ data KnownDivergence = KnownDivergence
 knownDivergences :: [KnownDivergence]
 knownDivergences =
   [ KnownDivergence
-      { divergenceIssue = 235
-      , divergenceName = "a negative literal index inside interpolation is rejected"
-      , divergenceSource = "<?php\n$a = [1];\necho \"$a[-1]\";\n"
-      , divergencePHP = Accepts
-      , divergenceLibrary = Rejects
-      , divergenceDetect = ByVerdict
-      }
-  , KnownDivergence
       { divergenceIssue = 236
       , divergenceName = "escape sequences in a heredoc body are re-emitted decoded"
       , divergenceSource = "<?php\n$d = <<<TEXT\n  a\\tb\n  TEXT;\n"

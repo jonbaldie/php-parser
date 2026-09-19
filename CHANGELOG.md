@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Accept a negative number as a simple-interpolation subscript, as in `"$a[-1]"`, which PHP allows but the key parser rejected. `-1` parses to the same unary-minus key as the braced form `"{$a[-1]}"`; a non-canonical number such as `-0` or `-0x1F` is the string key PHP makes of it. `+1`, `-x` and `-$i` stay rejected (#235).
+
 * Keep comments that follow the last statement of a file, which were dropped because trivia only attaches to a following node. A `Program`'s annotation trivia now holds this trailing trivia, and `prettyPrint` re-emits it after the last statement, so `<?php $x = 1; // note` and `<?php /* only a comment */` round-trip (#238).
 
 * Accept the `**=`, `<<=` and `>>=` compound assignments, which the `**`, `<<` and `>>` operator parsers were swallowing before the assignment could see the `=` (#237).
