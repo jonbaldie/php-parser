@@ -353,6 +353,29 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertEqual "prettyPrint emits one line comment" 1 (T.count "// between" printed)
         other -> assertFailure ("Expected class and function declarations, got: " ++ show other)
 
+  , testCase "Keeps trivia after the last statement on the program and in prettyPrint (Issue #238)" $ do
+      let src = "<?php $x = 1; // final comment\n"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program root [StmtExpr stmtAnn _]) -> do
+          assertEqual "program trailing trivia" [CommentLine " final comment"] (annTrivia root)
+          assertEqual "statement leading trivia" [] (annTrivia stmtAnn)
+          assertEqual "prettyPrint re-emits the comment" "<?php\n\n$x = 1;\n// final comment" (prettyPrint ast)
+        other -> assertFailure ("Expected one expression statement, got: " ++ show other)
+
+  , testCase "Keeps the trivia of a comment-only program (Issue #238)" $ do
+      let src = "<?php /* only a comment */"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast@(Program root []) -> do
+          assertEqual "program trailing trivia" [CommentBlock " only a comment "] (annTrivia root)
+          let printed = prettyPrint ast
+          assertEqual "prettyPrint re-emits the comment" "<?php\n\n/* only a comment */" printed
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed -> assertEqual "printed output reparses to the same program" (stripAnnotations ast) (stripAnnotations reparsed)
+        other -> assertFailure ("Expected an empty program, got: " ++ show other)
+
   , testCase "Parse errors report precise source spans" $ do
       let src = "<?php class Invalid { public string ; }"
       case parseProgram "test.php" src of

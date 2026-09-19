@@ -12,6 +12,7 @@ module Language.PHP.Parser.Lexer
   , sc
   , scNoNewline
   , takeTrivia
+  , recordTrivia
   , lexeme
   , symbol
   , parens
@@ -109,7 +110,7 @@ withSpan p = do
       M.parseError err
     Right (f, end) -> do
       let span' = mkSpan start end
-      modify' (\st -> st { triviaBySpan = Map.insert span' leading (triviaBySpan st) })
+      recordTrivia span' leading
       pure (f span')
 
 -- | Take all accumulated trivia and reset the trivia buffer.
@@ -118,6 +119,10 @@ takeTrivia = do
   triv <- currentTrivia <$> get
   modify' (\s -> s { currentTrivia = [] })
   pure triv
+
+-- | Attach trivia to the node with the given span.
+recordTrivia :: Span -> [Trivia] -> Parser ()
+recordTrivia sp triv = modify' (\st -> st { triviaBySpan = Map.insert sp triv (triviaBySpan st) })
 
 -- | Record trivia into state.
 addTrivia :: Trivia -> Parser ()

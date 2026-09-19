@@ -30,10 +30,13 @@ parseExpr :: Parser (Expr Span)
 parseExpr = parseExprWithContextAndBody parseMixedBody (\ro -> parseClassMemberInContext (AnonClassContext ro))
 
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
+-- Nothing precedes a program, so its trivia is whatever follows the last
+-- statement: comments with no later node to lead.
 parseProgram :: Parser (Program Span)
-parseProgram = withSpan $ do
-  stmts <- parseProgramBody
-  pure (\sp -> Program sp stmts)
+parseProgram = do
+  (sp, stmts) <- spanned parseProgramBody
+  takeTrivia >>= recordTrivia sp
+  pure (Program sp stmts)
 
 parseProgramBody :: Parser [Stmt Span]
 parseProgramBody = do

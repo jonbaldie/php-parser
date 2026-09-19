@@ -68,11 +68,14 @@ prettyPrintType typ = renderStrict (layoutPretty defaultLayoutOptions (prettyTyp
 
 -- | Wadler-Leijen Pretty Document for Program.
 prettyProgram :: HasLeadingTrivia a => Program a -> Doc ann
-prettyProgram (Program annotation stmts) = prettyLeadingTrivia annotation $ case stmts of
-  StmtInlineHtml _ txt : rest ->
-    pretty txt <> if null rest then mempty else "<?php" <> line <> line <> vsep (map prettyStmt rest)
-  _ ->
-    "<?php" <> line <> line <> vsep (map prettyStmt stmts)
+prettyProgram (Program annotation stmts) = case stmts of
+  [StmtInlineHtml _ txt] | null trailing -> pretty txt
+  StmtInlineHtml _ txt : rest -> pretty txt <> php rest
+  _ -> php stmts
+  where
+    -- A program's trivia trails its last statement (see 'Program').
+    trailing = leadingTrivia annotation
+    php body = "<?php" <> line <> line <> vsep (map prettyStmt body ++ map prettyTrivia trailing)
 
 -- | Pretty Document for Statements.
 prettyStmt :: HasLeadingTrivia a => Stmt a -> Doc ann
