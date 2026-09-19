@@ -548,6 +548,33 @@ expressionTests = testGroup "Expression Specifications"
       check "heredoc via parseProgram" =<<
         timeout 2000000 (evaluate (parseProgram "issue84.php" "<?php $x = <<<TAG\ncontent"))
 
+  , testCase "Heredoc closer indented deeper than a body line is rejected (Issue #240)" $ do
+      -- Since PHP 7.3 the closer's indentation is stripped from every body
+      -- line, so no non-blank body line may be indented less than the closer.
+      let rejects name src line =
+            case parseProgram "issue240.php" src of
+              Left err -> do
+                assertEqual (name ++ ": message") (Just "Invalid body indentation level (expecting an indentation level of at least 2)") (errorCustom err)
+                assertEqual (name ++ ": line") line (posLine (spanStart (errorSpan err)))
+              Right _ -> assertFailure (name ++ ": parsed, but PHP rejects it")
+          accepts name src =
+            case parseProgram "issue240.php" src of
+              Left err -> assertFailure (name ++ ": " ++ T.unpack (formatParseError err))
+              Right _ -> pure ()
+      rejects "heredoc" "<?php echo <<<EOT\nvalue\n  EOT;\n" 2
+      rejects "nowdoc" "<?php echo <<<'EOT'\nvalue\n  EOT;\n" 2
+      rejects "later line" "<?php echo <<<EOT\n  a\n x\n  EOT;\n" 3
+      rejects "line after a closed interpolation" "<?php echo <<<EOT\n  a {$x}\n}\n  EOT;\n" 3
+      rejects "escaped brace does not open an interpolation" "<?php echo <<<EOT\n  a \\{$x\n}\n  EOT;\n" 3
+      accepts "closer less indented than body" "<?php echo <<<EOT\n    value\n  EOT;\n"
+      accepts "same indentation" "<?php echo <<<EOT\n  value\n  EOT;\n"
+      accepts "empty line" "<?php echo <<<EOT\n  a\n\n  EOT;\n"
+      accepts "whitespace-only line" "<?php echo <<<EOT\n  a\n \n  EOT;\n"
+      accepts "CRLF empty line" "<?php echo <<<EOT\r\n  a\r\n\r\n  EOT;\r\n"
+      accepts "line inside {$ interpolation" "<?php echo <<<EOT\n  a {$x\n}\n  EOT;\n"
+      accepts "line inside ${ interpolation" "<?php echo <<<EOT\n  a ${x\n}\n  EOT;\n"
+      accepts "brace in a string inside an interpolation" "<?php echo <<<EOT\n  a {$x[\n\"}\"\n]}\n  EOT;\n"
+
   , testCase "Generators: yield, yield key => val, yield from" $ do
       assertParsesOkExpr "yield"
       assertParsesOkExpr "yield $value"

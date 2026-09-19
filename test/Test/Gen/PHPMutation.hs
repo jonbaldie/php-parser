@@ -257,6 +257,14 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "    case Draft;" "    case Draft = 1;"
       }
+  , -- Since PHP 7.3 the closer's indentation is stripped from every body line.
+    Mutation
+      { mutationName = "heredoc-closer-deeper-than-body"
+      , mutationFeature = "heredoc-and-nowdoc"
+      , mutationPHPRule = "Invalid body indentation level"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "    second line" "  second line"
+      }
   ]
 
 --------------------------------------------------------------------------------
@@ -397,14 +405,6 @@ knownDivergences =
           NotByVerdict
             "both accept the source and both accept the printed form; the printed form \
             \carries a literal tab where the source carried an escape."
-      }
-  , KnownDivergence
-      { divergenceIssue = 240
-      , divergenceName = "a heredoc closer indented deeper than its body is accepted"
-      , divergenceSource = "<?php\n$d = <<<TEXT\nbody\n    TEXT;\n"
-      , divergencePHP = Rejects
-      , divergenceLibrary = Accepts
-      , divergenceDetect = ByVerdict
       }
   , KnownDivergence
       { divergenceIssue = 241
