@@ -837,6 +837,49 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Right other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
 
+  , testGroup "Issue 239: ?> terminates a line comment"
+      [ testCase "// comment ends at ?> and the rest of the file survives" $ do
+          case parseProgram "test.php" "<?php echo \"x\"; // c ?>tail<?php echo \"y\";" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html, StmtEcho _ _]) ->
+              assertEqual "inline HTML between the blocks" "tail" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "# comment ends at ?> and the rest of the file survives" $ do
+          case parseProgram "test.php" "<?php echo \"x\"; # c ?>tail<?php echo \"y\";" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html, StmtEcho _ _]) ->
+              assertEqual "inline HTML between the blocks" "tail" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "a ? not followed by > stays inside the comment" $ do
+          case parseProgram "test.php" "<?php echo 1; // is it? yes ?>tail" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "inline HTML" "tail" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "?> ending a comment also terminates the statement" $ do
+          case parseProgram "test.php" "<?php echo 1 // c ?>tail" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html]) ->
+              assertEqual "inline HTML" "tail" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "the comment text stops before the close tag" $ do
+          case parseProgram "test.php" "<?php echo 1; // c ?>tail" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program (Annotated _ triv) _) ->
+              assertEqual "trivia" [CommentLine " c "] triv
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "a block comment still does not end at ?>" $ do
+          case parseProgram "test.php" "<?php echo \"x\"; /* c ?> */ echo \"y\";" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtEcho _ _]) -> pure ()
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+      ]
+
   , testCase "Reject members invalid in enum, class, and interface contexts (Issue #89)" $ do
       mapM_ assertParsesFail
         [ "<?php enum E { public int $x; }"
