@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.6.0
+## 0.1.7.0
 
 * Reject a heredoc or nowdoc whose body indentation is of a different whitespace character from its closing marker, which PHP refuses with "Invalid indentation - tabs and spaces cannot be mixed" but the lexer accepted: it compared indentation lengths only, so a space-indented body line stripped cleanly under a tab-indented closer. Body indentation must now agree with the closer character for character as far as the two overlap, including on a line that is whitespace to its end, and a closer whose own indentation mixes tabs and spaces is rejected outright, as in PHP (#262).
 
@@ -23,6 +23,8 @@
 * Give concatenation (`.`) its own precedence level, below `<<`/`>>` and above comparison operators, matching PHP 8.0's [concatenation precedence RFC](https://wiki.php.net/rfc/concatenation_precedence); `.` no longer binds at the same level as `+`/`-`, so `"a" . 1 + 2` now parses (and prints) as `"a" . (1 + 2)` instead of `("a" . 1) + 2` (#232).
 
 * Reject abstract private methods in class declarations, matching PHP's "Abstract function <class>::<method>() cannot be declared private" compile-time fatal error (#208).
+
+## 0.1.6.0
 
 * Fix `queryStmt`/`queryExpr` double- and triple-counting matches from fully recursive queries (like `allVariables`) composed into a larger traversal, by short-circuiting once a node's query result is non-empty; `allExprs` and `foldExpr`/`foldStmt` are unaffected and continue to visit every node exactly once (#215).
 
