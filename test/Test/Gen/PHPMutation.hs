@@ -267,6 +267,17 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "\n    TEXT;" "\n      TEXT;"
       }
+  , -- A heredoc body line indented with the other whitespace character
+    -- (Issue #262). The closer is space-indented, so retyping one body line's
+    -- indentation as a tab leaves it the same depth in columns and still
+    -- wrong: PHP compares the characters, not the width.
+    Mutation
+      { mutationName = "mixed-indentation-heredoc-body"
+      , mutationFeature = "heredoc-and-nowdoc"
+      , mutationPHPRule = "Invalid indentation - tabs and spaces cannot be mixed"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "\n    second line" "\n\tsecond line"
+      }
   ]
 
 --------------------------------------------------------------------------------
