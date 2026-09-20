@@ -146,15 +146,34 @@ scNoNewline = L.space
 lineComment :: Parser ()
 lineComment = do
   _ <- C.string "//"
-  txt <- M.takeWhileP (Just "comment text") (/= '\n')
+  txt <- lineCommentText
   addTrivia (CommentLine txt)
 
 hashComment :: Parser ()
 hashComment = M.try $ do
   _ <- C.char '#'
   _ <- M.notFollowedBy (C.char '[')
-  txt <- M.takeWhileP (Just "comment text") (/= '\n')
+  txt <- lineCommentText
   addTrivia (CommentLine txt)
+
+-- | The body of a @//@ or @#@ comment. PHP ends a line comment at a newline
+-- /or/ at a close tag, whichever comes first: in @// c ?>tail@ the comment is
+-- @ c @ and the @?>@ still closes the PHP block. The close tag is left
+-- unconsumed for the statement parser. Block comments keep the older
+-- behaviour: they only end at @*/@.
+lineCommentText :: Parser Text
+lineCommentText = go
+  where
+    go = do
+      chunk <- M.takeWhileP (Just "comment text") (\c -> c /= '\n' && c /= '?')
+      atCloseTag <- (True <$ M.lookAhead (C.string "?>")) <|> pure False
+      if atCloseTag
+        then pure chunk
+        else do
+          mQuestion <- optional (C.char '?')
+          case mQuestion of
+            Nothing -> pure chunk
+            Just _ -> ((chunk <> "?") <>) <$> go
 
 blockOrDocComment :: Parser ()
 blockOrDocComment = do

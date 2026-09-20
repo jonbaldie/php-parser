@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* End a `//` or `#` comment at a `?>` close tag, as PHP does. `<?php echo "x"; // c ?>tail<?php echo "y";` swallowed the close tag, the inline HTML and every later PHP block into the comment text, so `parseProgram` returned a silently truncated `Program` and `prettyPrint` wrote the truncation back. The close tag is now left for the statement parser, which resumes in HTML mode. A block comment still only ends at `*/`, and a `?` not followed by `>` stays inside the comment (#239).
+
 * Reject a leading-zero integer literal containing an `8` or `9`, such as `08`, `09` or `0128`, which PHP refuses as an invalid numeric literal but the lexer decoded as decimal. Leading-zero floats such as `08.5` and `09e1` are still accepted, as in PHP (#241).
 
 * Parse an interpolating heredoc body like a double-quoted string, so `allVariables`, `allExprs`, `queryExpr` and `transformExpr` reach the variables and expressions embedded in it; renaming a variable no longer leaves its heredoc occurrences behind. A heredoc that embeds expressions is now the new `LitHeredocInterpolated` constructor, holding its label and `StringPart`s; one that embeds none stays a `LitHeredoc`, and a nowdoc stays literal. Heredoc text also no longer treats `\"` as an escape (PHP keeps the backslash), and a blank line just before the closing label is kept (#234).
