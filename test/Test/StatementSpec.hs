@@ -871,7 +871,6 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Left err -> assertFailure (show (formatParseError err))
             Right (Program (Annotated _ triv) _) ->
               assertEqual "trivia" [CommentLine " c "] triv
-            Right other -> assertFailure ("Unexpected AST: " ++ show other)
 
       , testCase "a block comment still does not end at ?>" $ do
           case parseProgram "test.php" "<?php echo \"x\"; /* c ?> */ echo \"y\";" of
