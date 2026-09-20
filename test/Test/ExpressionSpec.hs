@@ -1818,6 +1818,30 @@ expressionTests = testGroup "Expression Specifications"
               Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
       ]
 
+  , testGroup "Heredoc closer indented deeper than its body (Issue #240)"
+      [ testCase "a body line shallower than the closer is rejected, naming the level" $ do
+          forM_ [ ("<?php echo <<<EOT\nvalue\n  EOT;\n" :: Text, "issue240.php:2:1: error: Invalid body indentation level (expecting an indentation level of at least 2)")
+                , ("<?php echo <<<'EOT'\nvalue\n  EOT;\n", "issue240.php:2:1: error: Invalid body indentation level (expecting an indentation level of at least 2)")
+                , ("<?php $x = 1; echo <<<EOT\nv$x\n  EOT;\n", "issue240.php:2:1: error: Invalid body indentation level (expecting an indentation level of at least 2)")
+                , ("<?php echo <<<EOT\n    a\n  b\n    EOT;\n", "issue240.php:3:1: error: Invalid body indentation level (expecting an indentation level of at least 4)")
+                ] $ \(src, expected) ->
+            case parseProgram "issue240.php" src of
+              Left err -> assertEqual (T.unpack src) expected (formatParseError err)
+              Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+
+      , testCase "a closer no deeper than the body still parses, blank lines exempt" $ do
+          forM_ [ ("<?php echo <<<EOT\n    value\n  EOT;\n" :: Text, "  value")
+                , ("<?php echo <<<EOT\n  value\n  EOT;\n", "value")
+                , ("<?php echo <<<EOT\nvalue\nEOT;\n", "value")
+                , ("<?php echo <<<EOT\n  a\n\n  b\n  EOT;\n", "a\n\nb")
+                , ("<?php echo <<<EOT\n  a\n \n  b\n  EOT;\n", "a\n\nb")
+                ] $ \(src, content) ->
+            case parseProgram "issue240.php" src of
+              Right (Program _ [StmtEcho _ [ExprLit _ (LitHeredoc _ "EOT" c False _)]]) ->
+                assertEqual (T.unpack src) content c
+              other -> assertFailure (T.unpack src ++ ": expected a heredoc, got: " ++ show other)
+      ]
+
   , testGroup "Nullsafe operator with first-class callables rejection (Issue #187)"
       [ testCase "nullsafe method call with first-class callable is rejected" $ do
           forM_ [ "$obj?->method(...)" :: Text

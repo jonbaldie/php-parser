@@ -2,6 +2,8 @@
 
 ## 0.1.6.0
 
+* Reject a heredoc or nowdoc whose closing marker is indented deeper than a body line, which PHP refuses with "Invalid body indentation level" but the lexer accepted, silently leaving the under-indented line's own indentation in the body. The parse error names the required level and points at the offending line; a line that is whitespace to its end is exempt, as in PHP (#240).
+
 * End a `//` or `#` comment at a `?>` close tag, as PHP does. `<?php echo "x"; // c ?>tail<?php echo "y";` swallowed the close tag, the inline HTML and every later PHP block into the comment text, so `parseProgram` returned a silently truncated `Program` and `prettyPrint` wrote the truncation back. The close tag is now left for the statement parser, which resumes in HTML mode. A block comment still only ends at `*/`, and a `?` not followed by `>` stays inside the comment (#239).
 
 * Reject a leading-zero integer literal containing an `8` or `9`, such as `08`, `09` or `0128`, which PHP refuses as an invalid numeric literal but the lexer decoded as decimal. Leading-zero floats such as `08.5` and `09e1` are still accepted, as in PHP (#241).
