@@ -48,6 +48,7 @@ import Control.Monad.State.Strict (State, runState, get, modify', put)
 import Data.Char (digitToInt, isAlpha, isAlphaNum, isDigit, isHexDigit)
 import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -746,16 +747,28 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
     -- leading whitespace, less the closing indentation, is handed to @line@.
     bodyLines :: Text -> Text -> (Text -> Parser l) -> Parser [l]
     bodyLines tag ind line = do
+      lineStart <- M.getOffset
       lead <- lineIndent
       isEnd <- atClosingLabel tag
       if isEnd
         then [] <$ C.string tag
         else do
           failAtEof tag
-          l <- line (stripIndent ind lead)
+          l <- line =<< stripIndent lineStart ind lead
           _ <- optional (C.char '\n')
           (l :) <$> bodyLines tag ind line
 
-    stripIndent ind lead
-      | T.isPrefixOf ind lead = T.drop (T.length ind) lead
-      | otherwise = lead
+    -- The closing label's indentation is removed from every body line, so no
+    -- body line may be indented less than the closer; PHP rejects one that is
+    -- (Issue #240). It counts characters rather than columns, and exempts a
+    -- line that is whitespace to its end.
+    stripIndent :: Int -> Text -> Text -> Parser Text
+    stripIndent lineStart ind lead = do
+      blank <- M.option False (True <$ M.lookAhead (C.char '\n'))
+      if blank || T.length lead >= T.length ind
+        then pure (T.drop (T.length ind) lead)
+        else do
+          M.setOffset lineStart
+          M.fancyFailure . S.singleton . M.ErrorFail $
+            "Invalid body indentation level (expecting an indentation level of at least "
+              <> show (T.length ind) <> ")"

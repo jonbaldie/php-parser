@@ -148,31 +148,33 @@ method declared twice in one class.
 
 ### Constructs excluded from the generator
 
-`Test.Gen.PHPSource` leaves three constructs out of the valid corpus, because
-including them would fail corpus health — which is the premise of every other
-property. They are not merely commented out: `knownDivergences` carries each one
-as data, with the issue it belongs to, a self-contained program, **both sides'
+`Test.Gen.PHPSource` leaves one construct out of the valid corpus, because
+including it would fail corpus health — which is the premise of every other
+property. It is not merely commented out: `knownDivergences` carries it as data,
+with the issue it belongs to, a self-contained program, **both sides'
 decisions**, and whether a lint oracle can see the difference at all.
 
 | Issue | Construct | PHP | Library | Gated by this oracle? |
 | --- | --- | --- | --- | --- |
-| #240 | heredoc closer indented deeper than its body | rejects | accepts | **yes** — false accept |
-| #232 | `.` against `+`/`-` precedence | accepts | accepts | no |
 | #236 | escape sequences in a heredoc body | accepts | accepts | no |
 
 Every decision in that table was measured against a real interpreter and the
 library, not assumed. The `php-oracle` CI job re-measures the PHP column against
 all four interpreters on every run, so a row is a claim about PHP 8.2-8.5, not
 about whichever binary happened to be on one machine.
-The last two rows are cases where **both sides accept** and only the meaning
-differs. No exit status can distinguish them, so their entries are records
-rather than gates, and their test names say `[recorded only: no exit status can
-see this]`. Catching them needs an execution oracle, which is #245.
+That row is a case where **both sides accept** and only the meaning differs. No
+exit status can distinguish them, so its entry is a record rather than a gate,
+and its test name says `[recorded only: no exit status can see this]`. Catching
+it needs an execution oracle, which is #245.
 
 Both halves of every entry are checked. The library's half needs no interpreter
 and always runs; the interpreter's half skips visibly when none is present. When
 one of these bugs is fixed, the entry fails, which forces the table and the
 generator's exclusion to be updated in the same change as the fix.
+
+A divergence that is fixed leaves the table but does not leave the suite: the
+over-indented heredoc closer of #240 now lives in the catalogue mutations above,
+as `over-indented-heredoc-closer`, so PHP's rejection of it stays gated.
 
 ## The contract boundary
 

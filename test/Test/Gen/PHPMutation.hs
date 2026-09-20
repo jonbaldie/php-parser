@@ -257,6 +257,16 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "    case Draft;" "    case Draft = 1;"
       }
+  , -- A heredoc closer indented deeper than its body (Issue #240). The valid
+    -- snippet closes at the body's own indentation; pushing the closer two
+    -- columns further right leaves every body line short of it.
+    Mutation
+      { mutationName = "over-indented-heredoc-closer"
+      , mutationFeature = "heredoc-and-nowdoc"
+      , mutationPHPRule = "Invalid body indentation level"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "\n    TEXT;" "\n      TEXT;"
+      }
   ]
 
 --------------------------------------------------------------------------------
@@ -341,9 +351,9 @@ data Decision
 -- | Whether a lint oracle can see this divergence at all.
 --
 -- The distinction matters because a table that does not record it overclaims:
--- three of the seven known divergences are cases where PHP and the library both
--- /accept/ the program and only its meaning differs, which is structurally
--- invisible to a tool whose entire output is an exit status.
+-- some known divergences are cases where PHP and the library both /accept/ the
+-- program and only its meaning differs, which is structurally invisible to a
+-- tool whose entire output is an exit status.
 data Detectability
   = -- | PHP and the library return different decisions, so the oracle gates it.
     ByVerdict
@@ -389,13 +399,5 @@ knownDivergences =
           NotByVerdict
             "both accept the source and both accept the printed form; the printed form \
             \carries a literal tab where the source carried an escape."
-      }
-  , KnownDivergence
-      { divergenceIssue = 240
-      , divergenceName = "a heredoc closer indented deeper than its body is accepted"
-      , divergenceSource = "<?php\n$d = <<<TEXT\nbody\n    TEXT;\n"
-      , divergencePHP = Rejects
-      , divergenceLibrary = Accepts
-      , divergenceDetect = ByVerdict
       }
   ]

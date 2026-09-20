@@ -247,11 +247,10 @@ allFeatures =
         [ "$nums" <> n <> " = [0x1F, 0b1010, 0o17, 017, 1_000_000, 1.5e3, 0.5, 7];"
         , "$big" <> n <> " = 9_223_372_036_854_775_807;"
         ]
-  , -- Bodies carry no escape sequences and the closer is indented no deeper
-    -- than the body: escapes are re-emitted undecoded
-    -- (<https://github.com/jonbaldie/php-parser/issues/236 #236>) and an
-    -- over-indented closer is wrongly accepted
-    -- (<https://github.com/jonbaldie/php-parser/issues/240 #240>).
+  , -- Bodies carry no escape sequences: they are re-emitted undecoded
+    -- (<https://github.com/jonbaldie/php-parser/issues/236 #236>). The closer
+    -- sits at the body's own indentation, which the
+    -- @over-indented-heredoc-closer@ mutation perturbs.
     Feature "heredoc-and-nowdoc" PHP82 $ \i -> do
       let n = sfx i
       pure $ ls
