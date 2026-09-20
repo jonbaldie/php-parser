@@ -1842,6 +1842,43 @@ expressionTests = testGroup "Expression Specifications"
               other -> assertFailure (T.unpack src ++ ": expected a heredoc, got: " ++ show other)
       ]
 
+  , testGroup "Heredoc body indentation of a different kind from the closer (Issue #262)"
+      [ testCase "a body line indented with the other whitespace character is rejected" $ do
+          forM_ [ ("<?php echo <<<EOT\n  value\n\tEOT;\n" :: Text, "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n\tvalue\n  EOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<'EOT'\n  value\n\tEOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php $x = 1; echo <<<EOT\n  v$x\n\tEOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n\ta\n  b\n\tEOT;\n", "issue262.php:3:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n\tx\n    EOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n  a\n\t\n  b\n  EOT;\n", "issue262.php:3:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                ] $ \(src, expected) ->
+            case parseProgram "issue262.php" src of
+              Left err -> assertEqual (T.unpack src) expected (formatParseError err)
+              Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+
+      , testCase "a closer whose own indentation mixes both characters is rejected" $ do
+          forM_ [ ("<?php echo <<<EOT\n \tvalue\n \tEOT;\n" :: Text, "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n\t value\n\t EOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n \tEOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                , ("<?php echo <<<EOT\n\n \tEOT;\n", "issue262.php:2:1: error: Invalid indentation - tabs and spaces cannot be mixed")
+                ] $ \(src, expected) ->
+            case parseProgram "issue262.php" src of
+              Left err -> assertEqual (T.unpack src) expected (formatParseError err)
+              Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+
+      , testCase "indentation agreeing with the closer still parses, past the stripped prefix too" $ do
+          forM_ [ ("<?php echo <<<EOT\n\tvalue\n\tEOT;\n" :: Text, "value")
+                , ("<?php echo <<<EOT\n\t value\n\tEOT;\n", " value")
+                , ("<?php echo <<<EOT\n   \tx\n  EOT;\n", " \tx")
+                , ("<?php echo <<<EOT\n \tx\nEOT;\n", " \tx")
+                , ("<?php echo <<<EOT\n\t\ta\n\t\n\t\tb\n\tEOT;\n", "\ta\n\n\tb")
+                ] $ \(src, content) ->
+            case parseProgram "issue262.php" src of
+              Right (Program _ [StmtEcho _ [ExprLit _ (LitHeredoc _ "EOT" c False _)]]) ->
+                assertEqual (T.unpack src) content c
+              other -> assertFailure (T.unpack src ++ ": expected a heredoc, got: " ++ show other)
+      ]
+
   , testGroup "Nullsafe operator with first-class callables rejection (Issue #187)"
       [ testCase "nullsafe method call with first-class callable is rejected" $ do
           forM_ [ "$obj?->method(...)" :: Text

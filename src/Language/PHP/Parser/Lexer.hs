@@ -688,6 +688,11 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
 
   -- Every body line loses the closing label's indentation, so find it first.
   indent <- M.lookAhead (closingIndent tag)
+  -- PHP indents with one whitespace character repeated, and holds every body
+  -- line to whichever one the closer chose (Issue #262). A closer that mixes
+  -- the two answers to nothing, so it fails before any body line is read --
+  -- at the first body line, which is where PHP reports it.
+  when (T.any (== ' ') indent && T.any (== '\t') indent) mixedIndentation
   if isNowdoc
     then do
       content <- T.intercalate "\n" <$> bodyLines tag indent (\lead -> (lead <>) <$> M.takeWhileP Nothing (/= '\n'))
@@ -758,12 +763,25 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
           _ <- optional (C.char '\n')
           (l :) <$> bodyLines tag ind line
 
+    -- PHP's wording for indentation that disagrees with the closer's. The
+    -- offset must already be at the line PHP would name.
+    mixedIndentation :: Parser a
+    mixedIndentation =
+      M.fancyFailure . S.singleton . M.ErrorFail $
+        "Invalid indentation - tabs and spaces cannot be mixed"
+
     -- The closing label's indentation is removed from every body line, so no
     -- body line may be indented less than the closer; PHP rejects one that is
     -- (Issue #240). It counts characters rather than columns, and exempts a
-    -- line that is whitespace to its end.
+    -- line that is whitespace to its end. Wherever the two indentations do
+    -- overlap they must agree character for character (Issue #262), which an
+    -- exempt line is held to as well: PHP rejects a tab under a space-indented
+    -- closer even on a line that is otherwise blank.
     stripIndent :: Int -> Text -> Text -> Parser Text
     stripIndent lineStart ind lead = do
+      let shared = min (T.length ind) (T.length lead)
+      when (T.take shared lead /= T.take shared ind) $
+        M.setOffset lineStart *> mixedIndentation
       blank <- M.option False (True <$ M.lookAhead (C.char '\n'))
       if blank || T.length lead >= T.length ind
         then pure (T.drop (T.length ind) lead)
