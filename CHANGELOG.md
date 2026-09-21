@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Reject an unparenthesized ternary nested in the condition of another, which PHP 8 refuses with ``Unparenthesized `a ? b : c ? d : e` is not supported`` but the library accepted by silently re-reading the chain as right-nested: `<?php $x = 1 ? 1 : 0 ? 1 : 0;` parsed as `1 ? 1 : (0 ? 1 : 0)`. Mixed chains such as `a ? b : c ?: d` and `a ?: b ? c : d` are rejected too. Pure `?:` chains, a ternary nested in the middle branch, and either parenthesized form remain accepted, as does a ternary reached through an assignment, arrow function or `print` in the false branch (#280).
+
 * Reject duplicate `get` or `set` property hooks within one declaration, matching PHP's `Cannot redeclare property hook` compile-time fatal. A declaration may still contain one hook of each kind, and separate properties keep independent hooks (#278).
 
 * Reject a property declared without any modifier, which PHP refuses with `syntax error, unexpected variable "$x", expecting "function"` but the library accepted: `<?php class C { $x = 1; }` and `<?php trait T { $x = 1; }` parsed as properties because the property modifier loop allowed an empty modifier list. A property now needs at least one of `var`, a visibility, asymmetric set visibility, `static`, `readonly`, `final` or `abstract`, so a modifierless typed or hooked property such as `int $x;` is rejected as well, in class, trait, anonymous-class and interface bodies alike (#277).

@@ -222,6 +222,15 @@ allMutations =
                 ]
             )
       }
+  , -- PHP 8 removed left-associative ternary chaining: a ternary may not be the
+    -- unparenthesized condition of another, unless both are short `?:`.
+    Mutation
+      { mutationName = "unparenthesized-nested-ternary"
+      , mutationFeature = "ternary-coalesce-spaceship"
+      , mutationPHPRule = "Unparenthesized `a ? b : c ? d : e` is not supported"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst " ? 'dev' : 'prod';" " ? 'dev' : 'prod' ? 'a' : 'b';"
+      }
   , -- A property declaration may contain one get hook and one set hook, but
     -- PHP rejects a second hook of either kind within the same declaration.
     Mutation
