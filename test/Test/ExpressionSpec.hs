@@ -1277,6 +1277,7 @@ expressionTests = testGroup "Expression Specifications"
           let quoted body = "\"" <> body <> "\""
               cases =
                 [ (quoted "\\q", "\\q")
+                , (quoted "\\u", "\\u")
                 , (quoted "\\101", "A")
                 , (quoted "\\10", T.singleton (toEnum 8))
                 , (quoted "\\0", T.singleton (toEnum 0))
@@ -1324,6 +1325,50 @@ expressionTests = testGroup "Expression Specifications"
             Right (ExprLit _ (LitHeredoc _ "EOF" content True _)) ->
               assertEqual "nowdoc content" body content
             other -> assertFailure ("Expected nowdoc, got " ++ show other)
+      ]
+
+  , testGroup "Braced Unicode string escapes (Issue #281)"
+      [ testCase "rejects invalid braced Unicode escapes" $ do
+          let cases =
+                [ "\"\\u{}\""
+                , "\"\\u{g}\""
+                , "\"\\u{1g}\""
+                , "\"\\u{1234567}\""
+                , "\"\\u{110000}\""
+                , "\"\\u{1\""
+                ] :: [Text]
+          forM_ cases $ \src ->
+            case parseExpression "issue281.php" src of
+              Left _ -> pure ()
+              Right _ -> assertFailure ("Expected parse failure for: " ++ T.unpack src)
+
+      , testCase "accepts valid braced Unicode escapes, including surrogates" $ do
+          let cases =
+                [ ("\"\\u{0}\"", T.singleton (toEnum 0))
+                , ("\"\\u{000001}\"", T.singleton (toEnum 1))
+                , ("\"\\u{2603}\"", T.singleton (toEnum 0x2603))
+                , ("\"\\u{D800}\"", T.singleton (toEnum 0xD800))
+                , ("\"\\u{10FFFF}\"", T.singleton (toEnum 0x10FFFF))
+                ] :: [(Text, Text)]
+          forM_ cases $ \(src, expected) ->
+            case parseExpression "issue281.php" src of
+              Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+              Right (ExprLit _ (LitString _ actual _)) ->
+                assertEqual ("decoded value for " ++ T.unpack src) expected actual
+              Right other -> assertFailure (T.unpack src ++ ": expected LitString, got: " ++ show other)
+
+      , testCase "decodes valid braced Unicode escapes in interpolation and heredocs" $ do
+          case parseExpression "issue281.php" "\"prefix \\u{2603} $name\"" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitInterpolated _ [StrLit literal, StrExpr _])) ->
+              assertEqual "interpolated literal" ("prefix " <> T.singleton (toEnum 0x2603) <> " ") literal
+            Right other -> assertFailure ("Expected interpolated string, got: " ++ show other)
+          let heredoc = "<<<EOF\n\\u{2603} $name\nEOF"
+          case parseExpression "issue281.php" heredoc of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprLit _ (LitHeredocInterpolated _ "EOF" [StrLit literal, StrExpr _])) ->
+              assertEqual "heredoc literal" (T.singleton (toEnum 0x2603) <> " ") literal
+            Right other -> assertFailure ("Expected interpolated heredoc, got: " ++ show other)
       ]
 
   , testGroup "Double-quoted string interpolation (Issue #51)"
