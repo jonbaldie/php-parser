@@ -5,6 +5,9 @@ module Language.PHP.Parser.Lexer
   , LexerState (..)
   , initialLexerState
   , runPHPParser
+  , withStatement
+  , markScriptStatement
+  , atScriptStart
   , spanned
   , withSpan
   , toSourcePos
@@ -62,10 +65,13 @@ import Language.PHP.Span (Span, SourcePos (..), combineSpans, mkSpan)
 data LexerState = LexerState
   { currentTrivia :: ![Trivia]
   , triviaBySpan  :: !(Map.Map Span [Trivia])
+  , scriptStatementSeen :: !Bool
+  , statementDepth :: !Int
+  , currentStatementIsFirst :: !Bool
   } deriving (Eq, Show)
 
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty
+initialLexerState = LexerState [] Map.empty False 0 False
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -76,6 +82,42 @@ runPHPParser p file input =
   in case res of
     Left err -> Left err
     Right (_, val) -> Right (val, triviaBySpan st)
+
+-- | Run a statement parser with the script-position context it had when the
+-- statement began.  Nested statements never count as the script's first
+-- statement, even when they occur while parsing the first top-level one.
+withStatement :: Parser a -> Parser a
+withStatement p = do
+  original <- get
+  let topLevel = statementDepth original == 0
+      firstStatement = topLevel && not (scriptStatementSeen original)
+  modify' $ \st -> st
+    { statementDepth = statementDepth st + 1
+    , currentStatementIsFirst = firstStatement
+    }
+  result <- M.observing p
+  case result of
+    Left err -> do
+      put original
+      M.parseError err
+    Right value -> do
+      after <- get
+      put after
+        { statementDepth = statementDepth original
+        , currentStatementIsFirst = currentStatementIsFirst original
+        , scriptStatementSeen = scriptStatementSeen original || topLevel
+        }
+      pure value
+
+-- | Mark content that precedes a later declaration in the script.  Inline
+-- HTML, short-echo tags, and close tags all make a following strict_types
+-- declaration too late, even when they do not produce an AST statement.
+markScriptStatement :: Parser ()
+markScriptStatement = modify' (\st -> st { scriptStatementSeen = True })
+
+-- | Whether the statement currently being parsed is the script's first one.
+atScriptStart :: Parser Bool
+atScriptStart = currentStatementIsFirst <$> get
 
 toSourcePos :: M.SourcePos -> Int -> Language.PHP.Span.SourcePos
 toSourcePos sp offset = Language.PHP.Span.SourcePos

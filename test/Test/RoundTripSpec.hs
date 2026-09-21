@@ -559,7 +559,10 @@ genStmtSized n
       , pure (StmtGoto () (Ident () "label1"))
       , pure (StmtLabel () (Ident () "label1"))
       , pure (StmtUnset () [ExprVar () (SimpleVar () (VarName () "x"))])
-      , pure (StmtDeclare () [DeclareDirective () (Ident () "strict_types") (LitInt () 1 "1")] Nothing)
+      -- strict_types is valid only as the first statement of a script; this
+      -- generator produces standalone and nested statements, so use a
+      -- declaration whose placement is unrestricted here.
+      , pure (StmtDeclare () [DeclareDirective () (Ident () "ticks") (LitInt () 1 "1")] Nothing)
       ]
   | otherwise = oneof
       [ StmtExpr () <$> genExprSized 1
