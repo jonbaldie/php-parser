@@ -1112,6 +1112,40 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php declare(encoding='UTF-8');"
         ]
 
+  , testCase "Enforce encoding declaration position (Issue #274)" $ do
+      mapM_ assertParsesFail
+        [ "<?php $x = 1; declare(encoding='UTF-8');"
+        , "<?php ; declare(encoding='UTF-8');"
+        , "<?php $x = 1; ?> <?php declare(encoding='UTF-8');"
+        , "<?php ?><?php declare(encoding='UTF-8');"
+        , "a<?php declare(encoding='UTF-8');"
+        , "<?= 1 ?><?php declare(encoding='UTF-8');"
+        , "<?php namespace A; declare(encoding='UTF-8');"
+        , "<?php function f() { declare(encoding='UTF-8'); }"
+        , "<?php declare(ticks=1) { declare(encoding='UTF-8'); }"
+        , "<?php declare(ticks=1) declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1); ?><?php declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) ?>x<?php declare(encoding='UTF-8');"
+        ]
+
+      -- PHP only counts statements other than declare as preceding a
+      -- declaration, so earlier top-level declares (in any form) are allowed.
+      mapM_ assertParsesOk
+        [ "<?php declare(encoding='UTF-8');"
+        , "<?php /* leading comment */ declare(encoding='UTF-8');"
+        , "<?php // leading comment\ndeclare(ENCODING='UTF-8');"
+        , "<?php declare(encoding='UTF-8') ?>"
+        , "<?php declare(encoding='UTF-8', ticks=1);"
+        , "<?php declare(ticks=1); declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) { echo 1; } declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1): echo 1; enddeclare; declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) ?><?php declare(encoding='UTF-8');"
+        , "<?php declare(strict_types=1); declare(encoding='UTF-8');"
+        , "<?php declare(encoding='UTF-8'); declare(strict_types=1);"
+        , "<?php declare(ticks=1); declare(strict_types=1);"
+        , "<?php $x = 1; declare(ticks=1);"
+        ]
+
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
       [ testCase "list(...) destructuring in assignments" $ do
           assertParsesOk "<?php list($a, $b) = $arr;"
