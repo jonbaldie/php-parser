@@ -290,6 +290,15 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "\n    second line" "\n\tsecond line"
       }
+  , -- A form feed where code whitespace belongs (Issue #279). PHP's lexer
+    -- skips only space, tab, carriage return and line feed between tokens.
+    Mutation
+      { mutationName = "form-feed-between-tokens"
+      , mutationFeature = "functions"
+      , mutationPHPRule = "syntax error, unexpected character 0x0C"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst firstParam "(mixed\f$a, iterable $b"
+      }
   , -- A second open tag met while already in code mode (Issue #271). PHP
     -- leaves code mode only at a close tag, so a mid-code `<?php` is an
     -- ordinary `<` and a parse error rather than a silent transition.
