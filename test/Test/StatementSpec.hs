@@ -982,6 +982,33 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php interface I { public string $name { get; set; } }"
         ]
 
+  , testGroup "Issue 277: class and trait bodies accept only member declarations"
+      [ testCase "rejects a plain assignment statement in a class body" $
+          assertParsesFail "<?php class C { $x = 1; }"
+      , testCase "rejects a plain assignment statement in a trait body" $
+          assertParsesFail "<?php trait T { $x = 1; }"
+      , testCase "rejects an anonymous-class expression statement in a class body" $
+          assertParsesFail "<?php class C { new class {}; }"
+      , testCase "rejects an anonymous-class expression statement in a trait body" $
+          assertParsesFail "<?php trait T { new class {}; }"
+      , testCase "rejects a modifierless typed property in a class body" $
+          assertParsesFail "<?php class C { int $x; }"
+      , testCase "rejects a modifierless hooked property in a class body" $
+          assertParsesFail "<?php class C { string $x { get => 'a'; } }"
+      , testCase "rejects a modifierless hooked property in an interface body" $
+          assertParsesFail "<?php interface I { string $x { get; } }"
+      , testCase "rejects an echo statement in a class body" $
+          assertParsesFail "<?php class C { echo 1; }"
+      , testCase "rejects a plain assignment statement in an anonymous class body" $
+          assertParsesFail "<?php $o = new class { $x = 1; };"
+      , testCase "accepts legal class members" $
+          assertParsesOk "<?php class C { use T; const A = 1; public $x = 1; var $y; public static int $z = 2; public function f() {} public string $n { get => 'a'; } }"
+      , testCase "accepts legal trait members" $
+          assertParsesOk "<?php trait T { use U; const A = 1; public $x = 1; var $y; abstract public function f(); public static function g() {} }"
+      , testCase "accepts properties declared with any single modifier" $
+          assertParsesOk "<?php abstract class C { var $a; public $b; static $c; readonly int $d; final $e; abstract $f { get; } private(set) int $g; }"
+      ]
+
   , testGroup "Issue 276: short echo statements require a terminator"
       [ testCase "rejects an unterminated short echo at EOF" $
           assertParsesFail "<?= 1"

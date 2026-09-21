@@ -702,9 +702,12 @@ checkVisibilityOrdering _ _ = pure ()
 
 -- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract, var).
 -- Note: @var@ is an alias for @public@ visibility and cannot be combined with explicit visibility.
+-- At least one modifier is required: PHP has no modifierless property, so a
+-- bare @$x = 1;@ in a class or trait body is a syntax error, not a property.
 parsePropertyModifier :: Parser PropertyModifier
 parsePropertyModifier = do
   modif@(PropertyModifier vis wVis _ _ _ _) <- loop Nothing Nothing False False False False
+  when (modif == PropertyModifier Nothing Nothing False False False False) M.empty
   checkVisibilityOrdering vis wVis
   pure modif
   where
