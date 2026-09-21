@@ -542,6 +542,11 @@ decodeEscapes quoteEscapes = T.concat . go
         | c == 'x' ->
             let digits = T.take 2 (T.takeWhile isHexDigit rest)
             in (T.cons c digits, T.drop (T.length digits) rest)
+        | c == 'u' && T.isPrefixOf "{" rest ->
+            let (digits, closing) = T.breakOn "}" (T.drop 1 rest)
+            in if T.null closing
+                 then (T.singleton c, rest)
+                 else ("u{" <> digits <> "}", T.drop 1 closing)
         | otherwise -> (T.singleton c, rest)
 
     decodeEscapeBody body = case body of
@@ -555,10 +560,17 @@ decodeEscapes quoteEscapes = T.concat . go
       "$" -> "$"
       "\"" | quoteEscapes -> "\""
       _
+        | Just value <- bracedUnicodeValue body -> T.singleton (toEnum value)
         | not (T.null body) && T.all isOctalDigit body -> numericEscape 8 body
         | T.length body >= 2 && T.head body == 'x' && T.all isHexDigit (T.tail body) ->
             numericEscape 16 (T.tail body)
         | otherwise -> "\\" <> body
+
+    bracedUnicodeValue body
+      | T.length body >= 4
+      , T.take 2 body == "u{"
+      , T.last body == '}' = unicodeCodepoint (T.drop 2 (T.init body))
+      | otherwise = Nothing
 
     numericEscape base digits =
       let value = T.foldl' (\acc digit -> acc * base + digitToInt digit) 0 digits
@@ -715,8 +727,16 @@ interpolatedParts parseInterpExpr stop decode = mergeLiterals <$> many part
     -- backslash before one is literal, as it is in PHP.
     escapedText = do
       _ <- C.char '\\'
-      body <- M.try octalBody <|> M.try hexBody <|> (T.singleton <$> M.satisfy (/= '\n')) <|> pure T.empty
+      body <- M.try octalBody <|> M.try hexBody <|> unicodeBody <|> (T.singleton <$> M.satisfy (/= '\n')) <|> pure T.empty
       pure (decode (T.cons '\\' body))
+
+    unicodeBody = do
+      _ <- M.try (C.char 'u' <* C.char '{')
+      digits <- M.takeWhileP (Just "hexadecimal digit") isHexDigit
+      when (T.null digits) M.empty
+      _ <- C.char '}'
+      when (unicodeCodepoint digits == Nothing) M.empty
+      pure ("u{" <> digits <> "}")
 
     octalBody = do
       first <- M.satisfy (\c -> c >= '0' && c <= '7')
@@ -729,6 +749,14 @@ interpolatedParts parseInterpExpr stop decode = mergeLiterals <$> many part
       first <- M.satisfy isHexDigit
       second <- optional (M.satisfy isHexDigit)
       pure (T.cons 'x' (T.pack (first : [c | Just c <- [second]])))
+
+unicodeCodepoint :: Text -> Maybe Int
+unicodeCodepoint digits
+  | T.null digits || T.length digits > 6 || not (T.all isHexDigit digits) = Nothing
+  | value > 0x10FFFF = Nothing
+  | otherwise = Just value
+  where
+    value = T.foldl' (\acc digit -> acc * 16 + digitToInt digit) 0 digits
 
 -- | Merge neighbouring literal chunks left over from backtracking or line
 -- joining into single parts, keeping the AST canonical.
