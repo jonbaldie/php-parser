@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Reject a second PHP open tag (`<?php`, `<?` or `<?=`) met while the parser is already in code mode, which PHP refuses with `syntax error, unexpected token "<"` but the library accepted by silently consuming the tag and losing it from the AST and from `prettyPrint`'s output: `<?php $x = 1; <?php $y = 2;` parsed as two statements with the second tag gone. An open tag is now only ever consumed out of HTML mode -- at the start of a file, or directly after a close tag's inline HTML -- matching PHP's lexer, where code mode ends only at `?>`. A close tag, HTML, open-tag sequence still parses, and the short-open (`<?`) and short-echo (`<?=`) behaviour is otherwise unchanged (#271).
+
 ## 0.1.7.0
 
 * Reject a heredoc or nowdoc whose body indentation is of a different whitespace character from its closing marker, which PHP refuses with "Invalid indentation - tabs and spaces cannot be mixed" but the lexer accepted: it compared indentation lengths only, so a space-indented body line stripped cleanly under a tab-indented closer. Body indentation must now agree with the closer character for character as far as the two overlap, including on a line that is whitespace to its end, and a closer whose own indentation mixes tabs and spaces is rejected outright, as in PHP (#262).

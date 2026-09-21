@@ -38,33 +38,24 @@ parseProgram = do
   takeTrivia >>= recordTrivia sp
   pure (Program sp stmts)
 
+-- | Parse a statement list that switches between PHP code and inline HTML.
+-- A file begins in HTML mode, exactly as PHP's lexer does, and only a close
+-- tag returns the parser to it -- so an open tag met in code mode is an
+-- ordinary @<@ and a parse error, never a silent transition (Issue #271).
 parseProgramBody :: Parser [Stmt Span]
-parseProgramBody = do
-  mInitHtml <- parseInitialHtml
-  case mInitHtml of
-    Just htmlStmt -> (htmlStmt :) <$> parsePhpAndHtmlChunks
-    Nothing -> parsePhpAndHtmlChunks
+parseProgramBody = parseHtmlRegion parseCodeChunks
 
--- | Parse HTML outside <?php / <?= tags at the beginning of a file.
-parseInitialHtml :: Parser (Maybe (Stmt Span))
-parseInitialHtml = do
-  hasTag <- (True <$ M.lookAhead (C.string "<?php" <|> C.string "<?=" <|> (C.string "<?" <* M.notFollowedBy (C.char '=')))) <|> pure False
-  isEof <- M.lookAhead (True <$ M.eof) <|> pure False
-  if hasTag || isEof
-    then pure Nothing
-    else withSpan $ do
-      txt <- takeUntilPhpTag
-      pure (\sp -> Just (StmtInlineHtml sp (T.pack txt)))
-
-takeUntilPhpTag :: Parser String
-takeUntilPhpTag = do
-  isTag <- (True <$ M.lookAhead (C.string "<?php" <|> C.string "<?=" <|> (C.string "<?" <* M.notFollowedBy (C.char '=')))) <|> pure False
-  isEof <- (True <$ M.lookAhead M.eof) <|> pure False
-  if isTag || isEof
-    then pure []
-    else do
-      c <- M.anySingle
-      (c :) <$> takeUntilPhpTag
+-- | Statements in code mode, until a close tag or end of input. A close tag
+-- returns the parser to HTML mode, where the next open tag -- an ordinary
+-- @<@ everywhere else -- may open a new region.
+parseCodeChunks :: Parser [Stmt Span]
+parseCodeChunks =
+  (parseCloseTag *> parseHtmlRegion parseCodeChunks >>= \html -> (html ++) <$> parseCodeChunks)
+  <|> (do
+    isEof <- (True <$ M.lookAhead M.eof) <|> pure False
+    if isEof
+      then pure []
+      else (:) <$> parseStmt <*> parseCodeChunks)
 
 -- | Parse an opening tag, excluding the whitespace and comments after it,
 -- so callers can backtrack over the tag without hiding errors in that trivia.
@@ -82,7 +73,8 @@ parseCloseTag = do
   pure ()
 
 -- | A statement may end with a semicolon or an immediately following close tag.
--- Leave the close tag for 'parsePhpAndHtmlChunks' so it can switch to HTML mode.
+-- Leave the close tag for the statement list's mode driver, which switches to
+-- HTML mode there.
 statementTerminator :: Parser T.Text
 statementTerminator = semi <|> (M.lookAhead parseCloseTag *> pure ";")
 
@@ -100,69 +92,53 @@ parseShortEchoBody = do
 
 -- | Parse a statement list that can switch between PHP and inline HTML.
 -- Close/open tag transitions are not represented as empty statements; only
--- non-empty HTML chunks become 'StmtInlineHtml' nodes.
+-- non-empty HTML chunks become 'StmtInlineHtml' nodes. A bare open tag inside
+-- code is a parse error (Issue #271), not a silent transition.
 parseMixedBody :: Parser [Stmt Span]
 parseMixedBody = concat <$> M.many parseMixedBodyElement
 
 parseMixedBodyElement :: Parser [Stmt Span]
 parseMixedBodyElement =
   parseHtmlChunk
-  <|> parseOpenTagChunk
-  <|> parseShortEchoChunk
   <|> ((\s -> [s]) <$> parseStmt)
   where
-    parseHtmlChunk = do
-      _ <- M.try parseCloseTag
-      (sp, html) <- spanned takeUntilPhpTag
-      pure (if null html then [] else [StmtInlineHtml sp (T.pack html)])
+    -- A close tag returns the parser to HTML mode: the inline HTML that
+    -- follows ends at the next tag, which alone may open the next region.
+    parseHtmlChunk = M.try parseCloseTag *> parseHtmlRegion (pure [])
 
-    parseOpenTagChunk = do
-      _ <- M.try parseOpenTag
-      pure []
-
-    parseShortEchoChunk = do
-      _ <- M.try (C.string "<?=")
-      echoStmt <- parseShortEchoBody
-      pure [echoStmt]
-
-parsePhpAndHtmlChunks :: Parser [Stmt Span]
-parsePhpAndHtmlChunks = do
+-- | In HTML mode: the inline HTML up to the next tag, then the tag that ends
+-- it. An open tag is legal here and only here, so the tag never appears mid-code;
+-- a bare second <?php inside code is an unexpected @<@ (Issue #271). A
+-- @<?=@ tag opens its region as an echo. Empty HTML yields no node.
+parseHtmlRegion :: Parser [Stmt Span] -> Parser [Stmt Span]
+parseHtmlRegion k = do
+  (sp, html) <- spanned takeUntilPhpTag
+  let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
   if isEof
-    then pure []
+    then pure htmlStmts
     else do
       isShortEcho <- (True <$ M.try (C.string "<?=")) <|> pure False
       if isShortEcho
         then do
           echoStmt <- parseShortEchoBody
-          hasClose <- (True <$ M.try parseCloseTag) <|> pure False
-          if hasClose
-            then do
-              (spHtml, html) <- spanned takeUntilPhpTag
-              rest <- parsePhpAndHtmlChunks
-              if null html
-                then pure (echoStmt : rest)
-                else pure (echoStmt : StmtInlineHtml spHtml (T.pack html) : rest)
-            else do
-              rest <- parsePhpAndHtmlChunks
-              pure (echoStmt : rest)
+          rest <- k
+          pure (htmlStmts ++ echoStmt : rest)
         else do
-          isOpenTag <- (True <$ M.try parseOpenTag) <|> pure False
-          if isOpenTag
-            then sc *> parsePhpAndHtmlChunks
-            else do
-              isClose <- (True <$ M.try parseCloseTag) <|> pure False
-              if isClose
-                then do
-                  (sp, html) <- spanned takeUntilPhpTag
-                  rest <- parsePhpAndHtmlChunks
-                  if null html
-                    then pure rest
-                    else pure (StmtInlineHtml sp (T.pack html) : rest)
-                else do
-                  s <- parseStmt
-                  rest <- parsePhpAndHtmlChunks
-                  pure (s : rest)
+          _ <- parseOpenTag
+          sc
+          rest <- k
+          pure (htmlStmts ++ rest)
+
+takeUntilPhpTag :: Parser String
+takeUntilPhpTag = do
+  isTag <- (True <$ M.lookAhead (C.string "<?php" <|> C.string "<?=" <|> (C.string "<?" <* M.notFollowedBy (C.char '=')))) <|> pure False
+  isEof <- (True <$ M.lookAhead M.eof) <|> pure False
+  if isTag || isEof
+    then pure []
+    else do
+      c <- M.anySingle
+      (c :) <$> takeUntilPhpTag
 
 -- | Parse a single statement.
 parseStmt :: Parser (Stmt Span)
