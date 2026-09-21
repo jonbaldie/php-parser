@@ -67,7 +67,7 @@ parseOpenTag =
 parseCloseTag :: Parser ()
 parseCloseTag = do
   _ <- C.string "?>"
-  markScriptStatement
+  markCloseTag
   -- PHP suppresses the newline immediately following a close tag,
   -- matching its lexer's NEWLINE rule: "\r\n" as a pair, "\n", or "\r".
   _ <- optional (C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n'))
@@ -77,7 +77,8 @@ parseCloseTag = do
 -- Leave the close tag for the statement list's mode driver, which switches to
 -- HTML mode there.
 statementTerminator :: Parser T.Text
-statementTerminator = semi <|> (M.lookAhead parseCloseTag *> pure ";")
+statementTerminator =
+  semi <|> (M.lookAhead (C.string "?>") *> markCloseTagTerminator *> pure ";")
 
 -- | The body of a short echo tag, after its @<?=@ opener. @<?=@ is @echo@,
 -- so it takes the same comma-separated expression list.
@@ -145,7 +146,10 @@ takeUntilPhpTag = do
 
 -- | Parse a single statement.
 parseStmt :: Parser (Stmt Span)
-parseStmt = withStatement parseStmtCore
+parseStmt = withStatement (not . isDeclare) parseStmtCore
+  where
+    isDeclare StmtDeclare{} = True
+    isDeclare _ = False
 
 parseStmtCore :: Parser (Stmt Span)
 parseStmtCore =
@@ -185,10 +189,11 @@ parseDeclare :: Parser (Stmt Span)
 parseDeclare = withSpan $ do
   keyword_ "declare"
   directives <- parens (parseDeclareDirective `M.sepEndBy1` comma)
-  hasStrictTypes <- pure (any isStrictTypesDirective directives)
   isFirstStatement <- atScriptStart
-  when (hasStrictTypes && not isFirstStatement) $
+  when (any isStrictTypesDirective directives && not isFirstStatement) $
     fail "strict_types declaration must be the very first statement in the script"
+  when (any isEncodingDirective directives && not isFirstStatement) $
+    fail "Encoding declaration pragma must be the very first statement in the script"
   bodyBranch directives
   where
     parseDeclareDirective = withSpan $ do
@@ -228,6 +233,8 @@ parseDeclare = withSpan $ do
     isStrictTypesDirective (DeclareDirective _ name _) = isStrictTypesName name
 
     isStrictTypesName (Ident _ name) = T.toLower name == "strict_types"
+
+    isEncodingDirective (DeclareDirective _ (Ident _ name) _) = T.toLower name == "encoding"
 
     isStrictTypesValue (LitInt _ value _) = value == 0 || value == 1
     isStrictTypesValue _ = False

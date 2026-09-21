@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Reject a `declare(encoding=...)` that is not the first statement of the script, as PHP does ("Encoding declaration pragma must be the very first statement in the script"): after another statement, an empty `;`, inline HTML, a `<?=` tag, a close/open tag transition, or inside a function or declare body. Comments before it remain allowed. Following PHP's `zend_is_first_statement`, earlier top-level `declare` statements do not count as preceding it, and neither does a `?>` that terminates one; the same rule now applies to `strict_types`, so `declare(ticks=1); declare(strict_types=1);` and `declare(encoding='UTF-8'); declare(strict_types=1);` parse again (#274).
+
 * Enforce PHP's `declare(strict_types=...)` rules: the declaration must be the first script statement, use semicolon mode, and have an integer value of `0` or `1`; comments remain allowed before it (#273).
 
 * Match the full PHP open tag case-insensitively, as PHP does. `<?PHP`, `<?pHp` and other casings of `<?php` were rejected because `parseOpenTag` used a case-sensitive string; a mismatch then fell through to the short-open branch, so `<?pHp $x = 1;` was read as a short tag plus the identifier `pHp` and failed at the following variable. Short `<?` and `<?=` guards are unchanged (#272).

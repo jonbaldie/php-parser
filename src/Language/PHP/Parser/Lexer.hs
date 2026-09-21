@@ -7,6 +7,8 @@ module Language.PHP.Parser.Lexer
   , runPHPParser
   , withStatement
   , markScriptStatement
+  , markCloseTagTerminator
+  , markCloseTag
   , atScriptStart
   , spanned
   , withSpan
@@ -46,7 +48,7 @@ module Language.PHP.Parser.Lexer
   ) where
 
 import Control.Applicative (Alternative (..), optional)
-import Control.Monad (void, when)
+import Control.Monad (unless, void, when)
 import Control.Monad.State.Strict (State, runState, get, modify', put)
 import Data.Char (digitToInt, isAlpha, isAlphaNum, isDigit, isHexDigit)
 import Data.List (intercalate)
@@ -68,10 +70,11 @@ data LexerState = LexerState
   , scriptStatementSeen :: !Bool
   , statementDepth :: !Int
   , currentStatementIsFirst :: !Bool
+  , closeTagTerminatesStatement :: !Bool
   } deriving (Eq, Show)
 
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty False 0 False
+initialLexerState = LexerState [] Map.empty False 0 False False
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -86,8 +89,13 @@ runPHPParser p file input =
 -- | Run a statement parser with the script-position context it had when the
 -- statement began.  Nested statements never count as the script's first
 -- statement, even when they occur while parsing the first top-level one.
-withStatement :: Parser a -> Parser a
-withStatement p = do
+--
+-- A top-level statement ends the script's start only when the predicate
+-- holds for it.  PHP lets declare statements precede a strict_types or
+-- encoding declaration, so a declare -- including its body and any close
+-- tag terminating it -- leaves the script-start context as it found it.
+withStatement :: (a -> Bool) -> Parser a -> Parser a
+withStatement endsScriptStart p = do
   original <- get
   let topLevel = statementDepth original == 0
       firstStatement = topLevel && not (scriptStatementSeen original)
@@ -105,17 +113,34 @@ withStatement p = do
       put after
         { statementDepth = statementDepth original
         , currentStatementIsFirst = currentStatementIsFirst original
-        , scriptStatementSeen = scriptStatementSeen original || topLevel
+        , scriptStatementSeen =
+            scriptStatementSeen original || (topLevel && endsScriptStart value)
         }
       pure value
 
 -- | Mark content that precedes a later declaration in the script.  Inline
--- HTML, short-echo tags, and close tags all make a following strict_types
--- declaration too late, even when they do not produce an AST statement.
+-- HTML, short-echo tags, and close tags all make a following strict_types or
+-- encoding declaration too late, even when they do not produce an AST
+-- statement.
 markScriptStatement :: Parser ()
 markScriptStatement = modify' (\st -> st { scriptStatementSeen = True })
 
--- | Whether the statement currently being parsed is the script's first one.
+-- | Note that the next close tag ends the statement just parsed, standing in
+-- for its semicolon rather than being an empty statement of its own.
+markCloseTagTerminator :: Parser ()
+markCloseTagTerminator = modify' (\st -> st { closeTagTerminatesStatement = True })
+
+-- | Account for a consumed close tag.  PHP reads @?>@ as a semicolon, so a
+-- close tag that follows a complete statement is an empty statement and makes
+-- a later declaration too late; one that terminates a statement is not.
+markCloseTag :: Parser ()
+markCloseTag = do
+  terminates <- closeTagTerminatesStatement <$> get
+  modify' (\st -> st { closeTagTerminatesStatement = False })
+  unless terminates markScriptStatement
+
+-- | Whether the statement currently being parsed is the script's first one,
+-- ignoring any top-level declare statements before it.
 atScriptStart :: Parser Bool
 atScriptStart = currentStatementIsFirst <$> get
 
