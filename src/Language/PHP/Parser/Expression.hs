@@ -67,6 +67,20 @@ isReferenceable = \case
   ExprStaticCall {}            -> True
   _                            -> False
 
+-- | Whether an expression is a valid target for prefix increment/decrement.
+--
+-- PHP's grammar gives @++@ and @--@ a greedy token before parsing the target,
+-- so their operand is a variable-shaped postfix expression rather than an
+-- arbitrary unary expression.  In particular, a literal after the token is
+-- rejected (and @---1@ cannot fall back to unary minus).
+isIncrementable :: Expr a -> Bool
+isIncrementable = \case
+  ExprVar {}                   -> True
+  ExprArrayAccess {}           -> True
+  ExprPropertyFetch {}         -> True
+  ExprStaticPropertyFetch {}   -> True
+  _                            -> False
+
 -- | Whether an expression receiver chain contains a nullsafe operator (@?->@).
 --
 -- In PHP, first-class callable creation (@(...)@) cannot be combined with the
@@ -300,7 +314,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         -- Prefix ++/-- take a variable, so they bind tighter than "**".
         parseIncDec = withSpan $ do
           op <- (OpPreInc <$ symbol "++") <|> (OpPreDec <$ symbol "--")
-          operand <- parseUnary
+          operand <- parsePostfix
+          guard (isIncrementable operand)
           pure (\sp -> ExprUnary sp op operand)
 
         -- The remaining prefix operators bind looser than "**", so "-2 ** 2"
