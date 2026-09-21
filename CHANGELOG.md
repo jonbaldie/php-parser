@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Match the full PHP open tag case-insensitively, as PHP does. `<?PHP`, `<?pHp` and other casings of `<?php` were rejected because `parseOpenTag` used a case-sensitive string; a mismatch then fell through to the short-open branch, so `<?pHp $x = 1;` was read as a short tag plus the identifier `pHp` and failed at the following variable. Short `<?` and `<?=` guards are unchanged (#272).
+
 * Reject a second PHP open tag (`<?php`, `<?` or `<?=`) met while the parser is already in code mode, which PHP refuses with `syntax error, unexpected token "<"` but the library accepted by silently consuming the tag and losing it from the AST and from `prettyPrint`'s output: `<?php $x = 1; <?php $y = 2;` parsed as two statements with the second tag gone. An open tag is now only ever consumed out of HTML mode -- at the start of a file, or directly after a close tag's inline HTML -- matching PHP's lexer, where code mode ends only at `?>`. A close tag, HTML, open-tag sequence still parses, and the short-open (`<?`) and short-echo (`<?=`) behaviour is otherwise unchanged (#271).
 
 ## 0.1.7.0

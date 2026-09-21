@@ -920,6 +920,47 @@ statementTests = testGroup "Statement & Declaration Specifications"
                   assertFailure ("Unexpected reparsed AST: " ++ show other ++ "\nprinted: " ++ T.unpack printed)
       ]
 
+  , testGroup "Issue 272: the full open tag is matched case-insensitively"
+      [ testCase "mixed-case full open tags parse the same statement body as <?php" $ do
+          expected <- case parseProgram "test.php" "<?php $x = 1;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> pure (stripAnnotations ast)
+          forM_ [ "<?PHP $x = 1;" :: Text
+                , "<?pHp $x = 1;"
+                , "<?Php $x = 1;"
+                , "<?PhP $x = 1;"
+                ] $ \src ->
+            case parseProgram "test.php" src of
+              Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+              Right ast ->
+                assertEqual (T.unpack src ++ ": same program as lowercase tag")
+                  expected (stripAnnotations ast)
+
+      , testCase "a mixed-case full tag after inline HTML still opens a PHP region" $ do
+          expected <- case parseProgram "test.php" "hello<?php $x = 1;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> pure (stripAnnotations ast)
+          case parseProgram "test.php" "hello<?PHP $x = 1;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertEqual "same program as lowercase tag after HTML"
+                expected (stripAnnotations ast)
+
+      , testCase "comments and the existing full-tag whitespace rules still work" $ do
+          assertParsesOk "<?PHP /* c */ $x = 1;"
+          assertParsesOk "<?pHp\n$x = 1;"
+          assertParsesOk "<?PHP\t$x = 1;"
+          assertParsesOk "<?php echo 1; ?>tail<?PHP echo 2;"
+
+      , testCase "short <? and short-echo <?= parsing is unchanged" $ do
+          assertParsesOk "<? $x = 1;"
+          assertParsesOk "<?php echo 1; ?>tail<?= 2; ?>"
+          case parseProgram "test.php" "<?= 1 ?>" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ [_]]) -> pure ()
+            Right other -> assertFailure ("Expected a single echo, got: " ++ show other)
+      ]
+
   , testCase "Reject members invalid in enum, class, and interface contexts (Issue #89)" $ do
       mapM_ assertParsesFail
         [ "<?php enum E { public int $x; }"
