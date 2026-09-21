@@ -222,6 +222,18 @@ allMutations =
                 ]
             )
       }
+  , -- A property declaration may contain one get hook and one set hook, but
+    -- PHP rejects a second hook of either kind within the same declaration.
+    Mutation
+      { mutationName = "duplicate-property-hook"
+      , mutationFeature = "84-property-hooks"
+      , mutationPHPRule = "Cannot redeclare property hook \"get\""
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "        get => $this->raw;"
+            "        get => $this->raw;\n        get => $this->raw;"
+      }
   , -- Members where the declaration kind forbids them.
     Mutation
       { mutationName = "abstract-private-method"
