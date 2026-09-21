@@ -111,9 +111,19 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     parseLogicalXor = parseBinaryLeft parseLogicalAnd [ (keyword "xor", OpLogicalXor) ]
     parseLogicalAnd = parseBinaryLeft parseAssignment [ (keyword "and", OpLogicalAnd) ]
 
-    parseAssignment = parseYield <|> parseThrow <|> parseInclude <|> parsePrint <|> do
-      lhs <- parseTernary
-      assignRest lhs <|> pure lhs
+    parseAssignment = snd <$> parseAssignmentTagged
+
+    -- Like 'parseAssignment', but also reports whether the result is a bare
+    -- ternary, i.e. one whose @?@ was consumed here rather than inside
+    -- parentheses: @Just True@ for a short @?:@, @Just False@ for a full one.
+    -- PHP's ternary is left-associative and rejects nesting one unparenthesized
+    -- ternary inside another's condition, except for a pure @?:@ chain. This
+    -- parser builds ternaries right-nested, so that condition shows up as a
+    -- bare ternary in the false branch (Issue #280).
+    parseAssignmentTagged =
+      ((,) Nothing <$> (parseYield <|> parseThrow <|> parseInclude <|> parsePrint)) <|> do
+      (tag, lhs) <- parseTernaryTagged
+      ((,) Nothing <$> assignRest lhs) <|> pure (tag, lhs)
       where
         assignRest lhs = do
           op <- parseAssignOp
@@ -205,24 +215,31 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       <|> (IncRequireOnce <$ keyword "require_once")
       <|> (IncRequire <$ keyword "require")
 
-    parseTernary = do
+    parseTernaryTagged = do
       cond <- parseCoalesce
-      parseTernaryRest cond <|> pure cond
+      parseTernaryRest cond <|> pure (Nothing, cond)
       where
         parseTernaryRest cond = do
           _ <- lexeme (M.try (C.char '?' <* M.notFollowedBy (C.char '?' <|> C.char '>')))
           isShort <- (True <$ symbol ":") <|> pure False
           if isShort
             then do
-              fBranch <- parseAssignment
+              fBranch <- parseFalseBranch True
               let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
-              pure (ExprTernary sp cond Nothing fBranch)
+              pure (Just True, ExprTernary sp cond Nothing fBranch)
             else do
               tBranch <- parseExprRec
               _ <- symbol ":"
-              fBranch <- parseAssignment
+              fBranch <- parseFalseBranch False
               let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
-              pure (ExprTernary sp cond (Just tBranch) fBranch)
+              pure (Just False, ExprTernary sp cond (Just tBranch) fBranch)
+
+        parseFalseBranch outerShort = do
+          (tag, fBranch) <- parseAssignmentTagged
+          case tag of
+            Just innerShort | not (outerShort && innerShort) ->
+              fail "Unparenthesized nested ternary is not supported; parenthesize one of them"
+            _ -> pure fBranch
 
     parseCoalesce = do
       lhs <- parseBoolOr

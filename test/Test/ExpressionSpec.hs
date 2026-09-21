@@ -373,6 +373,31 @@ expressionTests = testGroup "Expression Specifications"
       assertParsesOkExpr src1
       assertParsesOkExpr src2
 
+  , testCase "Unparenthesized left-nested ternaries are rejected (Issue #280)" $ do
+      forM_ [ "1 ? 1 : 0 ? 1 : 0"
+            , "1 ? 2 : 0 ?: 2"
+            , "1 ?: 0 ? 1 : 2"
+            , "1 ?: 2 ?: 3 ? 4 : 5"
+            , "1 ? 2 : 3 ?? 0 ? 1 : 2"
+            ] $ \src ->
+        case parseExpression "issue280.php" src of
+          Left _ -> pure ()
+          Right expr -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show expr)
+
+      forM_ [ "1 ? 2 : (0 ? 1 : 0)"
+            , "(1 ? 1 : 0) ? 1 : 0"
+            , "1 ? 0 ? 1 : 2 : 3"
+            , "1 ? 0 ?: 1 : 3"
+            , "1 ?: 0 ?: 2"
+            , "1 ? 2 : $a = 0 ? 1 : 2"
+            , "1 ? 2 : fn() => 0 ? 1 : 2"
+            , "1 ? 2 : print 0 ? 1 : 2"
+            , "1 ? 2 : 3 and 4 ? 5 : 6"
+            ] $ \src ->
+        case parseExpression "issue280.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right expr -> assertRoundTripExpr expr
+
   , testCase "Array unpacking with spread: [...$first, 'middle', ...$second]" $ do
       let src = "[...$first, 'middle', ...$second]"
       case parseExpression "test.php" src of
