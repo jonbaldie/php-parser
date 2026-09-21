@@ -88,7 +88,7 @@ parseShortEchoBody = do
   sc
   firstExpr <- parseExpr
   moreExprs <- M.many (comma *> parseExpr)
-  _ <- optional semi
+  _ <- statementTerminator
   let lastExpr = if null moreExprs then firstExpr else last moreExprs
       echoSpan = combineSpans (exprSpan firstExpr) (exprSpan lastExpr)
   pure (StmtEcho echoSpan (firstExpr : moreExprs))
