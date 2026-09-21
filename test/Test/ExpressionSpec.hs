@@ -139,6 +139,17 @@ expressionTests = testGroup "Expression Specifications"
         Right (ExprBinary _ OpPow (ExprUnary _ OpUnaryMinus _) _) -> pure ()
         other -> assertFailure ("Expected (-2) ** 2 exponentiation, got: " ++ show other)
 
+  , testCase "Increment and decrement keep PHP's greedy tokenization (Issue #282)" $ do
+      forM_ ["--1", "++1", "---1", "+++1"] $ \src ->
+        case parseExpression "issue282.php" src of
+          Left _ -> pure ()
+          Right expr -> assertFailure ("Expected parse failure for " ++ show src
+                                      ++ ", got: " ++ show expr)
+
+      forM_ ["- -1", "+ +1", "++$x", "--$x", "$x++", "$x--"
+            , "++$obj->prop", "--$arr[0]", "++Foo::$bar"] $ \src ->
+        assertParsesOkExpr src
+
   , testCase "Anonymous class expression attributes parse into the AST (Issue #46)" $ do
       case parseExpression "anon.php" "new #[Attribute] class {}" of
         Left err -> assertFailure (show (formatParseError err))
