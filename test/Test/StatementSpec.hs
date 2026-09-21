@@ -1024,6 +1024,28 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertParsesFail "<?= 1, 2"
       ]
 
+  , testGroup "Issue 279: code whitespace is only space, tab, and line breaks"
+      [ testCase "rejects a form feed between tokens" $
+          assertParsesFail "<?php $x\f= 1;"
+      , testCase "rejects a vertical tab between tokens" $
+          assertParsesFail "<?php $x =\v1;"
+      , testCase "rejects 0x1A between tokens" $
+          assertParsesFail "<?php if (1)\x1a{}"
+      , testCase "rejects a no-break space between tokens" $
+          assertParsesFail "<?php echo 1;\xa0"
+      , testCase "rejects a form feed or vertical tab as the open tag's separator" $ do
+          assertParsesFail "<?php\f$x = 1;"
+          assertParsesFail "<?php\v$x = 1;"
+      , testCase "accepts spaces, tabs, and line breaks between tokens" $
+          assertParsesOk "<?php $x \t\r\n= \r1;\n"
+      , testCase "accepts comments between tokens" $
+          assertParsesOk "<?php $x // a\n# b\n/* c */ /** d */ = 1;"
+      , testCase "keeps form feed and vertical tab inside strings and heredocs" $
+          assertParsesOk "<?php $x = '\f\v'; $y = \"\f\v\"; $z = <<<EOT\n\f\v\nEOT;\n"
+      , testCase "keeps form feed and vertical tab inside comments" $
+          assertParsesOk "<?php $x = 1; // \f\v\n/* \f\v */"
+      ]
+
   , testCase "Require separator after long opening tag (Issue #93)" $ do
       assertParsesFail "<?php$x = 1;"
       assertParsesFail "<?phpphpinfo();"
