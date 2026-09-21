@@ -1033,6 +1033,9 @@ statementTests = testGroup "Statement & Declaration Specifications"
           assertParsesFail "<?php if (1)\x1a{}"
       , testCase "rejects a no-break space between tokens" $
           assertParsesFail "<?php echo 1;\xa0"
+      , testCase "rejects a form feed or vertical tab as the open tag's separator" $ do
+          assertParsesFail "<?php\f$x = 1;"
+          assertParsesFail "<?php\v$x = 1;"
       , testCase "accepts spaces, tabs, and line breaks between tokens" $
           assertParsesOk "<?php $x \t\r\n= \r1;\n"
       , testCase "accepts comments between tokens" $

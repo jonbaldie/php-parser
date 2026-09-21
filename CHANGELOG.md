@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-* Reject form feed, vertical tab and Unicode spaces such as U+00A0 between tokens, which PHP refuses with `syntax error, unexpected character 0x0C` (and likewise for the others) but the library skipped as whitespace: `<?php $x\f= 1;` parsed. Code whitespace is now exactly space, tab, carriage return and line feed, as in PHP's lexer; comments, strings and heredoc bodies keep any such characters as before (#279).
+* Reject form feed, vertical tab and Unicode spaces such as U+00A0 between tokens, which PHP refuses with `syntax error, unexpected character 0x0C` (and likewise for the others) but the library skipped as whitespace: `<?php $x\f= 1;` parsed. The same set now separates `<?php` from the code after it, so `<?php\f$x = 1;` is rejected as PHP does with its default `short_open_tag`. Code whitespace is now exactly space, tab, carriage return and line feed, as in PHP's lexer; comments, strings and heredoc bodies keep any such characters as before (#279).
 
 * Reject duplicate `get` or `set` property hooks within one declaration, matching PHP's `Cannot redeclare property hook` compile-time fatal. A declaration may still contain one hook of each kind, and separate properties keep independent hooks (#278).
 

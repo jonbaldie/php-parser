@@ -18,6 +18,7 @@ module Language.PHP.Parser.Lexer
   -- * Whitespace, Comments, Trivia
   , sc
   , scNoNewline
+  , codeSpaceChar
   , takeTrivia
   , recordTrivia
   , lexeme
@@ -206,13 +207,17 @@ recordTrivia sp triv = modify' (\st -> st { triviaBySpan = Map.insert sp triv (t
 addTrivia :: Trivia -> Parser ()
 addTrivia t = modify' (\s -> s { currentTrivia = currentTrivia s ++ [t] })
 
--- | Space and comment consumer.  PHP's code whitespace is exactly space,
--- tab, carriage return and line feed; its lexer rejects form feed, vertical
--- tab and Unicode spaces between tokens, so the broader 'C.spaceChar' would
--- accept programs PHP refuses.
+-- | One character of PHP code whitespace: exactly space, tab, carriage
+-- return or line feed.  PHP's lexer rejects form feed, vertical tab and
+-- Unicode spaces between tokens, so the broader 'C.spaceChar' would accept
+-- programs PHP refuses.
+codeSpaceChar :: Parser Char
+codeSpaceChar = M.satisfy (\c -> c == ' ' || c == '\t' || c == '\r' || c == '\n')
+
+-- | Space and comment consumer.
 sc :: Parser ()
 sc = L.space
-  (void (M.satisfy (\c -> c == ' ' || c == '\t' || c == '\r' || c == '\n')))
+  (void codeSpaceChar)
   (lineComment <|> hashComment)
   blockOrDocComment
 
