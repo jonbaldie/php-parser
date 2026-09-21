@@ -879,6 +879,47 @@ statementTests = testGroup "Statement & Declaration Specifications"
             Right other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
 
+  , testGroup "Issue 271: a second open tag inside code mode is rejected"
+      [ testCase "the three reported mid-code reproducers are rejected" $ do
+          forM_ [ "<?php $x = 1; <?php $y = 2;" :: Text
+                , "<?php 1; <?php"
+                , "a<?php 1; <?php 2;"
+                ] assertParsesFail
+
+      , testCase "a bare short echo tag in code mode is rejected" $ do
+          assertParsesFail "<?php 1; <?= 2;"
+
+      , testCase "an open tag inside a nested body is rejected" $ do
+          assertParsesFail "<?php if (true) { <?php } ?>"
+          assertParsesFail "<?php function f() { $x = 1; <?php $y = 2; }"
+
+      , testCase "a close tag, inline HTML, and a new open tag still parse" $ do
+          case parseProgram "test.php" "<?php echo 1; ?>tail<?php echo 2;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html, StmtEcho _ _]) ->
+              assertEqual "inline HTML between the blocks" "tail" html
+            Right other -> assertFailure ("Unexpected AST: " ++ show other)
+
+      , testCase "a short echo tag may also reopen after a close tag" $ do
+          assertParsesOk "<?php echo 1; ?>tail<?= 2; ?>"
+
+      , testCase "a comment right after the reopened open tag parses" $ do
+          assertParsesOk "<?php if (true) { ?>x<?php /* c */ } ?>"
+          assertParsesOk "<?php ?> <?php /* c */ ?>"
+
+      , testCase "no open tag is silently removed from the printed program" $ do
+          case parseProgram "test.php" "<?php echo 1; ?>tail<?php echo 2;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> do
+              let printed = prettyPrint ast
+              case parseProgram "reparsed.php" printed of
+                Left err -> assertFailure (show (formatParseError err) ++ "\nprinted: " ++ T.unpack printed)
+                Right (Program _ [StmtEcho _ _, StmtInlineHtml _ html, StmtEcho _ _]) ->
+                  assertEqual "HTML survives printing" "tail" html
+                Right other ->
+                  assertFailure ("Unexpected reparsed AST: " ++ show other ++ "\nprinted: " ++ T.unpack printed)
+      ]
+
   , testCase "Reject members invalid in enum, class, and interface contexts (Issue #89)" $ do
       mapM_ assertParsesFail
         [ "<?php enum E { public int $x; }"

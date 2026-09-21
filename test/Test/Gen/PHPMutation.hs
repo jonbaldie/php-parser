@@ -278,6 +278,26 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "\n    second line" "\n\tsecond line"
       }
+  , -- A second open tag met while already in code mode (Issue #271). PHP
+    -- leaves code mode only at a close tag, so a mid-code `<?php` is an
+    -- ordinary `<` and a parse error rather than a silent transition.
+    Mutation
+      { mutationName = "mid-code-open-tag"
+      , mutationFeature = "functions"
+      , mutationPHPRule = "syntax error, unexpected token \"<\""
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "function mixedArgs" "<?php function mixedArgs"
+      }
+  , -- A short echo tag met in code mode (Issue #271). Like any other open
+    -- tag, <?= opens a PHP region only out of HTML mode, so mid-code it is
+    -- an ordinary `<` too.
+    Mutation
+      { mutationName = "mid-code-short-echo-tag"
+      , mutationFeature = "functions"
+      , mutationPHPRule = "syntax error, unexpected token \"<\""
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "function mixedArgs" "<?= 1; function mixedArgs"
+      }
   ]
 
 --------------------------------------------------------------------------------
