@@ -982,6 +982,21 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php interface I { public string $name { get; set; } }"
         ]
 
+  , testGroup "Issue 276: short echo statements require a terminator"
+      [ testCase "rejects an unterminated short echo at EOF" $
+          assertParsesFail "<?= 1"
+      , testCase "accepts a semicolon-terminated short echo at EOF" $
+          assertParsesOk "<?= 1;"
+      , testCase "accepts a short echo terminated by a close tag" $
+          assertParsesOk "<?= 1 ?>"
+      , testCase "accepts comma-separated expressions with a final semicolon" $
+          assertParsesOk "<?= 1, 2;"
+      , testCase "accepts comma-separated expressions terminated by a close tag" $
+          assertParsesOk "<?= 1, 2 ?>"
+      , testCase "rejects comma-separated expressions without a final terminator" $
+          assertParsesFail "<?= 1, 2"
+      ]
+
   , testCase "Require separator after long opening tag (Issue #93)" $ do
       assertParsesFail "<?php$x = 1;"
       assertParsesFail "<?phpphpinfo();"
