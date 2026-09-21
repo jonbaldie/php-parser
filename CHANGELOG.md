@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Reject a `declare(encoding=...)` that is not the first statement of the script, which PHP refuses with "Encoding declaration pragma must be the very first statement in the script" but the library accepted anywhere: `<?php $x = 1; declare(encoding='UTF-8');` parsed. As in PHP, only earlier top-level `declare` statements may precede it; any other statement, inline HTML, a `<?=` echo, an empty statement, or a close tag that does not itself end a statement comes too early, and a nested encoding declaration is never first. Comments before it remain allowed, and `ticks` and other directives keep their position rules (#274).
+
 * Accept a compile-time constant expression as a `declare(encoding=...)` value: PHP folds a concatenation of literals into a single literal while parsing, so `declare(encoding='UTF-8' . '')` is a compile error the interpreter never reaches, yet the value parser here was literal-only and stopped at the `.`, rejecting the program with a syntax error. The directive value is now a constant expression in the AST (`DeclareDirective`'s value changed from `Literal` to `Expr`, currently a literal or a chain of `.`-concats of literals), literal values keep parsing, and non-constant runtime expressions such as `$x` are still rejected with PHP's "Encoding must be a literal" verdict; `strict_types` keeps its integer-literal rule and `ticks` keeps its literal-only behavior (#275).
 
 * Enforce PHP's `declare(strict_types=...)` rules: the declaration must be the first script statement, use semicolon mode, and have an integer value of `0` or `1`; comments remain allowed before it (#273).

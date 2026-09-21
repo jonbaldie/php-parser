@@ -68,6 +68,8 @@ parseCloseTag :: Parser ()
 parseCloseTag = do
   _ <- C.string "?>"
   markScriptStatement
+  terminatesStatement <- takeCloseTagTerminator
+  unless terminatesStatement markNonDeclareContent
   -- PHP suppresses the newline immediately following a close tag,
   -- matching its lexer's NEWLINE rule: "\r\n" as a pair, "\n", or "\r".
   _ <- optional (C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n'))
@@ -77,7 +79,7 @@ parseCloseTag = do
 -- Leave the close tag for the statement list's mode driver, which switches to
 -- HTML mode there.
 statementTerminator :: Parser T.Text
-statementTerminator = semi <|> (M.lookAhead parseCloseTag *> pure ";")
+statementTerminator = semi <|> (M.lookAhead (C.string "?>") *> noteCloseTagTerminator *> pure ";")
 
 -- | The body of a short echo tag, after its @<?=@ opener. @<?=@ is @echo@,
 -- so it takes the same comma-separated expression list.
@@ -115,7 +117,7 @@ parseHtmlRegion :: Parser [Stmt Span] -> Parser [Stmt Span]
 parseHtmlRegion k = do
   (sp, html) <- spanned takeUntilPhpTag
   let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
-  when (not (null html)) markScriptStatement
+  when (not (null html)) (markScriptStatement *> markNonDeclareContent)
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
   if isEof
     then pure htmlStmts
@@ -125,6 +127,7 @@ parseHtmlRegion k = do
         then do
           echoStmt <- parseShortEchoBody
           markScriptStatement
+          markNonDeclareContent
           rest <- k
           pure (htmlStmts ++ echoStmt : rest)
         else do
@@ -145,7 +148,12 @@ takeUntilPhpTag = do
 
 -- | Parse a single statement.
 parseStmt :: Parser (Stmt Span)
-parseStmt = withStatement parseStmtCore
+parseStmt = do
+  stmt <- withStatement parseStmtCore
+  case stmt of
+    StmtDeclare {} -> pure ()
+    _ -> markNonDeclareContent
+  pure stmt
 
 parseStmtCore :: Parser (Stmt Span)
 parseStmtCore =
@@ -189,6 +197,9 @@ parseDeclare = withSpan $ do
   isFirstStatement <- atScriptStart
   when (hasStrictTypes && not isFirstStatement) $
     fail "strict_types declaration must be the very first statement in the script"
+  inPrologue <- inDeclarePrologue
+  when (any isEncodingDirective directives && not inPrologue) $
+    fail "Encoding declaration pragma must be the very first statement in the script"
   bodyBranch directives
   where
     parseDeclareDirective = withSpan $ do
@@ -249,6 +260,8 @@ parseDeclare = withSpan $ do
         fail "strict_types declaration must not use block mode"
 
     isStrictTypesDirective (DeclareDirective _ name _) = isStrictTypesName name
+
+    isEncodingDirective (DeclareDirective _ name _) = isEncodingName name
 
     isStrictTypesName (Ident _ name) = T.toLower name == "strict_types"
 
