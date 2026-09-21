@@ -8,6 +8,10 @@ module Language.PHP.Parser.Lexer
   , withStatement
   , markScriptStatement
   , atScriptStart
+  , markNonDeclareContent
+  , noteCloseTagTerminator
+  , takeCloseTagTerminator
+  , inDeclarePrologue
   , spanned
   , withSpan
   , toSourcePos
@@ -68,10 +72,12 @@ data LexerState = LexerState
   , scriptStatementSeen :: !Bool
   , statementDepth :: !Int
   , currentStatementIsFirst :: !Bool
+  , nonDeclareContentSeen :: !Bool
+  , closeTagIsTerminator :: !Bool
   } deriving (Eq, Show)
 
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty False 0 False
+initialLexerState = LexerState [] Map.empty False 0 False False False
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -118,6 +124,34 @@ markScriptStatement = modify' (\st -> st { scriptStatementSeen = True })
 -- | Whether the statement currently being parsed is the script's first one.
 atScriptStart :: Parser Bool
 atScriptStart = currentStatementIsFirst <$> get
+
+-- | Mark top-level content other than a declare statement.  PHP lets an
+-- encoding declaration follow earlier top-level declare statements, but not
+-- any other statement, inline HTML, or an empty statement -- which is what a
+-- close tag becomes when it does not itself end a statement.  Content nested
+-- inside a statement is judged through that statement, so it is ignored here.
+markNonDeclareContent :: Parser ()
+markNonDeclareContent = modify' $ \st ->
+  if statementDepth st == 0 then st { nonDeclareContentSeen = True } else st
+
+-- | Record that the upcoming close tag ends the statement just parsed, so it
+-- is not also an empty statement of its own.
+noteCloseTagTerminator :: Parser ()
+noteCloseTagTerminator = modify' (\st -> st { closeTagIsTerminator = True })
+
+-- | Consume the record left by 'noteCloseTagTerminator'.
+takeCloseTagTerminator :: Parser Bool
+takeCloseTagTerminator = do
+  st <- get
+  put st { closeTagIsTerminator = False }
+  pure (closeTagIsTerminator st)
+
+-- | Whether the statement being parsed is a top-level one preceded only by
+-- top-level declare statements: where PHP accepts an encoding declaration.
+inDeclarePrologue :: Parser Bool
+inDeclarePrologue = do
+  st <- get
+  pure (statementDepth st == 1 && not (nonDeclareContentSeen st))
 
 toSourcePos :: M.SourcePos -> Int -> Language.PHP.Span.SourcePos
 toSourcePos sp offset = Language.PHP.Span.SourcePos

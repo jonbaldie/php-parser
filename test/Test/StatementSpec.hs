@@ -1166,6 +1166,44 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php declare(encoding='UTF-8', ticks=1);"
         ]
 
+  , testCase "Encoding declaration must be the first statement (Issue #274)" $ do
+      -- PHP only lets earlier top-level declare statements precede an
+      -- encoding declaration: any other statement, inline HTML, an empty
+      -- statement, or a close tag that does not end a statement comes too
+      -- early, and a nested declaration is never first.
+      mapM_ assertParsesFail
+        [ "<?php $x = 1; declare(encoding='UTF-8');"
+        , "<?php $x = 1; ?><?php declare(encoding='UTF-8');"
+        , "<?php ; declare(encoding='UTF-8');"
+        , "<?php ?><?php declare(encoding='UTF-8');"
+        , "a<?php declare(encoding='UTF-8');"
+        , "<?= 1 ?><?php declare(encoding='UTF-8');"
+        , "<?php namespace A; declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1); ?><?php declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) {} ?><?php declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) ?>x<?php declare(encoding='UTF-8');"
+        , "<?php { declare(encoding='UTF-8'); }"
+        , "<?php function f() { declare(encoding='UTF-8'); }"
+        , "<?php declare(ticks=1) { declare(encoding='UTF-8'); }"
+        , "<?php declare(ticks=1) declare(encoding='UTF-8');"
+        ]
+
+      mapM_ assertParsesOk
+        [ "<?php declare(encoding='UTF-8');"
+        , "<?php /* leading comment */ declare(encoding='UTF-8');"
+        , "<?php // leading comment\ndeclare(encoding='UTF-8');"
+        , "<?php declare(encoding='UTF-8') ?>tail"
+        , "<?php declare(encoding='UTF-8'); ?>"
+        , "<?php declare(encoding='UTF-8') { echo 1; }"
+        , "<?php declare(ticks=1); declare(encoding='UTF-8');"
+        , "<?php declare(strict_types=1); declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) ?><?php declare(encoding='UTF-8');"
+        , "<?php declare(ticks=1) { ?>x<?php } declare(encoding='UTF-8');"
+        , "<?php declare(encoding='UTF-8'); declare(encoding='UTF-8');"
+        , "<?php $x = 1; declare(ticks=1);"
+        , "<?php $x = 1; ?>x<?php declare(ticks=1) { echo 1; }"
+        ]
+
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
       [ testCase "list(...) destructuring in assignments" $ do
           assertParsesOk "<?php list($a, $b) = $arr;"
