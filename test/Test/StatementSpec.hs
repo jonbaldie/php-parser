@@ -1051,21 +1051,21 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php declare(strict_types=1);"
       case parseProgram "test.php" "<?php declare(strict_types=1); function f() {}" of
         Left err -> assertFailure (show (formatParseError err))
-        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (LitInt _ val _)] Nothing, StmtFunction _ _]) -> do
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (ExprLit _ (LitInt _ val _))] Nothing, StmtFunction _ _]) -> do
           assertEqual "directive name" "strict_types" name
           assertEqual "directive value" 1 val
         other -> assertFailure ("Unexpected AST for declare statement: " ++ show other)
 
       case parseProgram "test.php" "<?php declare(ticks=1) { echo 'x'; }" of
         Left err -> assertFailure (show (formatParseError err))
-        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (LitInt _ val _)] (Just [StmtEcho _ _])]) -> do
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (ExprLit _ (LitInt _ val _))] (Just [StmtEcho _ _])]) -> do
           assertEqual "directive name" "ticks" name
           assertEqual "directive value" 1 val
         other -> assertFailure ("Unexpected AST for block declare: " ++ show other)
 
       case parseProgram "test.php" "<?php declare(ticks=1): echo 'x'; enddeclare;" of
         Left err -> assertFailure (show (formatParseError err))
-        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (LitInt _ val _)] (Just [StmtEcho _ _])]) -> do
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) (ExprLit _ (LitInt _ val _))] (Just [StmtEcho _ _])]) -> do
           assertEqual "directive name" "ticks" name
           assertEqual "directive value" 1 val
         other -> assertFailure ("Unexpected AST for alt declare: " ++ show other)
@@ -1110,6 +1110,60 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php declare(ticks=1) { echo 'x'; }"
         , "<?php declare(ticks=1): echo 'x'; enddeclare;"
         , "<?php declare(encoding='UTF-8');"
+        ]
+
+  , testCase "Declare directive values accept compile-time constant expressions (Issue #275)" $ do
+      -- Encoding accepts what PHP permits: literals and constant concatenation
+      -- of literals (PHP folds `'a' . 'b'` into one literal at parse time).
+      mapM_ assertParsesOk
+        [ "<?php declare(encoding='UTF-8' . '');"
+        , "<?php declare(encoding='UTF' . '-8');"
+        , "<?php declare(encoding='a' . 1 . 'b');"
+        , "<?php declare(encoding=('UTF-8'));"
+        , "<?php declare(encoding='a' . ('b'));"
+        ]
+
+      -- The concatenated value is preserved as a concat expression in the AST.
+      case parseProgram "test.php" "<?php declare(encoding='UTF-8' . '');" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ (Ident _ name) val] _]) -> do
+          assertEqual "directive name" "encoding" name
+          case val of
+            ExprBinary _ OpConcat _ _ -> pure ()
+            other -> assertFailure ("Expected a concat expression, got: " ++ show other)
+        other -> assertFailure ("Unexpected AST for encoding concat: " ++ show other)
+
+      -- Literal encoding values keep parsing, and stay literals in the AST.
+      case parseProgram "test.php" "<?php declare(encoding='UTF-8');" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtDeclare _ [DeclareDirective _ _ (ExprLit _ _)] _]) -> pure ()
+        other -> assertFailure ("Unexpected AST for literal encoding: " ++ show other)
+
+      -- Non-constant runtime expressions stay rejected.
+      mapM_ assertParsesFail
+        [ "<?php declare(encoding=$x);"
+        , "<?php declare(encoding=foo());"
+        , "<?php declare(encoding=1+1);"
+        , "<?php declare(ticks=$x);"
+        ]
+
+      -- strict_types keeps its integer-literal rule, and ticks keeps its
+      -- literal-only behavior.
+      mapM_ assertParsesFail
+        [ "<?php declare(strict_types='1' . '');"
+        , "<?php declare(strict_types=1+1);"
+        , "<?php declare(ticks=1+1);"
+        , "<?php declare(ticks='a' . 'b');"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php declare(strict_types=1);"
+        , "<?php declare(strict_types=0);"
+        , "<?php declare(ticks=1);"
+        , "<?php declare(ticks='1');"
+        , "<?php declare(ticks=1.5);"
+        , "<?php declare(ticks=1) { echo 'x'; }"
+        , "<?php declare(ticks=1, encoding='UTF-8');"
+        , "<?php declare(encoding='UTF-8', ticks=1);"
         ]
 
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"

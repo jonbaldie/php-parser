@@ -328,7 +328,8 @@ transformStmt f = \case
           in (vn', me')) items
     in StmtStatic a items'
   StmtDeclare a dirs mBody ->
-    StmtDeclare a dirs (fmap (map (transformStmt f)) mBody)
+    StmtDeclare a (map (\d -> d { declareDirectiveValue = transformExpr f (declareDirectiveValue d) }) dirs)
+                  (fmap (map (transformStmt f)) mBody)
   StmtGoto a lbl -> StmtGoto a lbl
   StmtLabel a lbl -> StmtLabel a lbl
   StmtUnset a es -> StmtUnset a (map (transformExpr f) es)
@@ -531,7 +532,9 @@ queryStmtUnconditional q = \case
   StmtGlobal _ es -> foldMap (queryExprUnconditional q) es
   StmtStatic _ items ->
     foldMap (\(vn@(VarName va _), me) -> queryExprUnconditional q (ExprVar va (SimpleVar va vn)) <> maybe mempty (queryExprUnconditional q) me) items
-  StmtDeclare _ _ mBody -> maybe mempty (foldMap (queryStmtUnconditional q)) mBody
+  StmtDeclare _ dirs mBody ->
+    foldMap (queryExprUnconditional q . declareDirectiveValue) dirs <>
+    maybe mempty (foldMap (queryStmtUnconditional q)) mBody
   StmtGoto _ _ -> mempty
   StmtLabel _ _ -> mempty
   StmtUnset _ es -> foldMap (queryExprUnconditional q) es
@@ -628,7 +631,9 @@ foldStmt q s = q s <> case s of
   StmtEcho _ es -> foldMap (foldExprStmts q) es
   StmtGlobal _ es -> foldMap (foldExprStmts q) es
   StmtStatic _ items -> foldMap (maybe mempty (foldExprStmts q) . snd) items
-  StmtDeclare _ _ mBody -> maybe mempty (foldMap (foldStmt q)) mBody
+  StmtDeclare _ dirs mBody ->
+    foldMap (foldExprStmts q . declareDirectiveValue) dirs <>
+    maybe mempty (foldMap (foldStmt q)) mBody
   StmtUnset _ es -> foldMap (foldExprStmts q) es
   StmtUse _ _ _ -> mempty
   StmtGroupUse _ _ _ _ -> mempty
@@ -832,7 +837,8 @@ stmtChildren recE recS = \case
   StmtGlobal _ es -> foldMap recE es
   StmtStatic _ items ->
     foldMap (\(vn@(VarName va _), me) -> recE (ExprVar va (SimpleVar va vn)) <> maybe mempty recE me) items
-  StmtDeclare _ _ mBody -> maybe mempty (foldMap recS) mBody
+  StmtDeclare _ dirs mBody ->
+    foldMap (recE . declareDirectiveValue) dirs <> maybe mempty (foldMap recS) mBody
   StmtGoto _ _ -> mempty
   StmtLabel _ _ -> mempty
   StmtUnset _ es -> foldMap recE es

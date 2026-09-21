@@ -174,7 +174,7 @@ prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
 prettyDeclareDirective :: HasLeadingTrivia a => DeclareDirective a -> Doc ann
 prettyDeclareDirective (DeclareDirective annotation name val) =
   prettyLeadingTrivia annotation $
-    prettyIdent name <> "=" <> prettyLiteral val
+    prettyIdent name <> "=" <> prettyExpr val
 
 stmtAnnotation :: Stmt a -> a
 stmtAnnotation = \case

@@ -12,7 +12,7 @@ module Language.PHP.Parser.Statement
   ) where
 
 import Control.Applicative ((<|>), optional)
-import Control.Monad (void, when)
+import Control.Monad (void, when, unless)
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -23,7 +23,7 @@ import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
-import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseLiteralWith, parseParamList, hasEmptyDestructure)
+import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
@@ -194,10 +194,33 @@ parseDeclare = withSpan $ do
     parseDeclareDirective = withSpan $ do
       name <- identifier
       _ <- symbol "="
-      val <- parseLiteralWith parseExpr
-      when (isStrictTypesName name && not (isStrictTypesValue val)) $
-        fail "strict_types declaration must have 0 or 1 as its value"
+      val <- parseExpr
+      validateDirectiveValue name val
       pure (\sp -> DeclareDirective sp name val)
+
+    validateDirectiveValue name val
+      | isStrictTypesName name =
+          unless (isStrictTypesValue val) $
+            fail "strict_types declaration must have 0 or 1 as its value"
+      | isEncodingName name =
+          unless (isEncodingValue val) $
+            fail "Encoding must be a literal"
+      | otherwise =
+          unless (isLiteralValue val) $
+            fail ("declare(" <> T.unpack (directiveName name) <> ") value must be a literal")
+
+    -- PHP folds a concatenation of literals into a single literal while
+    -- parsing, so the encoding value may be any literal or chain of them.
+    isEncodingValue (ExprLit _ _) = True
+    isEncodingValue (ExprBinary _ OpConcat l r) = isEncodingValue l && isEncodingValue r
+    isEncodingValue _ = False
+
+    isLiteralValue (ExprLit _ _) = True
+    isLiteralValue _ = False
+
+    isEncodingName (Ident _ name) = T.toLower name == "encoding"
+
+    directiveName (Ident _ name) = name
 
     bodyBranch dirs =
       -- Semicolon or close tag (e.g. declare(strict_types=1);)
@@ -229,7 +252,7 @@ parseDeclare = withSpan $ do
 
     isStrictTypesName (Ident _ name) = T.toLower name == "strict_types"
 
-    isStrictTypesValue (LitInt _ value _) = value == 0 || value == 1
+    isStrictTypesValue (ExprLit _ (LitInt _ value _)) = value == 0 || value == 1
     isStrictTypesValue _ = False
 
 -- | Goto statement: goto label;

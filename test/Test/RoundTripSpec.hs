@@ -288,6 +288,8 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips "<?php goto end; end:"
       assertRoundTrips "<?php unset($a, $b['k']);"
       assertRoundTrips "<?php declare(ticks=1, encoding='UTF-8');"
+      assertRoundTrips "<?php declare(encoding='UTF-8' . '');"
+      assertRoundTrips "<?php declare(encoding='a' . 1 . 'b');"
 
   , testCase "Round-trip interpolated strings containing escaped double quotes (Issue #111)" $ do
       assertRoundTrips "<?php \"hello \\\"world\\\" $x\";"
@@ -562,7 +564,7 @@ genStmtSized n
       -- strict_types is valid only as the first statement of a script; this
       -- generator produces standalone and nested statements, so use a
       -- declaration whose placement is unrestricted here.
-      , pure (StmtDeclare () [DeclareDirective () (Ident () "ticks") (LitInt () 1 "1")] Nothing)
+      , pure (StmtDeclare () [DeclareDirective () (Ident () "ticks") (ExprLit () (LitInt () 1 "1"))] Nothing)
       ]
   | otherwise = oneof
       [ StmtExpr () <$> genExprSized 1

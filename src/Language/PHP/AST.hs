@@ -545,7 +545,7 @@ data Stmt a
 data DeclareDirective a = DeclareDirective
   { declareDirectiveAnn   :: !a
   , declareDirectiveName  :: !(Ident a)
-  , declareDirectiveValue :: !(Literal a)
+  , declareDirectiveValue :: !(Expr a)   -- ^ A literal, or a concatenation of literals
   } deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 -- | Top-level PHP program. Nothing precedes a program, so the trivia in its
