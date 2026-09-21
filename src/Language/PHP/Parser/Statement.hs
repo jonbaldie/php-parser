@@ -67,6 +67,7 @@ parseOpenTag =
 parseCloseTag :: Parser ()
 parseCloseTag = do
   _ <- C.string "?>"
+  markScriptStatement
   -- PHP suppresses the newline immediately following a close tag,
   -- matching its lexer's NEWLINE rule: "\r\n" as a pair, "\n", or "\r".
   _ <- optional (C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n'))
@@ -114,6 +115,7 @@ parseHtmlRegion :: Parser [Stmt Span] -> Parser [Stmt Span]
 parseHtmlRegion k = do
   (sp, html) <- spanned takeUntilPhpTag
   let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
+  when (not (null html)) markScriptStatement
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
   if isEof
     then pure htmlStmts
@@ -122,6 +124,7 @@ parseHtmlRegion k = do
       if isShortEcho
         then do
           echoStmt <- parseShortEchoBody
+          markScriptStatement
           rest <- k
           pure (htmlStmts ++ echoStmt : rest)
         else do
@@ -142,7 +145,10 @@ takeUntilPhpTag = do
 
 -- | Parse a single statement.
 parseStmt :: Parser (Stmt Span)
-parseStmt =
+parseStmt = withStatement parseStmtCore
+
+parseStmtCore :: Parser (Stmt Span)
+parseStmtCore =
   parseNamespace
   <|> parseUse
   <|> parseClass
@@ -179,12 +185,18 @@ parseDeclare :: Parser (Stmt Span)
 parseDeclare = withSpan $ do
   keyword_ "declare"
   directives <- parens (parseDeclareDirective `M.sepEndBy1` comma)
+  hasStrictTypes <- pure (any isStrictTypesDirective directives)
+  isFirstStatement <- atScriptStart
+  when (hasStrictTypes && not isFirstStatement) $
+    fail "strict_types declaration must be the very first statement in the script"
   bodyBranch directives
   where
     parseDeclareDirective = withSpan $ do
       name <- identifier
       _ <- symbol "="
       val <- parseLiteralWith parseExpr
+      when (isStrictTypesName name && not (isStrictTypesValue val)) $
+        fail "strict_types declaration must have 0 or 1 as its value"
       pure (\sp -> DeclareDirective sp name val)
 
     bodyBranch dirs =
@@ -192,6 +204,7 @@ parseDeclare = withSpan $ do
       (statementTerminator *> pure (\sp -> StmtDeclare sp dirs Nothing))
       -- Alternative syntax (declare(...): ... enddeclare;)
       <|> (do
+        rejectStrictTypesBody dirs
         _ <- colon
         stmts <- parseAltBody
         keyword_ "enddeclare"
@@ -199,12 +212,25 @@ parseDeclare = withSpan $ do
         pure (\sp -> StmtDeclare sp dirs (Just stmts)))
       -- Brace block (declare(...) { ... })
       <|> (do
+        rejectStrictTypesBody dirs
         stmts <- braces parseMixedBody
         pure (\sp -> StmtDeclare sp dirs (Just stmts)))
       -- Single statement (declare(...) stmt)
       <|> (do
+        rejectStrictTypesBody dirs
         s <- parseStmt
         pure (\sp -> StmtDeclare sp dirs (Just [s])))
+
+    rejectStrictTypesBody dirs =
+      when (any isStrictTypesDirective dirs) $
+        fail "strict_types declaration must not use block mode"
+
+    isStrictTypesDirective (DeclareDirective _ name _) = isStrictTypesName name
+
+    isStrictTypesName (Ident _ name) = T.toLower name == "strict_types"
+
+    isStrictTypesValue (LitInt _ value _) = value == 0 || value == 1
+    isStrictTypesValue _ = False
 
 -- | Goto statement: goto label;
 parseGoto :: Parser (Stmt Span)

@@ -1084,6 +1084,34 @@ statementTests = testGroup "Statement & Declaration Specifications"
         Right (Program _ [StmtUnset _ [ExprVar _ _, ExprArrayAccess _ _ _]]) -> pure ()
         other -> assertFailure ("Unexpected AST for unset: " ++ show other)
 
+  , testCase "Enforce strict_types declaration rules (Issue #273)" $ do
+      mapM_ assertParsesFail
+        [ "<?php $x = 1; declare(strict_types=1);"
+        , "a<?php declare(strict_types=1);"
+        , "<?php $x = 1; ?> <?php declare(strict_types=1);"
+        , "<?php ?><?php declare(strict_types=1);"
+        , "<?php ; declare(strict_types=1);"
+        , "<?php function f() { declare(strict_types=1); }"
+        , "<?php declare(strict_types=1) { $x = 1; }"
+        , "<?php declare(strict_types=1): echo 1; enddeclare;"
+        , "<?php declare(strict_types=1) echo 1;"
+        , "<?php declare(strict_types=2);"
+        , "<?php declare(strict_types='1');"
+        , "<?php declare(strict_types=true);"
+        , "<?php declare(strict_types=1.5);"
+        , "<?php declare(strict_types=-1);"
+        ]
+
+      mapM_ assertParsesOk
+        [ "<?php declare(strict_types=0);"
+        , "<?php declare(strict_types=1);"
+        , "<?php /* leading comment */ declare(strict_types=1);"
+        , "<?php // leading comment\ndeclare(strict_types=0);"
+        , "<?php declare(ticks=1) { echo 'x'; }"
+        , "<?php declare(ticks=1): echo 'x'; enddeclare;"
+        , "<?php declare(encoding='UTF-8');"
+        ]
+
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
       [ testCase "list(...) destructuring in assignments" $ do
           assertParsesOk "<?php list($a, $b) = $arr;"
