@@ -29,7 +29,7 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       assertRoundTrips src
 
   , testCase "Round-trip attributed and by-reference property hooks (Issue #116)" $ do
-      let src = "<?php\nclass Hooked {\n    public string $name {\n        #[Example]\n        get => $this->raw;\n        final &get => $this->raw;\n    }\n}"
+      let src = "<?php\nclass Hooked {\n    public string $name {\n        #[Example]\n        get => $this->raw;\n    }\n    public string $other {\n        final &get => $this->raw;\n    }\n}"
       case parseProgram "test.php" src of
         Left err -> assertFailure (show (formatParseError err))
         Right prog -> do

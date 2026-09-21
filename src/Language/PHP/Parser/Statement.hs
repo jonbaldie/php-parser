@@ -1059,7 +1059,7 @@ parseProperty enclosingReadonly attrs = withSpan $ do
     then if enclosingReadonly || propReadonly modif
       then M.empty
       else do
-        hooks <- braces (M.many parsePropertyHook)
+        hooks <- braces (parsePropertyHooks [])
         pure (\sp -> PropertyDecl sp attrs modif mType [(firstVar, mFirstVal)] hooks)
     else do
       restItems <- M.many (comma *> parseItem)
@@ -1070,6 +1070,18 @@ parseProperty enclosingReadonly attrs = withSpan $ do
       var <- variableName
       mVal <- optional (symbol "=" *> parseExpr)
       pure (var, mVal)
+
+    parsePropertyHooks seen =
+      (M.lookAhead (symbol "}") *> pure [])
+      <|> do
+        hook <- parsePropertyHook
+        let hookT = hookType hook
+        when (hookT `elem` seen) $
+          M.fancyFailure (S.singleton (M.ErrorFail ("Cannot redeclare property hook \"" <> hookName hookT <> "\"")))
+        (hook :) <$> parsePropertyHooks (hookT : seen)
+
+    hookName HookGet = "get"
+    hookName HookSet = "set"
 
 -- | PHP 8.4 Property Hook: get => expr; or set(Type $v) { ... }
 --

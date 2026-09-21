@@ -31,6 +31,27 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberProperty"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "Reject duplicate property hooks within one declaration (Issue #278)" $ do
+      let rejected =
+            [ ("set", "<?php class C { public int $value { set {} set {} } }")
+            , ("get", "<?php class C { public int $value { get => 1; get => 2; } }")
+            , ("set", "<?php class C { public int $p { get => 1; set => 2; set => 3; } }")
+            ]
+          accepted =
+            [ "<?php class C { public int $value { get => 1; set(int $v) {} } }"
+            , "<?php class C { public int $first { get => 1; } public int $second { get => 2; } }"
+            ]
+      forM_ rejected $ \(hook, src) ->
+        case parseProgram "test.php" src of
+          Left err ->
+            assertBool ("expected duplicate " ++ hook ++ " hook diagnostic for: " ++ show src)
+              (maybe False (T.isInfixOf ("Cannot redeclare property hook \"" <> T.pack hook <> "\"")) (errorCustom err))
+          Right _ -> assertFailure ("expected duplicate hook rejection for: " ++ show src)
+      forM_ accepted $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertFailure ("unexpected parse failure for: " ++ show src ++ ": " ++ show (formatParseError err))
+          Right _ -> pure ()
+
   , testCase "by-reference and attributed property hooks (Issue #116)" $ do
       let assertParses label src = case parseProgram "test.php" src of
             Left err -> assertFailure (label ++ " failed: " ++ show (formatParseError err))

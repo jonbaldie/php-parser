@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Reject duplicate `get` or `set` property hooks within one declaration, matching PHP's `Cannot redeclare property hook` compile-time fatal. A declaration may still contain one hook of each kind, and separate properties keep independent hooks (#278).
+
 * Reject a property declared without any modifier, which PHP refuses with `syntax error, unexpected variable "$x", expecting "function"` but the library accepted: `<?php class C { $x = 1; }` and `<?php trait T { $x = 1; }` parsed as properties because the property modifier loop allowed an empty modifier list. A property now needs at least one of `var`, a visibility, asymmetric set visibility, `static`, `readonly`, `final` or `abstract`, so a modifierless typed or hooked property such as `int $x;` is rejected as well, in class, trait, anonymous-class and interface bodies alike (#277).
 
 * Reject a `declare(encoding=...)` that is not the first statement of the script, which PHP refuses with "Encoding declaration pragma must be the very first statement in the script" but the library accepted anywhere: `<?php $x = 1; declare(encoding='UTF-8');` parsed. As in PHP, only earlier top-level `declare` statements may precede it; any other statement, inline HTML, a `<?=` echo, an empty statement, or a close tag that does not itself end a statement comes too early, and a nested encoding declaration is never first. Comments before it remain allowed, and `ticks` and other directives keep their position rules (#274).
