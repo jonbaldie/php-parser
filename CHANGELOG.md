@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Accept a compile-time constant expression as a `declare(encoding=...)` value: PHP folds a concatenation of literals into a single literal while parsing, so `declare(encoding='UTF-8' . '')` is a compile error the interpreter never reaches, yet the value parser here was literal-only and stopped at the `.`, rejecting the program with a syntax error. The directive value is now a constant expression in the AST (`DeclareDirective`'s value changed from `Literal` to `Expr`, currently a literal or a chain of `.`-concats of literals), literal values keep parsing, and non-constant runtime expressions such as `$x` are still rejected with PHP's "Encoding must be a literal" verdict; `strict_types` keeps its integer-literal rule and `ticks` keeps its literal-only behavior (#275).
+
 * Enforce PHP's `declare(strict_types=...)` rules: the declaration must be the first script statement, use semicolon mode, and have an integer value of `0` or `1`; comments remain allowed before it (#273).
 
 * Match the full PHP open tag case-insensitively, as PHP does. `<?PHP`, `<?pHp` and other casings of `<?php` were rejected because `parseOpenTag` used a case-sensitive string; a mismatch then fell through to the short-open branch, so `<?pHp $x = 1;` was read as a short tag plus the identifier `pHp` and failed at the following variable. Short `<?` and `<?=` guards are unchanged (#272).
