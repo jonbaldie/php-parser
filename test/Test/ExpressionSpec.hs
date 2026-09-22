@@ -1707,6 +1707,61 @@ expressionTests = testGroup "Expression Specifications"
             other -> assertFailure ("Unexpected AST: " ++ show other)
       ]
 
+  , testGroup "Assignment targets (Issue #283)"
+      [ testCase "rejects the reported non-assignable expression" $ do
+          case parseProgram "issue283.php" "<?php $a3.0 = 1;" of
+            Left _ -> pure ()
+            Right program ->
+              assertFailure ("Expected a parse error, got: " ++ show program)
+
+      , testCase "rejects non-assignable value-assignment targets" $ do
+          forM_ [ "1 = $a"
+                , "'text' = $a"
+                , "($a + $b) = $c"
+                , "foo() = $a"
+                , "($a ? $b : $c) = $d"
+                , "$obj?->prop = 1"
+                , "1 += $a"
+                , "($a + $b) .= $c"
+                , "[1, $b] = $arr"
+                , "[$a, foo()] = $arr"
+                , "[...$a] = $arr"
+                , "list($a, 1) = $arr"
+                , "[$a] += $arr"
+                , "($a + $b)[0] = 1"
+                , "($a + $b)->prop = 1"
+                , "$obj?->prop[0] = 1"
+                ] $ \src ->
+            case parseExpression "issue283.php" src of
+              Left _ -> pure ()
+              Right expr ->
+                assertFailure (T.unpack src ++ ": expected a parse error, got: " ++ show expr)
+
+      , testCase "rejects non-assignable by-reference targets" $ do
+          forM_ [ "1 =& $a"
+                , "foo() =& $a"
+                , "($a + $b) =& $c"
+                , "($a ? $b : $c) =& $d"
+                , "[$a] =& $arr"
+                ] $ \src ->
+            case parseExpression "issue283.php" src of
+              Left _ -> pure ()
+              Right expr ->
+                assertFailure (T.unpack src ++ ": expected a parse error, got: " ++ show expr)
+
+      , testCase "keeps valid assignment targets accepted" $ do
+          forM_ [ "$a = 1"
+                , "$arr[] = 1"
+                , "$arr[0] += 1"
+                , "$obj->prop = 1"
+                , "Klass::$prop = 1"
+                , "foo()[0] = 1"
+                , "foo()->prop = 1"
+                , "[$a, [$b, $c]] = $arr"
+                , "list($obj->prop, $arr[0]) = $arr"
+                ] assertParsesOkExpr
+      ]
+
   , testGroup "By-reference assignment (Issue #138)"
       [ testCase "$a =& $b parses as a by-reference assignment" $ do
           case parseExpression "test.php" "$a =& $b" of
