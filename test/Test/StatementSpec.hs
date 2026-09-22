@@ -1168,6 +1168,26 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php declare(encoding='UTF-8');"
         ]
 
+  , testCase "Allow strict_types after top-level declare statements (Issue #290)" $ do
+      mapM_ assertParsesOk
+        [ "<?php declare(ticks=1); declare(strict_types=1);"
+        , "<?php declare(encoding='UTF-8'); declare(strict_types=1);"
+        , "<?php declare(strict_types=1) ?><?php declare(strict_types=1);"
+        , "<?php declare(ticks=1); declare(encoding='UTF-8'); declare(strict_types=0);"
+        ]
+
+      mapM_ assertParsesFail
+        [ "<?php $x = 1; declare(strict_types=1);"
+        , "a<?php declare(strict_types=1);"
+        , "<?php ; declare(strict_types=1);"
+        , "<?php ?><?php declare(strict_types=1);"
+        , "<?= 1 ?><?php declare(strict_types=1);"
+        , "<?php namespace A; declare(strict_types=1);"
+        , "<?php function f() { declare(strict_types=1); }"
+        , "<?php declare(strict_types=1) { echo 1; }"
+        , "<?php declare(strict_types=1): echo 1; enddeclare;"
+        ]
+
   , testCase "Declare directive values accept compile-time constant expressions (Issue #275)" $ do
       -- Encoding accepts what PHP permits: literals and constant concatenation
       -- of literals (PHP folds `'a' . 'b'` into one literal at parse time).
