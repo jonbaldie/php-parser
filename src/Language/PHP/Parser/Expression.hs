@@ -33,6 +33,14 @@ import Language.PHP.Span (Span, combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType)
 
+-- | Which unparenthesized ternary forms are available in the current branch.
+-- PHP permits nesting in the middle operand, and permits chains of short
+-- ternaries, but a false branch cannot contain an unparenthesized ternary.
+data TernaryMode
+  = FullTernary
+  | ShortTernary
+  | NoTernary
+
 -- | Check whether an expression is an empty destructuring pattern or contains
 -- an empty destructuring pattern at any nested level.
 hasEmptyDestructure :: Expr a -> Bool
@@ -125,10 +133,21 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     parseLogicalXor = parseBinaryLeft parseLogicalAnd [ (keyword "xor", OpLogicalXor) ]
     parseLogicalAnd = parseBinaryLeft parseAssignment [ (keyword "and", OpLogicalAnd) ]
 
-    parseAssignment = parseYield <|> parseThrow <|> parseInclude <|> parsePrint <|> do
-      lhs <- parseTernary
-      assignRest lhs <|> pure lhs
+    parseAssignment = parseAssignmentWith FullTernary
+    parseAssignmentShortOnly = parseAssignmentWith ShortTernary
+    parseAssignmentNoTernary = parseAssignmentWith NoTernary
+
+    parseAssignmentWith mode =
+      parseYieldWith pAssignment
+      <|> parseThrowWith pAssignment
+      <|> parseIncludeWith pAssignment
+      <|> parsePrintWith pAssignment
+      <|> do
+        lhs <- parseTernaryWith mode
+        assignRest lhs <|> pure lhs
       where
+        pAssignment = parseAssignmentWith mode
+
         assignRest lhs = do
           op <- parseAssignOp
           when (hasEmptyDestructure lhs) $
@@ -151,7 +170,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         assignValueRest op lhs = do
           when (hasEmptyDestructure lhs) $
             fail "Cannot use empty list"
-          rhs <- parseAssignment
+          rhs <- pAssignment
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssign sp op lhs rhs)
 
@@ -179,38 +198,38 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           <|> (Just OpShiftRight <$ symbol ">>=")
           <|> (Just OpCoalesce <$ symbol "??=")
 
-    parseYield = withSpan $ do
+    parseYieldWith pAssignment = withSpan $ do
       _ <- keyword "yield"
       isFrom <- (True <$ keyword "from") <|> pure False
       if isFrom
         then do
-          expr <- parseAssignment
+          expr <- pAssignment
           pure (\sp -> ExprYieldFrom sp expr)
         else do
-          mKeyOrVal <- optional parseAssignment
+          mKeyOrVal <- optional pAssignment
           case mKeyOrVal of
             Nothing -> pure (\sp -> ExprYield sp Nothing Nothing)
             Just kOrV -> do
               isArrow <- (True <$ symbol "=>") <|> pure False
               if isArrow
                 then do
-                  val <- parseAssignment
+                  val <- pAssignment
                   pure (\sp -> ExprYield sp (Just kOrV) (Just val))
                 else pure (\sp -> ExprYield sp Nothing (Just kOrV))
 
-    parseThrow = withSpan $ do
+    parseThrowWith pAssignment = withSpan $ do
       _ <- keyword "throw"
-      expr <- parseAssignment
+      expr <- pAssignment
       pure (\sp -> ExprThrow sp expr)
 
-    parseInclude = withSpan $ do
+    parseIncludeWith pAssignment = withSpan $ do
       incType <- parseIncludeType
-      expr <- parseAssignment
+      expr <- pAssignment
       pure (\sp -> ExprInclude sp incType expr)
 
-    parsePrint = withSpan $ do
+    parsePrintWith pAssignment = withSpan $ do
       _ <- keyword "print"
-      expr <- parseAssignment
+      expr <- pAssignment
       pure (\sp -> ExprPrint sp expr)
 
     parseIncludeType =
@@ -219,32 +238,48 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       <|> (IncRequireOnce <$ keyword "require_once")
       <|> (IncRequire <$ keyword "require")
 
-    parseTernary = do
-      cond <- parseCoalesce
-      parseTernaryRest cond <|> pure cond
+    parseTernaryWith mode = case mode of
+      NoTernary -> parseCoalesceWith NoTernary
+      ShortTernary -> do
+        cond <- parseCoalesceWith ShortTernary
+        parseShortTernaryRest cond <|> pure cond
+      FullTernary -> do
+        cond <- parseCoalesceWith FullTernary
+        parseFullTernaryRest cond <|> pure cond
       where
-        parseTernaryRest cond = do
-          _ <- lexeme (M.try (C.char '?' <* M.notFollowedBy (C.char '?' <|> C.char '>')))
+        parseShortTernaryRest cond = do
+          _ <- M.try $ do
+            _ <- parseTernaryQuestion
+            symbol ":"
+          fBranch <- parseAssignmentShortOnly
+          let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+          pure (ExprTernary sp cond Nothing fBranch)
+
+        parseFullTernaryRest cond = do
+          _ <- parseTernaryQuestion
           isShort <- (True <$ symbol ":") <|> pure False
           if isShort
             then do
-              fBranch <- parseAssignment
+              fBranch <- parseAssignmentShortOnly
               let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
               pure (ExprTernary sp cond Nothing fBranch)
             else do
               tBranch <- parseExprRec
               _ <- symbol ":"
-              fBranch <- parseAssignment
+              fBranch <- parseAssignmentNoTernary
               let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
               pure (ExprTernary sp cond (Just tBranch) fBranch)
 
-    parseCoalesce = do
+        parseTernaryQuestion =
+          lexeme (M.try (C.char '?' <* M.notFollowedBy (C.char '?' <|> C.char '>')))
+
+    parseCoalesceWith mode = do
       lhs <- parseBoolOr
       parseCoalesceRest lhs <|> pure lhs
       where
         parseCoalesceRest lhs = do
           _ <- lexeme (M.try (C.string "??" <* M.notFollowedBy (C.char '=')))
-          rhs <- parseCoalesce <|> parseThrow
+          rhs <- parseCoalesceWith mode <|> parseThrowWith (parseAssignmentWith mode)
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprNullCoalesce sp lhs rhs)
 
