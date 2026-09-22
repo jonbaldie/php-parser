@@ -1033,6 +1033,20 @@ statementTests = testGroup "Statement & Declaration Specifications"
       assertParsesOk "<?php\t$x = 1;"
       assertParsesOk "<?php"
 
+  , testCase "Reject form feed as PHP code whitespace (Issue #279)" $ do
+      mapM_ assertParsesFail
+        [ "<?php $x\x0c= 1;"
+        , "<?php\x0c$x = 1;"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php $x\x0b= 1;"
+        , "<?php $x = \"\x0c\";"
+        , "<?php // comment \x0c\n$x = 1;"
+        , "<?php # comment \x0c\n$x = 1;"
+        , "<?php /* comment \x0c */ $x = 1;"
+        , "<?php /** doc \x0c */ $x = 1;"
+        ]
+
   , testCase "Reject reserved type and literal names as class names (Issue #94)" $ do
       -- Built-in type names
       assertParsesFail "<?php class int {}"

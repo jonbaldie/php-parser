@@ -61,7 +61,7 @@ parseCodeChunks =
 -- so callers can backtrack over the tag without hiding errors in that trivia.
 parseOpenTag :: Parser ()
 parseOpenTag =
-  (M.try (C.string' "<?php") *> (void C.space1 <|> void (C.char '\n') <|> void M.eof))
+  (M.try (C.string' "<?php") *> (phpCodeWhitespace1 <|> void M.eof))
     <|> (C.string "<?" *> M.notFollowedBy (C.char '=') *> M.notFollowedBy (C.string "php"))
 
 parseCloseTag :: Parser ()
