@@ -194,10 +194,9 @@ parseDeclare = withSpan $ do
   keyword_ "declare"
   directives <- parens (parseDeclareDirective `M.sepEndBy1` comma)
   hasStrictTypes <- pure (any isStrictTypesDirective directives)
-  isFirstStatement <- atScriptStart
-  when (hasStrictTypes && not isFirstStatement) $
-    fail "strict_types declaration must be the very first statement in the script"
   inPrologue <- inDeclarePrologue
+  when (hasStrictTypes && not inPrologue) $
+    fail "strict_types declaration must be the very first statement in the script"
   when (any isEncodingDirective directives && not inPrologue) $
     fail "Encoding declaration pragma must be the very first statement in the script"
   bodyBranch directives

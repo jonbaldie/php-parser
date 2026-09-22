@@ -147,8 +147,8 @@ takeCloseTagTerminator = do
   put st { closeTagIsTerminator = False }
   pure (closeTagIsTerminator st)
 
--- | Whether the statement being parsed is a top-level one preceded only by
--- top-level declare statements: where PHP accepts an encoding declaration.
+-- | Whether the statement being parsed is a top-level declaration preceded
+-- only by top-level declare statements: the PHP declare prologue.
 inDeclarePrologue :: Parser Bool
 inDeclarePrologue = do
   st <- get
