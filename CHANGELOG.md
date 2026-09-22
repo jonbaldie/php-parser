@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Allow `declare(strict_types=...)` to follow earlier top-level `declare` statements, as PHP does. Other top-level content, nested declarations, and block-mode declarations remain rejected (#290).
+
 * Reject duplicate `get` or `set` property hooks within one declaration, matching PHP's `Cannot redeclare property hook` compile-time fatal. A declaration may still contain one hook of each kind, and separate properties keep independent hooks (#278).
 
 * Reject a property declared without any modifier, which PHP refuses with `syntax error, unexpected variable "$x", expecting "function"` but the library accepted: `<?php class C { $x = 1; }` and `<?php trait T { $x = 1; }` parsed as properties because the property modifier loop allowed an empty modifier list. A property now needs at least one of `var`, a visibility, asymmetric set visibility, `static`, `readonly`, `final` or `abstract`, so a modifierless typed or hooked property such as `int $x;` is rejected as well, in class, trait, anonymous-class and interface bodies alike (#277).
