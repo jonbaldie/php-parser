@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8.0
 
 * Accept a `declare(strict_types=...)` that follows earlier top-level `declare` statements, which PHP allows but the library rejected: `<?php declare(ticks=1); declare(strict_types=1);` and `<?php declare(encoding='UTF-8'); declare(strict_types=1);` failed with "strict_types declaration must be the very first statement in the script" even though the only preceding top-level statements were declares. The strict-types position check now uses the same declare-prologue rule the encoding check already applied (#274), so a close-tag-separated second `strict_types` declaration parses too, while any non-declare statement, inline HTML, a `<?=` echo, or an empty statement still comes too late, and nested or block-mode strict_types declarations stay rejected (#290).
 
