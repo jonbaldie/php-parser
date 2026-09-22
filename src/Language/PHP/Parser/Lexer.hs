@@ -18,6 +18,7 @@ module Language.PHP.Parser.Lexer
   -- * Whitespace, Comments, Trivia
   , sc
   , scNoNewline
+  , phpCodeWhitespace1
   , takeTrivia
   , recordTrivia
   , lexeme
@@ -209,7 +210,7 @@ addTrivia t = modify' (\s -> s { currentTrivia = currentTrivia s ++ [t] })
 -- | Space and comment consumer.
 sc :: Parser ()
 sc = L.space
-  (void C.spaceChar)
+  phpCodeWhitespace
   (lineComment <|> hashComment)
   blockOrDocComment
 
@@ -219,6 +220,19 @@ scNoNewline = L.space
   (void (M.satisfy (\c -> c == ' ' || c == '\t' || c == '\r')))
   (lineComment <|> hashComment)
   blockOrDocComment
+
+-- | PHP's code whitespace is deliberately narrower than 'Data.Char.isSpace'.
+-- Keep vertical tab for the lexer behaviour already supported by this parser,
+-- but do not admit form feed or unrelated Unicode whitespace.
+phpCodeWhitespace :: Parser ()
+phpCodeWhitespace = void (M.satisfy isPHPCodeWhitespace)
+
+-- | Parse one or more PHP code-whitespace characters.
+phpCodeWhitespace1 :: Parser ()
+phpCodeWhitespace1 = void (some (M.satisfy isPHPCodeWhitespace))
+
+isPHPCodeWhitespace :: Char -> Bool
+isPHPCodeWhitespace c = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v'
 
 lineComment :: Parser ()
 lineComment = do
