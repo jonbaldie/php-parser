@@ -384,6 +384,39 @@ expressionTests = testGroup "Expression Specifications"
       assertParsesOkExpr src1
       assertParsesOkExpr src2
 
+  , testGroup "Unparenthesized nested ternaries (Issue #280)"
+      [ testCase "rejects a nested false branch without parentheses" $ do
+          let src = "<?php 1 ? 1 : 0 ? 1 : 0;"
+          case parseProgram "issue280.php" src of
+            Left _ -> pure ()
+            Right prog -> assertFailure ("expected parse failure, got: " ++ show prog)
+
+      , testCase "accepts valid ternary nesting and short ternaries" $ do
+          forM_
+            [ "<?php 1 ? 1 : 0;"
+            , "<?php 1 ? 0 ? 1 : 0 : 1;"
+            , "<?php 1 ? 1 : (0 ? 1 : 0);"
+            , "<?php (1 ? 1 : 0) ? 1 : 0;"
+            , "<?php $x = 1 ?: 0;"
+            , "<?php $x = 1 ?: 0 ?: 2;"
+            , "<?php $x = 1 ? 0 ?: 1 : 2;"
+            , "<?php $x = 1 ? 2 : throw new RuntimeException();"
+            ] $ \src ->
+              case parseProgram "issue280.php" src of
+                Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+                Right _ -> pure ()
+
+      , testCase "pretty-printing parenthesized nesting remains parseable" $ do
+          case parseExpression "issue280.php" "1 ? 1 : (0 ? 1 : 0)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              let printed = prettyPrintExpr expr
+              assertBool "nested ternary is parenthesized" ("(" `T.isInfixOf` printed)
+              case parseExpression "issue280.php" printed of
+                Left err -> assertFailure (T.unpack printed ++ ": " ++ show (formatParseError err))
+                Right _ -> pure ()
+      ]
+
   , testCase "Array unpacking with spread: [...$first, 'middle', ...$second]" $ do
       let src = "[...$first, 'middle', ...$second]"
       case parseExpression "test.php" src of
