@@ -172,6 +172,7 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
   , testCase "Round-trip ExprAssign nested in composite expressions (Issue #12)" $ do
       let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y")))
                      (ExprLit () (LitInt () 1 "1"))
+          varZ = ExprVar () (SimpleVar () (VarName () "z"))
           litTwo = ExprLit () (LitInt () 2 "2")
           contexts =
             [ ("binary lhs", ExprBinary () OpAdd assign litTwo)
@@ -182,8 +183,7 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
             , ("coalesce rhs", ExprNullCoalesce () litTwo assign)
             , ("cast operand", ExprCast () CastInt assign)
             , ("clone operand", ExprClone () assign Nothing)
-            , ("assignment lhs", ExprAssign () Nothing assign litTwo)
-            , ("assignment rhs", ExprAssign () Nothing litTwo assign)
+            , ("assignment rhs", ExprAssign () Nothing varZ assign)
             ]
       forM_ contexts $ \(name, ctx) -> do
         let printed = prettyPrintExpr ctx
@@ -196,6 +196,7 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
   , testCase "Round-trip by-reference assignment nested in composite expressions (Issue #138)" $ do
       let refAssign = ExprAssignRef () (ExprVar () (SimpleVar () (VarName () "a")))
                         (ExprVar () (SimpleVar () (VarName () "b")))
+          varZ = ExprVar () (SimpleVar () (VarName () "z"))
           litTwo = ExprLit () (LitInt () 2 "2")
           contexts =
             [ ("bare", refAssign)
@@ -204,7 +205,7 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
             , ("unary operand", ExprUnary () OpBoolNot refAssign)
             , ("ternary condition", ExprTernary () refAssign (Just litTwo) litTwo)
             , ("cast operand", ExprCast () CastInt refAssign)
-            , ("assignment rhs", ExprAssign () Nothing litTwo refAssign)
+            , ("assignment rhs", ExprAssign () Nothing varZ refAssign)
             ]
       forM_ contexts $ \(name, ctx) -> do
         let printed = prettyPrintExpr ctx
@@ -542,11 +543,19 @@ genExprSized n
           idx <- genExprSized (n `div` 2)
           pure (ExprArrayAccess () arr (Just idx))
       , do
-          lhs <- genExprSized (n `div` 2)
+          lhs <- genAssignableExpr (n `div` 2)
           rhs <- genExprSized (n `div` 2)
           mOp <- elements [Nothing, Just OpAdd, Just OpConcat, Just OpCoalesce]
           pure (ExprAssign () mOp lhs rhs)
       ]
+
+genAssignableExpr :: Int -> Gen (Expr ())
+genAssignableExpr n = oneof
+  [ pure (ExprVar () (SimpleVar () (VarName () "x")))
+  , do
+      idx <- genExprSized (n `div` 2)
+      pure (ExprArrayAccess () (ExprVar () (SimpleVar () (VarName () "arr"))) (Just idx))
+  ]
 
 genSimpleStmt :: Gen (Stmt ())
 genSimpleStmt = sized genStmtSized
@@ -579,7 +588,7 @@ genStmtSized n
           pure (StmtWhile () cond (take 2 body))
       , do
           arr <- genExprSized 1
-          val <- genExprSized 1
+          val <- genAssignableExpr 1
           body <- listOf1 (genStmtSized (n `div` 2))
           pure (StmtForeach () arr Nothing val False (take 2 body))
       , do

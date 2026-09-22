@@ -75,6 +75,53 @@ isReferenceable = \case
   ExprStaticCall {}            -> True
   _                            -> False
 
+-- | Whether an expression can be written to by an assignment.
+--
+-- Destructuring targets are expressions in the AST, but only their writable
+-- items can appear on the left-hand side.  Array spreads are values rather
+-- than assignment targets, so they are excluded even when their operand is a
+-- variable.
+isAssignable :: Expr a -> Bool
+isAssignable = \case
+  ExprVar {}                   -> True
+  ExprArrayAccess _ base _     -> isDereferenceable base
+  ExprPropertyFetch _ base _   -> isDereferenceable base
+  ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
+  ExprArray _ items            -> all isAssignableItem items
+  ExprList _ items             -> all isAssignableItem items
+  _                            -> False
+  where
+    isAssignableItem = \case
+      ArrayItem _ _ value isSpread _ -> not isSpread && isAssignable value
+      ArrayItemEmpty {}              -> True
+
+-- | Whether an expression can be dereferenced as the base of a writable
+-- array access or property fetch.  Calls produce dereferenceable values, but
+-- temporary expressions and nullsafe accesses do not.
+isDereferenceable :: Expr a -> Bool
+isDereferenceable = \case
+  ExprVar {}                         -> True
+  ExprArrayAccess _ base _           -> isDereferenceable base
+  ExprPropertyFetch _ base _         -> isDereferenceable base
+  ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
+  ExprCall {}                        -> True
+  ExprMethodCall _ base _ _          -> not (hasNullsafe base)
+  ExprStaticCall {}                  -> True
+  _                                  -> False
+
+isStaticTargetAssignable :: ClassTarget a -> Bool
+isStaticTargetAssignable = \case
+  ClassTargetName {} -> True
+  ClassTargetExpr e  -> not (hasNullsafe e)
+
+-- | Whether an expression is a destructuring target rather than a single
+-- writable expression.
+isDestructure :: Expr a -> Bool
+isDestructure = \case
+  ExprArray {} -> True
+  ExprList {}  -> True
+  _            -> False
+
 -- | Whether an expression is a valid target for prefix increment/decrement.
 --
 -- PHP's grammar gives @++@ and @--@ a greedy token before parsing the target,
@@ -102,7 +149,12 @@ hasNullsafe = \case
   ExprPropertyFetch _ base _   -> hasNullsafe base
   ExprMethodCall _ base _ _    -> hasNullsafe base
   ExprArrayAccess _ base _     -> hasNullsafe base
+  ExprStaticPropertyFetch _ target _ -> hasNullsafeClassTarget target
   _                            -> False
+  where
+    hasNullsafeClassTarget = \case
+      ClassTargetName {} -> False
+      ClassTargetExpr e  -> hasNullsafe e
 
 -- | Parse expression with default statement and class member dummies.
 parseExpr :: Parser (Expr Span)
@@ -150,11 +202,16 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
 
         assignRest lhs = do
           op <- parseAssignOp
+          when (not (isAssignable lhs)) $
+            fail "Cannot assign to non-assignable expression"
           when (hasEmptyDestructure lhs) $
             fail "Cannot use empty list"
           case op of
             Nothing -> assignRefRest lhs <|> assignValueRest Nothing lhs
-            Just _  -> assignValueRest op lhs
+            Just _  -> do
+              when (isDestructure lhs) $
+                fail "Cannot use destructuring with compound assignment"
+              assignValueRest op lhs
 
         -- By-reference assignment. The ampersand belongs to the operator, not
         -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
@@ -163,6 +220,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           when (hasEmptyDestructure lhs) $
             fail "Cannot use empty list"
           _ <- symbol "&"
+          when (isDestructure lhs) $
+            fail "Cannot use destructuring with by-reference assignment"
           rhs <- parseReferenceSource
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssignRef sp lhs rhs)
