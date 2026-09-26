@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.1.9.0
+## 0.1.10.0
 
 * Reject a file that mixes bracketed and unbracketed namespace declarations, which PHP refuses with "Cannot mix bracketed namespace declarations with unbracketed namespace declarations" but the library accepted: `<?php namespace A {} namespace B;` and `<?php namespace A; echo 1; namespace B { echo 2; }` parsed, and `prettyPrint` kept the mix. The first declaration's form is remembered, including into its body, so a later declaration of the other form is rejected wherever it appears; two bracketed namespaces and two unbracketed namespaces stay accepted (#307).
+
+## 0.1.9.0
 
 * Reject `else if` in alternative syntax, which PHP refuses. The colon form still accepts `elseif` and `else:`, and braced `else if` remains valid (#305).
 
