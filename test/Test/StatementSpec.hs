@@ -1336,6 +1336,40 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php // c\n?><?php namespace Foo;"
         ]
 
+  , testCase "Mixing bracketed and unbracketed namespace declarations is rejected (Issue #307)" $ do
+      let mixMsg = "Cannot mix bracketed namespace declarations with unbracketed namespace declarations"
+          rejects =
+            [ "<?php namespace A {} namespace B;"
+            , "<?php namespace A; echo 1; namespace B { echo 2; }"
+            , "<?php namespace A; namespace B {}"
+            , "<?php namespace {} namespace A;"
+            , "<?php namespace A; echo 1; namespace { echo 2; }"
+            , "<?php namespace A {} namespace B {} namespace C;"
+            , "<?php namespace A; namespace B; namespace C {}"
+            , "<?php declare(strict_types=1); namespace A {} namespace B;"
+            , "<?php /* c */ namespace A {} /* c */ namespace B;"
+            , "<?php namespace Foo\\Bar {} namespace Baz;"
+            , "<?php namespace A { namespace B; }"
+            ]
+      mapM_ assertParsesFail rejects
+      forM_ (take 2 rejects) $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertEqual (T.unpack src) (Just mixMsg) (errorCustom err)
+          Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+      mapM_ assertParsesOk
+        [ "<?php namespace A { echo 1; } namespace B { echo 2; }"
+        , "<?php namespace A; echo 1; namespace B; echo 2;"
+        , "<?php namespace Foo\\Bar { echo 1; } namespace Baz\\Qux { echo 2; }"
+        , "<?php namespace Foo\\Bar; echo 1; namespace Baz\\Qux; echo 2;"
+        , "<?php namespace A {} namespace B {} namespace C {}"
+        , "<?php namespace A; namespace B;"
+        , "<?php namespace {} namespace { echo 1; }"
+        , "<?php namespace A {}"
+        , "<?php namespace A;"
+        , "<?php declare(strict_types=1); namespace A {}"
+        , "<?php declare(strict_types=1); namespace A;"
+        ]
+
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
       [ testCase "list(...) destructuring in assignments" $ do
           assertParsesOk "<?php list($a, $b) = $arr;"
