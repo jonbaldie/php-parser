@@ -415,7 +415,7 @@ parseIf = withSpan $ do
       parseStmtBody
 
     parseAltElseIf = do
-      keyword_ "elseif" <|> M.try (keyword_ "else" *> keyword_ "if")
+      keyword_ "elseif"
       c <- parens parseExpr
       _ <- colon
       body <- parseAltBody
