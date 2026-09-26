@@ -461,7 +461,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           pure (\sp -> ExprClone sp obj Nothing)
 
         parseCloneWithPayload = do
-          _ <- optional (M.try (keyword "with" *> colon))
+          _ <- optional (M.try (keyword "withProperties" *> colon))
           parseExprRec
 
     parsePostfix = do

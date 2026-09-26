@@ -2,6 +2,8 @@
 
 ## 0.1.10.0
 
+* Fix PHP 8.5 clone-with syntax to use the released parameter name `withProperties:` instead of `with:`. `parseCloneWithPayload` previously accepted `with:` as optional sugar and dropped it on reprint, turning a runtime fatal in PHP into a success; the actual parameter `clone($c, withProperties: ...)` failed to parse. The parser now accepts `withProperties:` as the clone-with argument name and rejects `with:`, and `README.md` and generator features reflect `withProperties:` (#309).
+
 * Reject a file that mixes bracketed and unbracketed namespace declarations, which PHP refuses with "Cannot mix bracketed namespace declarations with unbracketed namespace declarations" but the library accepted: `<?php namespace A {} namespace B;` and `<?php namespace A; echo 1; namespace B { echo 2; }` parsed, and `prettyPrint` kept the mix. The first declaration's form is remembered, including into its body, so a later declaration of the other form is rejected wherever it appears; two bracketed namespaces and two unbracketed namespaces stay accepted (#307).
 
 ## 0.1.9.0

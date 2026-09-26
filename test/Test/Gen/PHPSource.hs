@@ -815,7 +815,7 @@ allFeatures =
         [ "$base" <> n <> " = new \\stdClass();"
         , "$plain" <> n <> " = clone $base" <> n <> ";"
         , "$positional" <> n <> " = clone($base" <> n <> ", ['status' => 'archived']);"
-        , "$named" <> n <> " = clone($base" <> n <> ", with: ['updated' => true]);"
+        , "$named" <> n <> " = clone($base" <> n <> ", withProperties: ['updated' => true]);"
         ]
   , Feature "85-static-asymmetric-visibility" PHP85 $ \i -> do
       let n = sfx i
