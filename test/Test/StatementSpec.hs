@@ -448,11 +448,21 @@ statementTests = testGroup "Statement & Declaration Specifications"
           [StmtIf _ _ [_] [(_, [_])] (Just [_])] -> pure ()
           other -> assertFailure ("Unexpected if AST: " ++ show other)
 
+  , testCase "Reject else if in alternative syntax (Issue #305)" $ do
+      mapM_ assertParsesFail
+        [ "<?php if (0): else if (1): endif;"
+        , "<?php if (0): echo 1; else if (1): echo 2; endif;"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php if (0) echo 1; else if (1) echo 2;"
+        , "<?php if (0): echo 1; elseif (1): echo 2; endif;"
+        , "<?php if (0): echo 1; else: echo 2; endif;"
+        ]
+
   , testCase "Alternative syntax control structures (Issue #107)" $ do
       mapM_ assertParsesOk
         [ "<?php if ($x): echo 1; endif;"
         , "<?php if ($x): echo 1; elseif ($y): echo 2; else: echo 3; endif;"
-        , "<?php if ($x): echo 1; else if ($y): echo 2; else: echo 3; endif;"
         , "<?php while ($x): echo 1; endwhile;"
         , "<?php for ($i = 0; $i < 10; $i++): echo $i; endfor;"
         , "<?php foreach ($xs as $k => $v): echo $v; endforeach;"
