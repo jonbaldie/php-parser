@@ -19,6 +19,14 @@ prettyTests = testGroup "Pretty Printer Specifications"
           assertBool "Printed contains class Greeter" ("class Greeter" `T.isInfixOf` printed)
           assertBool "Printed contains function greet" ("function greet" `T.isInfixOf` printed)
 
+  , testCase "prettyPrint keeps parentheses around new before a method call (Issue #308)" $ do
+      case parseProgram "issue-308.php" "<?php (new C())->f();" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast ->
+          assertEqual "Keeps syntax accepted by PHP 8.2 and 8.3"
+            "<?php\n\n(new C())->f();"
+            (prettyPrint ast)
+
   , testCase "Pretty print anonymous class attributes after new (Issue #46)" $ do
       let attrs = [AttributeGroup () [Attribute () (QualifiedName () NameUnqualified ["Attribute"]) []]]
           expr = ExprNewAnonClass () attrs (ClassModifier False False False) [] Nothing [] []

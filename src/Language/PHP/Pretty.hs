@@ -610,6 +610,8 @@ prettyPostfixBase e
 
 needsPostfixParens :: Expr a -> Bool
 needsPostfixParens = \case
+  -- Bare new-expression dereferencing is only supported since PHP 8.4.
+  ExprNew {}           -> True
   ExprCast {}          -> True
   ExprUnary {}         -> True
   ExprClone {}         -> True
