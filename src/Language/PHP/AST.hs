@@ -500,6 +500,7 @@ data Expr a
   | ExprEval !a !(Expr a)
   | ExprInclude !a !IncludeType !(Expr a)
   | ExprPrint !a !(Expr a)
+  | ExprShellExec !a ![StringPart a] -- ^ Backtick execution operator; parts as in an interpolated string
   | ExprExit !a !ExitKind !(Maybe (Expr a))
   | ExprThrow !a !(Expr a)
   | ExprConstFetch !a !(QualifiedName a)
@@ -589,6 +590,7 @@ getAnnotation = \case
   ExprEval a _                 -> a
   ExprInclude a _ _            -> a
   ExprPrint a _                -> a
+  ExprShellExec a _            -> a
   ExprExit a _ _               -> a
   ExprThrow a _                -> a
   ExprConstFetch a _           -> a

@@ -475,6 +475,7 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprEval _ e -> "eval(" <> prettyExpr e <> ")"
   ExprInclude _ inc e -> prettyInclude inc <+> prettyExpr e
   ExprPrint _ e -> "print " <> prettyExpr e
+  ExprShellExec _ parts -> "`" <> foldMap (prettyStringPart escapeBacktickText) parts <> "`"
   ExprExit _ kind mStatus -> prettyExitKind kind <> maybe mempty (\e -> "(" <> prettyExpr e <> ")") mStatus
   ExprThrow _ e -> "throw " <> prettyExpr e
   ExprConstFetch _ qn -> prettyQualifiedName qn
@@ -620,6 +621,7 @@ needsPostfixParens = \case
   ExprThrow {}         -> True
   ExprInclude {}       -> True
   ExprPrint {}         -> True
+  ExprShellExec {}     -> True
   _                    -> False
 
 prettyNewTarget :: HasLeadingTrivia a => ClassTarget a -> Doc ann
@@ -681,7 +683,7 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitInt _ _ raw -> pretty raw
   LitFloat _ _ raw -> pretty raw
   LitString _ _ raw -> pretty (if isQuotedString raw then raw else quoteString raw)
-  LitInterpolated _ parts -> "\"" <> foldMap prettyPart parts <> "\""
+  LitInterpolated _ parts -> "\"" <> foldMap (prettyStringPart escapeInterpText) parts <> "\""
   LitHeredoc _ tag _ False raw -> "<<<" <> pretty tag <> line <> pretty raw <> line <> pretty tag
   LitHeredoc _ tag _ True raw -> "<<<'" <> pretty tag <> "'" <> line <> pretty raw <> line <> pretty tag
   LitHeredocInterpolated _ tag parts ->
@@ -690,30 +692,34 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitBool _ False -> "false"
   LitNull _ -> "null"
   where
-    prettyPart = \case
-      StrLit t -> pretty (escapeInterpText t)
-      StrExpr e -> prettyInterpExpr e
     -- Only the first part of a heredoc body starts a line: every later text
     -- part follows an expression.
     prettyHeredocParts tag = mconcat . zipWith (prettyHeredocPart tag) (True : repeat False)
-    prettyHeredocPart tag atBodyStart = \case
-      StrLit t -> pretty (escapeHeredocText tag atBodyStart t)
-      StrExpr e -> prettyInterpExpr e
-    prettyInterpExpr e = case isSimpleUnquotedArrayAccess e of
-      Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
-      Nothing -> "{" <> prettyExpr e <> "}"
-    isSimpleUnquotedArrayAccess = \case
-      ExprArrayAccess _ (ExprVar _ v@(SimpleVar _ _)) (Just (ExprLit _ (LitString _ _ raw)))
-        | not (isQuotedString raw) -> Just (v, raw)
-      _ -> Nothing
-    isQuotedString t =
-      let t' = if T.isPrefixOf "b" t || T.isPrefixOf "B" t then T.drop 1 t else t
-      in (T.isPrefixOf "'" t' && T.isSuffixOf "'" t' && T.length t' >= 2) ||
-         (T.isPrefixOf "\"" t' && T.isSuffixOf "\"" t' && T.length t' >= 2)
+    prettyHeredocPart tag atBodyStart = prettyStringPart (escapeHeredocText tag atBodyStart)
     quoteString t = "'" <> T.concatMap escapeSingleChar t <> "'"
     escapeSingleChar '\\' = "\\\\"
     escapeSingleChar '\'' = "\\'"
     escapeSingleChar c = T.singleton c
+
+-- | One part of an interpolating string, its literal text re-escaped by
+-- @escape@.
+prettyStringPart :: HasLeadingTrivia a => (Text -> Text) -> StringPart a -> Doc ann
+prettyStringPart escape = \case
+  StrLit t -> pretty (escape t)
+  StrExpr e -> case isSimpleUnquotedArrayAccess e of
+    Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
+    Nothing -> "{" <> prettyExpr e <> "}"
+  where
+    isSimpleUnquotedArrayAccess = \case
+      ExprArrayAccess _ (ExprVar _ v@(SimpleVar _ _)) (Just (ExprLit _ (LitString _ _ raw)))
+        | not (isQuotedString raw) -> Just (v, raw)
+      _ -> Nothing
+
+isQuotedString :: Text -> Bool
+isQuotedString t =
+  let t' = if T.isPrefixOf "b" t || T.isPrefixOf "B" t then T.drop 1 t else t
+  in (T.isPrefixOf "'" t' && T.isSuffixOf "'" t' && T.length t' >= 2) ||
+     (T.isPrefixOf "\"" t' && T.isSuffixOf "\"" t' && T.length t' >= 2)
 
 -- | Re-emit the escapes the lexer decoded away in interpolated-string text
 -- parts: a backslash is doubled so it survives re-decoding, double quotes are
@@ -721,7 +727,13 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
 -- would otherwise reparse as @$name@ or @${name}@ interpolation is escaped
 -- (Issue #88, Issue #144).
 escapeInterpText :: Text -> Text
-escapeInterpText = escapeInterpolatingText True
+escapeInterpText = escapeInterpolatingText (Just '"')
+
+-- | Re-emit the escapes the lexer decoded away in backtick-command text parts:
+-- those of 'escapeInterpText', with the backtick taking the double quote's
+-- place (Issue #304).
+escapeBacktickText :: Text -> Text
+escapeBacktickText = escapeInterpolatingText (Just '`')
 
 -- | Re-emit the escapes the lexer decoded away in heredoc text parts. They are
 -- those of 'escapeInterpText', except that a double quote needs none. A line
@@ -737,20 +749,22 @@ escapeHeredocText tag atBodyStart =
       , Just (c, afterFirst) <- T.uncons rest
       , closesHeredoc rest
       , c < '\x80'
-      = lead <> "\\x" <> T.justifyRight 2 '0' (T.pack (showHex (ord c) "")) <> escapeInterpolatingText False afterFirst
-      | otherwise = escapeInterpolatingText False l
+      = lead <> "\\x" <> T.justifyRight 2 '0' (T.pack (showHex (ord c) "")) <> escapeInterpolatingText Nothing afterFirst
+      | otherwise = escapeInterpolatingText Nothing l
     closesHeredoc rest = case T.stripPrefix tag rest of
       Just after -> maybe True (not . isIdentChar . fst) (T.uncons after)
       Nothing -> False
     isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
 
-escapeInterpolatingText :: Bool -> Text -> Text
-escapeInterpolatingText escapeQuotes = T.concat . go
+-- | Escape the text of an interpolating string whose own quote, if any, is
+-- @quote@.
+escapeInterpolatingText :: Maybe Char -> Text -> Text
+escapeInterpolatingText quote = T.concat . go
   where
     go input = case T.uncons input of
       Nothing -> []
       Just ('\\', rest) -> "\\\\" : go rest
-      Just ('"', rest) | escapeQuotes -> "\\\"" : go rest
+      Just (c, rest) | Just c == quote -> T.pack ['\\', c] : go rest
       Just ('$', rest) -> (if startsInterpolation rest then "\\$" else "$") : go rest
       Just (c, rest) -> T.singleton c : go rest
     startsInterpolation rest = case T.uncons rest of

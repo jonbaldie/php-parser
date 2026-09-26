@@ -263,6 +263,15 @@ allFeatures =
         , "    nowdoc body, $notAVariable stays literal"
         , "    TEXT;"
         ]
+  , -- Deprecated in 8.5, but still accepted: 'php -l' only warns
+    -- (<https://github.com/jonbaldie/php-parser/issues/304 #304>).
+    Feature "backtick-shell-exec" PHP82 $ \i -> do
+      let n = sfx i
+      pure $ ls
+        [ "$dir" <> n <> " = '.';"
+        , "$out" <> n <> " = `ls -la {$dir" <> n <> "} \"quoted\" \\` 2>&1`;"
+        , "$lines" <> n <> " = explode(\"\\n\", `pwd` . `echo $dir" <> n <> "`);"
+        ]
   , Feature "control-flow" PHP82 $ \i -> do
       let n = sfx i
       pure $ ls
