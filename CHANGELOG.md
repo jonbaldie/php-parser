@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.9.0
+
+* Reject `else if` in alternative syntax, which PHP refuses. The colon form still accepts `elseif` and `else:`, and braced `else if` remains valid (#305).
 
 * Reject a `namespace` declaration that is not the first statement of the script or after a declare prologue, which PHP refuses with "Namespace declaration statement has to be the very first statement or after any declare call in the script" but the library accepted: `<?php echo 1; namespace Foo;`, leading inline HTML, a `<?=` echo, and a statement closed and reopened before `namespace` all parsed, and `prettyPrint` kept the illegal placement. As in PHP, only the first namespace is checked; it may follow top-level `declare` statements and empty statements (a bare `;` or a close tag that does not itself end a statement), comments, and a leading shebang (which is not a statement, so a following `declare(strict_types=1)` stays in the prologue), while a later namespace in the same file may follow ordinary statements. A relative `namespace\Foo` name is not a declaration and stays allowed (#306).
 
