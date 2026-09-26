@@ -1290,6 +1290,52 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php $x = 1; ?>x<?php declare(ticks=1) { echo 1; }"
         ]
 
+  , testCase "Namespace declaration must be first or after declare (Issue #306)" $ do
+      let nsMsg = "Namespace declaration statement has to be the very first statement or after any declare call in the script"
+      mapM_ assertParsesFail
+        [ "<?php echo 1; namespace Foo;"
+        , "hi<?php namespace Foo; echo 1;"
+        , "<?php echo 1; ?><?php namespace Foo; echo 1;"
+        , "<?= 1 ?><?php namespace Foo;"
+        , " \n<?php namespace Foo;"
+        , "<?php echo 1; namespace Foo { }"
+        , "<?php echo 1; namespace { echo 1; }"
+        , "<?php use Foo\\Bar; namespace Baz;"
+        , "<?php foo: namespace Bar;"
+        , "<?php {} namespace Foo;"
+        , "<?php declare(ticks=1); ?>x<?php namespace Foo;"
+        , "<?php declare(ticks=1); echo 1; namespace Foo;"
+        , "<?php ?> <?php namespace Foo;"
+        , "#!/usr/bin/env php\n\n<?php namespace Foo;"
+        , "# comment\n<?php namespace Foo;"
+        ]
+      case parseProgram "test.php" "<?php echo 1; namespace Foo;" of
+        Left err -> assertEqual "namespace position message" (Just nsMsg) (errorCustom err)
+        Right prog -> assertFailure ("expected parse error, got: " ++ show prog)
+      mapM_ assertParsesOk
+        [ "<?php namespace Foo; echo 1;"
+        , "<?php declare(strict_types=1); namespace Foo; echo 1;"
+        , "<?php declare(ticks=1); namespace Foo;"
+        , "<?php declare(encoding='UTF-8'); namespace Foo;"
+        , "<?php declare(ticks=1); declare(strict_types=1); namespace Foo;"
+        , "<?php declare(ticks=1) { echo 1; } namespace Foo;"
+        , "<?php declare(ticks=1): echo 1; enddeclare; namespace Foo;"
+        , "<?php declare(ticks=1) { ?>x<?php } namespace Foo;"
+        , "<?php ; namespace Foo;"
+        , "<?php ; ; namespace Foo;"
+        , "<?php ?><?php namespace Foo;"
+        , "<?php declare(ticks=1); ?><?php namespace Foo;"
+        , "<?php declare(ticks=1) {} ?><?php namespace Foo;"
+        , "<?php /* c */ namespace Foo;"
+        , "<?php namespace Foo; echo 1; namespace Bar;"
+        , "<?php namespace Foo { } namespace Bar { }"
+        , "<?php echo 1; namespace\\Foo::bar();"
+        , "<?php __halt_compiler(); namespace Foo;"
+        , "#!/usr/bin/env php\n<?php namespace Foo;"
+        , "#!/usr/bin/env php\n<?php declare(strict_types=1); namespace Foo;"
+        , "<?php // c\n?><?php namespace Foo;"
+        ]
+
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
       [ testCase "list(...) destructuring in assignments" $ do
           assertParsesOk "<?php list($a, $b) = $arr;"

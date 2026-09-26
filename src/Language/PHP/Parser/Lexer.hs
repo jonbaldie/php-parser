@@ -9,6 +9,9 @@ module Language.PHP.Parser.Lexer
   , markScriptStatement
   , atScriptStart
   , markNonDeclareContent
+  , markNamespaceBlockingContent
+  , namespaceDeclarationTooLate
+  , noteNamespaceDeclaration
   , noteCloseTagTerminator
   , takeCloseTagTerminator
   , inDeclarePrologue
@@ -75,11 +78,13 @@ data LexerState = LexerState
   , statementDepth :: !Int
   , currentStatementIsFirst :: !Bool
   , nonDeclareContentSeen :: !Bool
+  , namespaceBlockingContentSeen :: !Bool
+  , namespaceDeclarationSeen :: !Bool
   , closeTagIsTerminator :: !Bool
   } deriving (Eq, Show)
 
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty False 0 False False False
+initialLexerState = LexerState [] Map.empty False 0 False False False False False
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -135,6 +140,29 @@ atScriptStart = currentStatementIsFirst <$> get
 markNonDeclareContent :: Parser ()
 markNonDeclareContent = modify' $ \st ->
   if statementDepth st == 0 then st { nonDeclareContentSeen = True } else st
+
+-- | Mark top-level content that is neither a declare nor a nop. PHP lets the
+-- first namespace follow declares and empty statements (@allow_nop@), but not
+-- a real statement, inline HTML, or a short echo. A close tag that does not
+-- end a statement is a nop, so it is not marked here.
+markNamespaceBlockingContent :: Parser ()
+markNamespaceBlockingContent = modify' $ \st ->
+  if statementDepth st == 0 then st { namespaceBlockingContentSeen = True } else st
+
+-- | Whether this top-level namespace is the file's first and something other
+-- than a declare or a nop already preceded it.
+namespaceDeclarationTooLate :: Parser Bool
+namespaceDeclarationTooLate = do
+  st <- get
+  pure $ statementDepth st == 1
+    && not (namespaceDeclarationSeen st)
+    && namespaceBlockingContentSeen st
+
+-- | Record a top-level namespace declaration so a later one is not judged as
+-- the file's first. Later namespaces may follow ordinary statements.
+noteNamespaceDeclaration :: Parser ()
+noteNamespaceDeclaration = modify' $ \st ->
+  if statementDepth st == 1 then st { namespaceDeclarationSeen = True } else st
 
 -- | Record that the upcoming close tag ends the statement just parsed, so it
 -- is not also an empty statement of its own.

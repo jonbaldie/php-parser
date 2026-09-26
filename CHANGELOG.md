@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Reject a `namespace` declaration that is not the first statement of the script or after a declare prologue, which PHP refuses with "Namespace declaration statement has to be the very first statement or after any declare call in the script" but the library accepted: `<?php echo 1; namespace Foo;`, leading inline HTML, a `<?=` echo, and a statement closed and reopened before `namespace` all parsed, and `prettyPrint` kept the illegal placement. As in PHP, only the first namespace is checked; it may follow top-level `declare` statements and empty statements (a bare `;` or a close tag that does not itself end a statement), comments, and a leading shebang (which is not a statement, so a following `declare(strict_types=1)` stays in the prologue), while a later namespace in the same file may follow ordinary statements. A relative `namespace\Foo` name is not a declaration and stays allowed (#306).
+
 * Accept the backtick execution operator, which PHP still parses (it is only deprecated, in 8.5) but the library rejected at the opening backtick: `` <?php echo `echo hi`; `` failed with `` unexpected "`ec" ``. A backtick command is a new `ExprShellExec` expression holding the same `StringPart`s as an interpolated string, so `$var`, `{$expr}` and `${name}` interpolate in it; its text decodes the escapes of a double-quoted string with the backtick in place of the double quote (`` \` `` is a backtick, `\"` keeps its backslash), and `prettyPrint` re-escapes it to match. As in PHP, the command is not dereferencable, so `` `ls`[0] ``, `` `ls`() `` and `` `ls`++ `` are still rejected. `transformExpr` and the queries descend into its interpolated expressions (#304).
 
 ## 0.1.8.0

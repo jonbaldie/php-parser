@@ -20,7 +20,7 @@ import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 
 import Language.PHP.AST
-import Language.PHP.Span (Span, combineSpans)
+import Language.PHP.Span (Span (..), SourcePos (..), combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
 import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure)
@@ -117,7 +117,10 @@ parseHtmlRegion :: Parser [Stmt Span] -> Parser [Stmt Span]
 parseHtmlRegion k = do
   (sp, html) <- spanned takeUntilPhpTag
   let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
-  when (not (null html)) (markScriptStatement *> markNonDeclareContent)
+  when (not (null html) && not (isLeadingShebang sp html)) $ do
+    markScriptStatement
+    markNonDeclareContent
+    markNamespaceBlockingContent
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
   if isEof
     then pure htmlStmts
@@ -128,6 +131,7 @@ parseHtmlRegion k = do
           echoStmt <- parseShortEchoBody
           markScriptStatement
           markNonDeclareContent
+          markNamespaceBlockingContent
           rest <- k
           pure (htmlStmts ++ echoStmt : rest)
         else do
@@ -135,6 +139,20 @@ parseHtmlRegion k = do
           sc
           rest <- k
           pure (htmlStmts ++ rest)
+
+-- | A shebang is not a statement. PHP skips a leading @#!@ line before the
+-- file statement list, so it does not push a following namespace out of place.
+isLeadingShebang :: Span -> String -> Bool
+isLeadingShebang sp html =
+  posOffset (spanStart sp) == 0 && isShebangLine html
+  where
+    isShebangLine ('#':'!':rest) =
+      case span (not . isNewline) rest of
+        (_, []) -> True
+        (_, '\r':'\n':after) -> null after
+        (_, nl:after) -> isNewline nl && null after
+    isShebangLine _ = False
+    isNewline c = c == '\n' || c == '\r'
 
 takeUntilPhpTag :: Parser String
 takeUntilPhpTag = do
@@ -152,7 +170,8 @@ parseStmt = do
   stmt <- withStatement parseStmtCore
   case stmt of
     StmtDeclare {} -> pure ()
-    _ -> markNonDeclareContent
+    StmtEmpty {} -> markNonDeclareContent
+    _ -> markNonDeclareContent *> markNamespaceBlockingContent
   pure stmt
 
 parseStmtCore :: Parser (Stmt Span)
@@ -597,6 +616,10 @@ parseNamespace = withSpan $ do
       Just _ -> do
         isBr <- (True <$ M.lookAhead (symbol "{")) <|> (False <$ semi)
         pure (mName, isBr)
+  tooLate <- namespaceDeclarationTooLate
+  when tooLate $
+    fail "Namespace declaration statement has to be the very first statement or after any declare call in the script"
+  noteNamespaceDeclaration
   if isBracketed
     then do
       stmts <- braces parseMixedBody
