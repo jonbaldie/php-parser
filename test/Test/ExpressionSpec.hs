@@ -1235,6 +1235,51 @@ expressionTests = testGroup "Expression Specifications"
             Right (Program _ [StmtExpr _ (ExprPrint _ _)]) -> pure ()
             Right other -> assertFailure ("Expected print expression statement, got: " ++ show other)
 
+      , testCase "the backtick execution operator is an expression (Issue #304)" $ do
+          case parseProgram "issue304.php" "<?php echo `echo hi`;\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtEcho _ [ExprShellExec _ [StrLit "echo hi"]]]) -> pure ()
+            Right other -> assertFailure ("Expected echo of a shell exec, got: " ++ show other)
+
+          case parseExpression "issue304.php" "``" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              assertEqual "empty command" (ExprShellExec () []) (stripAnnotations expr)
+              assertRoundTripExpr expr
+
+          -- A backtick string decodes the escapes of a double-quoted one, with
+          -- the backtick taking the place of the double quote: @\\`@ is a
+          -- backtick, and @\\"@ keeps its backslash.
+          case parseExpression "issue304.php" "`a\\`b\\\"c\\\\d\\$e\\n\"f`" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              assertEqual "decoded text" (ExprShellExec () [StrLit "a`b\\\"c\\d$e\n\"f"]) (stripAnnotations expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "issue304.php" "`ls $dir {$opts['x']} ${name}`" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprShellExec _
+                  [ StrLit "ls "
+                  , StrExpr (ExprVar _ (SimpleVar _ (VarName _ "dir")))
+                  , StrLit " "
+                  , StrExpr (ExprArrayAccess _ _ _)
+                  , StrLit " "
+                  , StrExpr (ExprVar _ (SimpleVar _ (VarName _ "name")))
+                  ] -> pure ()
+                other -> assertFailure ("Expected interpolated shell exec, got: " ++ show other)
+              assertRoundTripExpr expr
+
+          case parseExpression "issue304.php" "`a` . `b`" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (ExprBinary _ OpConcat (ExprShellExec _ _) (ExprShellExec _ _)) -> pure ()
+            Right other -> assertFailure ("Expected concatenation of shell execs, got: " ++ show other)
+
+          case parseExpression "issue304.php" "`unterminated" of
+            Left _ -> pure ()
+            Right expr -> assertFailure ("Expected an unterminated backtick to be rejected, got: " ++ show expr)
+
       , testCase "exit and die are expression language constructs (Issue #124)" $ do
           let statusless =
                 [ ("exit", ExitExit)

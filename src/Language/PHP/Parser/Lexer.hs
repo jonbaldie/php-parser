@@ -48,6 +48,7 @@ module Language.PHP.Parser.Lexer
   , literalFloat
   , literalString
   , literalHeredocOrNowdoc
+  , shellExecParts
   ) where
 
 import Control.Applicative (Alternative (..), optional)
@@ -530,15 +531,22 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
       pure (T.cons e (maybe T.empty T.singleton sgn) <> digits)
 
 decodeDoubleQuotedEscapes :: Text -> Text
-decodeDoubleQuotedEscapes = decodeEscapes True
+decodeDoubleQuotedEscapes = decodeEscapes (Just '"')
 
 -- | Heredoc bodies decode the escapes of a double-quoted string, except @\\"@:
 -- a heredoc has no quote to escape, so PHP keeps the backslash.
 decodeHeredocEscapes :: Text -> Text
-decodeHeredocEscapes = decodeEscapes False
+decodeHeredocEscapes = decodeEscapes Nothing
 
-decodeEscapes :: Bool -> Text -> Text
-decodeEscapes quoteEscapes = T.concat . go
+-- | Backtick commands decode the escapes of a double-quoted string with the
+-- backtick as the quote: @\\`@ is a backtick, and @\\"@ keeps its backslash.
+decodeBacktickEscapes :: Text -> Text
+decodeBacktickEscapes = decodeEscapes (Just '`')
+
+-- | Decode the escapes of an interpolating string whose own quote, if any, is
+-- @quote@: an escaped quote is the quote itself.
+decodeEscapes :: Maybe Char -> Text -> Text
+decodeEscapes quote = T.concat . go
   where
     go input = case T.uncons input of
       Nothing -> []
@@ -572,7 +580,7 @@ decodeEscapes quoteEscapes = T.concat . go
       "f" -> "\f"
       "\\" -> "\\"
       "$" -> "$"
-      "\"" | quoteEscapes -> "\""
+      _ | Just q <- quote, body == T.singleton q -> body
       _
         | Just value <- bracedUnicodeValue body -> T.singleton (toEnum value)
         | not (T.null body) && T.all isOctalDigit body -> numericEscape 8 body
@@ -625,6 +633,15 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
       pure $ \sp -> case [e | StrExpr e <- parts] of
         [] -> LitString sp (T.concat [t | StrLit t <- parts]) raw
         _  -> LitInterpolated sp parts
+
+-- | The backtick execution operator: the parts of the command between the
+-- backticks, which interpolate as a double-quoted string does. The parser for
+-- complex-syntax @{$expr}@ bodies is passed in, as for 'literalString'.
+shellExecParts :: Parser (Expr Span) -> Parser [StringPart Span]
+shellExecParts parseInterpExpr = M.label "backtick command" $ lexeme $
+  C.char '`'
+    *> interpolatedParts parseInterpExpr (== '`') decodeBacktickEscapes
+    <* C.char '`'
 
 -- | The content of a double-quoted string or of one heredoc line: literal text
 -- and interpolated expressions, up to the first character satisfying @stop@

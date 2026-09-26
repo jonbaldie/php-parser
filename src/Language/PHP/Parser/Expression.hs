@@ -403,8 +403,14 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
 
-    parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parsePostfix
+    parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parseShellExec <|> parsePostfix
       where
+        -- A backtick command is not dereferencable, so no postfix operator
+        -- may follow it: PHP rejects @`ls`[0]@ and @`ls`()@.
+        parseShellExec = withSpan $ do
+          parts <- shellExecParts parseExprRec
+          pure (\sp -> ExprShellExec sp parts)
+
         -- Prefix ++/-- take a variable, so they bind tighter than "**".
         parseIncDec = withSpan $ do
           op <- (OpPreInc <$ symbol "++") <|> (OpPreDec <$ symbol "--")

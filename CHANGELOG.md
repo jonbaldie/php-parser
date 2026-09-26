@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* Accept the backtick execution operator, which PHP still parses (it is only deprecated, in 8.5) but the library rejected at the opening backtick: `` <?php echo `echo hi`; `` failed with `` unexpected "`ec" ``. A backtick command is a new `ExprShellExec` expression holding the same `StringPart`s as an interpolated string, so `$var`, `{$expr}` and `${name}` interpolate in it; its text decodes the escapes of a double-quoted string with the backtick in place of the double quote (`` \` `` is a backtick, `\"` keeps its backslash), and `prettyPrint` re-escapes it to match. As in PHP, the command is not dereferencable, so `` `ls`[0] ``, `` `ls`() `` and `` `ls`++ `` are still rejected. `transformExpr` and the queries descend into its interpolated expressions (#304).
+
 ## 0.1.8.0
 
 * Accept a `declare(strict_types=...)` that follows earlier top-level `declare` statements, which PHP allows but the library rejected: `<?php declare(ticks=1); declare(strict_types=1);` and `<?php declare(encoding='UTF-8'); declare(strict_types=1);` failed with "strict_types declaration must be the very first statement in the script" even though the only preceding top-level statements were declares. The strict-types position check now uses the same declare-prologue rule the encoding check already applied (#274), so a close-tag-separated second `strict_types` declaration parses too, while any non-declare statement, inline HTML, a `<?=` echo, or an empty statement still comes too late, and nested or block-mode strict_types declarations stay rejected (#290).
