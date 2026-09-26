@@ -35,13 +35,19 @@ php85Tests = testGroup "PHP 8.5 Specifications"
             assertEqual "clone pairs count" 2 (length pairs)
           other -> assertFailure ("Expected ExprClone with modifications, got: " ++ show other)
 
-  , testCase "Clone-with with named 'with' parameter: clone($obj, with: ['a' => 1])" $ do
-      let src = "clone($obj, with: ['a' => 1])"
+  , testCase "Clone-with with named 'withProperties' parameter: clone($obj, withProperties: ['a' => 1]) (Issue #309)" $ do
+      let src = "clone($obj, withProperties: ['a' => 1])"
       case parseExpression "test.php" src of
         Left err -> assertFailure (show (formatParseError err))
         Right expr -> case expr of
           ExprClone _ _ (Just (ExprArray _ [_])) -> pure ()
           other -> assertFailure ("Expected ExprClone with pairs, got: " ++ show other)
+
+  , testCase "Clone-with rejects named 'with' parameter: clone($obj, with: ['a' => 1]) (Issue #309)" $ do
+      let src = "clone($obj, with: ['a' => 1])"
+      case parseExpression "test.php" src of
+        Left _ -> pure ()
+        Right expr -> assertFailure ("Expected parse failure for with: parameter, but parsed as: " ++ show expr)
 
   , testCase "Clone-with with variable modification payload: clone($obj, $mods) (Issue #131)" $ do
       let src = "clone($obj, $mods)"
@@ -60,18 +66,18 @@ php85Tests = testGroup "PHP 8.5 Specifications"
           ExprClone _ _ (Just (ExprArray _ [_])) -> pure ()
           other -> assertFailure ("Expected ExprClone with array(...) payload, got: " ++ show other)
 
-  , testCase "Clone-with with named with: parameter and variable: clone($obj, with: $mods) (Issue #131)" $ do
-      let src = "clone($obj, with: $mods)"
+  , testCase "Clone-with with named withProperties: parameter and variable: clone($obj, withProperties: $mods) (Issue #131, #309)" $ do
+      let src = "clone($obj, withProperties: $mods)"
       case parseExpression "test.php" src of
         Left err -> assertFailure (show (formatParseError err))
         Right expr -> case expr of
           ExprClone _ (ExprVar _ (SimpleVar _ (VarName _ "obj"))) (Just (ExprVar _ (SimpleVar _ (VarName _ "mods")))) ->
             pure ()
-          other -> assertFailure ("Expected ExprClone with named with: and variable, got: " ++ show other)
+          other -> assertFailure ("Expected ExprClone with named withProperties: and variable, got: " ++ show other)
 
-  , testCase "Clone-with with trailing comma in argument list (Issue #131)" $ do
+  , testCase "Clone-with with trailing comma in argument list (Issue #131, #309)" $ do
       let src1 = "clone($obj, $mods,)"
-          src2 = "clone($obj, with: ['a' => 1],)"
+          src2 = "clone($obj, withProperties: ['a' => 1],)"
       case parseExpression "test.php" src1 of
         Left err -> assertFailure (show (formatParseError err))
         Right expr -> case expr of
@@ -81,7 +87,7 @@ php85Tests = testGroup "PHP 8.5 Specifications"
         Left err -> assertFailure (show (formatParseError err))
         Right expr -> case expr of
           ExprClone _ _ (Just (ExprArray _ [_])) -> pure ()
-          other -> assertFailure ("Expected ExprClone with trailing comma and named with, got: " ++ show other)
+          other -> assertFailure ("Expected ExprClone with trailing comma and named withProperties, got: " ++ show other)
 
   , testCase "Clone-with with arbitrary expressions: clone($obj, get_mods()) (Issue #131)" $ do
       let src = "clone($obj, get_mods())"
@@ -90,6 +96,32 @@ php85Tests = testGroup "PHP 8.5 Specifications"
         Right expr -> case expr of
           ExprClone _ _ (Just (ExprCall _ _ _)) -> pure ()
           other -> assertFailure ("Expected ExprClone with ExprCall payload, got: " ++ show other)
+
+  , testCase "Clone-with rejects named 'with' parameter with variable (Issue #309)" $ do
+      let src = "clone($obj, with: $mods)"
+      case parseExpression "test.php" src of
+        Left _ -> pure ()
+        Right expr -> assertFailure ("Expected parse failure for with: parameter, but parsed as: " ++ show expr)
+
+  , testCase "Clone-with rejects named 'with' parameter with trailing comma (Issue #309)" $ do
+      let src = "clone($obj, with: ['a' => 1],)"
+      case parseExpression "test.php" src of
+        Left _ -> pure ()
+        Right expr -> assertFailure ("Expected parse failure for with: parameter, but parsed as: " ++ show expr)
+
+  , testCase "Clone-with reproducer program with withProperties vs with (Issue #309)" $ do
+      let validSrc = "<?php\nclass C { public function __construct(public int $n) {} }\n$c = new C(1);\n$d = clone($c, withProperties: [\"n\" => 2]);\necho $d->n;\n"
+          invalidSrc = "<?php\nclass C { public function __construct(public int $n) {} }\n$c = new C(1);\n$d = clone($c, with: [\"n\" => 2]);\necho $d->n;\n"
+      case parseProgram "valid.php" validSrc of
+        Left err -> assertFailure ("Expected valid reproducer to parse: " ++ show (formatParseError err))
+        Right prog -> do
+          let printed = prettyPrint prog
+          case parseProgram "reprinted.php" printed of
+            Left err -> assertFailure ("Reprinted reproducer failed to parse: " ++ show (formatParseError err))
+            Right _ -> pure ()
+      case parseProgram "invalid.php" invalidSrc of
+        Left _ -> pure ()
+        Right _ -> assertFailure "Expected invalid program with 'with:' parameter to fail parsing"
 
 
   , testCase "Asymmetric visibility on static properties" $ do
