@@ -3,6 +3,7 @@
 module Language.PHP.Parser.Lexer
   ( Parser
   , LexerState (..)
+  , NamespaceForm (..)
   , initialLexerState
   , runPHPParser
   , withStatement
@@ -12,6 +13,8 @@ module Language.PHP.Parser.Lexer
   , markNamespaceBlockingContent
   , namespaceDeclarationTooLate
   , noteNamespaceDeclaration
+  , namespaceFormsMixed
+  , noteNamespaceForm
   , noteCloseTagTerminator
   , takeCloseTagTerminator
   , inDeclarePrologue
@@ -80,11 +83,17 @@ data LexerState = LexerState
   , nonDeclareContentSeen :: !Bool
   , namespaceBlockingContentSeen :: !Bool
   , namespaceDeclarationSeen :: !Bool
+  , namespaceForm :: !(Maybe NamespaceForm)
   , closeTagIsTerminator :: !Bool
   } deriving (Eq, Show)
 
+-- | Which namespace-declaration form a file has already used. PHP allows many
+-- declarations of one form and refuses a file that uses both.
+data NamespaceForm = BracketedNamespace | UnbracketedNamespace
+  deriving (Eq, Show)
+
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty False 0 False False False False False
+initialLexerState = LexerState [] Map.empty False 0 False False False False Nothing False
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -163,6 +172,27 @@ namespaceDeclarationTooLate = do
 noteNamespaceDeclaration :: Parser ()
 noteNamespaceDeclaration = modify' $ \st ->
   if statementDepth st == 1 then st { namespaceDeclarationSeen = True } else st
+
+-- | Whether this declaration's form differs from one already seen in the file.
+-- The first form is recorded before its body is parsed, so a declaration
+-- nested in that body is checked too.
+namespaceFormsMixed :: Bool -> Parser Bool
+namespaceFormsMixed isBracketed = do
+  st <- get
+  pure $ case namespaceForm st of
+    Nothing -> False
+    Just BracketedNamespace -> not isBracketed
+    Just UnbracketedNamespace -> isBracketed
+
+-- | Remember the form of the first namespace declaration. Later declarations
+-- are checked against it and do not replace it.
+noteNamespaceForm :: Bool -> Parser ()
+noteNamespaceForm isBracketed = modify' $ \st ->
+  case namespaceForm st of
+    Just _ -> st
+    Nothing -> st { namespaceForm = Just form }
+  where
+    form = if isBracketed then BracketedNamespace else UnbracketedNamespace
 
 -- | Record that the upcoming close tag ends the statement just parsed, so it
 -- is not also an empty statement of its own.

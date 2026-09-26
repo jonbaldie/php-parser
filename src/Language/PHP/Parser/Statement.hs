@@ -619,7 +619,11 @@ parseNamespace = withSpan $ do
   tooLate <- namespaceDeclarationTooLate
   when tooLate $
     fail "Namespace declaration statement has to be the very first statement or after any declare call in the script"
+  mixed <- namespaceFormsMixed isBracketed
+  when mixed $
+    fail "Cannot mix bracketed namespace declarations with unbracketed namespace declarations"
   noteNamespaceDeclaration
+  noteNamespaceForm isBracketed
   if isBracketed
     then do
       stmts <- braces parseMixedBody
