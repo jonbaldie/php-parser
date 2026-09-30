@@ -27,6 +27,20 @@ prettyTests = testGroup "Pretty Printer Specifications"
             "<?php\n\n(new C())->f();"
             (prettyPrint ast)
 
+  , testCase "prettyPrint keeps parentheses around a closure before a call or member access (Issue #323)" $ do
+      let src = "<?php (function () {})(); $f = (function () {})(...); (function () {})->bindTo($obj); (static function () {})[0];"
+      case parseProgram "issue-323.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrint ast
+          assertEqual "Keeps the closure callee and dereference base parenthesized"
+            "<?php\n\n(function () {\n    \n})();\n$f = (function () {\n    \n})(...);\n(function () {\n    \n})->bindTo($obj);\n(static function () {\n    \n})[0];"
+            printed
+          case parseProgram "reparsed.php" printed of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
   , testCase "Pretty print anonymous class attributes after new (Issue #46)" $ do
       let attrs = [AttributeGroup () [Attribute () (QualifiedName () NameUnqualified ["Attribute"]) []]]
           expr = ExprNewAnonClass () attrs (ClassModifier False False False) [] Nothing [] []
