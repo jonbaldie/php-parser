@@ -495,6 +495,7 @@ needsAssignParens = \case
   ExprAssignRef {}     -> True
   ExprYield {}         -> True
   ExprYieldFrom {}     -> True
+  ExprClosure {}       -> True
   ExprArrowFunction {} -> True
   ExprThrow {}         -> True
   ExprInclude {}       -> True
@@ -619,6 +620,7 @@ needsPostfixParens = \case
   ExprAssignRef {}     -> True
   ExprYield {}         -> True
   ExprYieldFrom {}     -> True
+  ExprClosure {}       -> True
   ExprArrowFunction {} -> True
   ExprThrow {}         -> True
   ExprInclude {}       -> True
