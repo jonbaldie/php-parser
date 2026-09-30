@@ -1774,6 +1774,30 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php interface I { public static function f(); static function g(); }"
         ]
 
+  , testCase "Reject new expressions in member constant initializers (Issue #328)" $ do
+      let rejected =
+            [ "<?php class C { public const A = new MyClass(); }"
+            , "<?php interface I { public const A = new MyClass(); }"
+            , "<?php enum E { public const A = new MyClass(); }"
+            , "<?php trait T { const A = new MyClass; }"
+            , "<?php $o = new class { const A = new MyClass; };"
+            , "<?php class C { const A = [new MyClass()]; }"
+            , "<?php class C { const A = (new MyClass)->x; }"
+            , "<?php class C { const A = 1, B = new MyClass; }"
+            ]
+      forM_ rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left err ->
+            assertBool ("expected new-expression diagnostic for: " ++ show src)
+              (maybe False (T.isInfixOf "New expressions are not supported in this context") (errorCustom err))
+          Right _ -> assertFailure ("expected new-expression rejection for: " ++ show src)
+      mapM_ assertParsesOk
+        [ "<?php const A = new MyClass();"
+        , "<?php class C { const A = MyClass::B; public function f() { return new MyClass; } }"
+        , "<?php class C { public function __construct(public $x = new MyClass) {} }"
+        , "<?php class C { const A = static function () { return new MyClass; }; }"
+        ]
+
   , testCase "Reject untyped readonly properties and constructor promotion (Issue #204)" $ do
       mapM_ assertParsesFail
         [ "<?php class Foo { public readonly $bar; }"

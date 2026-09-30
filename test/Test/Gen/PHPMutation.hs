@@ -274,6 +274,17 @@ allMutations =
             "    public function describe(): string;"
             "    public int $plain;\n\n    public function describe(): string;"
       }
+  , -- New-in-initializers (PHP 8.1) stops short of member constants.
+    Mutation
+      { mutationName = "new-in-member-constant"
+      , mutationFeature = "82-trait-constants"
+      , mutationPHPRule = "New expressions are not supported in this context"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "    public const EDITION = 'community';"
+            "    public const EDITION = new \\ArrayObject();"
+      }
   , Mutation
       { mutationName = "property-in-enum"
       , mutationFeature = "enums"
