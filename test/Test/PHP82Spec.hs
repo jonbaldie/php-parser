@@ -123,6 +123,30 @@ php82Tests = testGroup "PHP 8.2 Specifications"
         case parseProgram "test.php" src of
           Left err -> assertFailure (show (formatParseError err))
           Right _ -> pure ()
+
+  , testCase "DNF types require parenthesized intersections inside unions (Issue #325)" $ do
+      let rejected = [ "<?php function f(A&B|C $x) {}"
+                     , "<?php function g(A|B&C $x) {}"
+                     , "<?php function h(): A&B|C {}"
+                     , "<?php class K { public A|B&C $p; }"
+                     , "<?php function f((A&B)&C $x) {}"
+                     ]
+          accepted = [ "<?php function f((A&B)|C $x) {}"
+                     , "<?php function f(C|(A&B) $x) {}"
+                     , "<?php function f((A&B)|C &$x) {}"
+                     , "<?php function f(A|B &$x) {}"
+                     , "<?php function f(A&B&C $x) {}"
+                     , "<?php function f(A&B &$x) {}"
+                     , "<?php function f(): (A&B)|null {}"
+                     ]
+      forM_ rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("expected parse failure for: " ++ show src)
+      forM_ accepted $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right _ -> pure ()
   ]
 
 assertParsesOk :: Text -> Assertion

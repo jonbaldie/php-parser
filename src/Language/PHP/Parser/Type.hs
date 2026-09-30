@@ -72,16 +72,33 @@ parseIntersectionOnly = do
     rest <- M.some (symbol "&" *> parseAtomicNonParen)
     pure (t1 : rest)
   pure (IntersectionType sp types)
-  where
-    parseAtomicNonParen = withSpan $ do
-      qn <- parseTypeName
-      pure (\sp -> SimpleType sp qn)
 
--- | Parse union or intersection or DNF type.
+-- | Parse a bare type name, the only form allowed as an intersection member.
+parseAtomicNonParen :: Parser (Type Span)
+parseAtomicNonParen = withSpan $ do
+  qn <- parseTypeName
+  pure (\sp -> SimpleType sp qn)
+
+-- | Parse union or intersection or DNF type. PHP's grammar only allows an
+-- intersection inside a union when it is parenthesized, so a bare @&@ chain
+-- is a whole type on its own (@A&B@) and never a union member (@A&B|C@).
 parseUnionOrIntersection :: Parser (Type Span)
 parseUnionOrIntersection = do
-  t1 <- parseIntersectionOrAtomic
-  moreUnion <- M.many (symbol "|" *> parseIntersectionOrAtomic)
+  t1 <- parseAtomicType
+  case t1 of
+    SimpleType {} -> do
+      moreInter <- M.many (M.try (symbol "&" *> parseAtomicNonParen))
+      case moreInter of
+        [] -> parseUnionTail t1
+        rest -> do
+          let allTypes = t1 : rest
+          let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
+          pure (IntersectionType sp allTypes)
+    _ -> parseUnionTail t1
+
+parseUnionTail :: Type Span -> Parser (Type Span)
+parseUnionTail t1 = do
+  moreUnion <- M.many (symbol "|" *> parseAtomicType)
   case moreUnion of
     [] -> pure t1
     rest -> do
@@ -89,18 +106,6 @@ parseUnionOrIntersection = do
       failIfNullable allTypes
       let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
       pure (UnionType sp allTypes)
-
-parseIntersectionOrAtomic :: Parser (Type Span)
-parseIntersectionOrAtomic = do
-  t1 <- parseAtomicType
-  moreInter <- M.many (M.try (symbol "&" *> parseAtomicType))
-  case moreInter of
-    [] -> pure t1
-    rest -> do
-      let allTypes = t1 : rest
-      failIfNullable allTypes
-      let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
-      pure (IntersectionType sp allTypes)
 
 -- | The nullable shorthand (?Type) is only valid as a standalone type; it
 -- cannot be combined with union or intersection members.
