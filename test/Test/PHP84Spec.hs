@@ -444,5 +444,27 @@ php84Tests = testGroup "PHP 8.4 Specifications"
               Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
               Right prog2 ->
                 assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
-    ]
+        ]
+
+  , testCase "exit(...) and die(...) first-class callables (Issue #322)" $ do
+      let progSrc = "<?php\n$f = exit(...);\n$g = die(...);\n"
+      case parseProgram "test.php" progSrc of
+        Left err -> assertFailure (show (formatParseError err))
+        Right prog -> do
+          let printed = prettyPrint prog
+          case parseProgram "test.php" printed of
+            Left err -> assertFailure ("reparsing printed output failed: " ++ show (formatParseError err) ++ "\nprinted: " ++ show printed)
+            Right prog2 ->
+              assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
+
+      forM_ ["exit(...)", "die(...)"] $ \exprSrc ->
+        case parseExpression "test.php" exprSrc of
+          Left err -> assertFailure (T.unpack exprSrc ++ " failed: " ++ show (formatParseError err))
+          Right expr -> do
+            let printed = prettyPrintExpr expr
+            assertEqual "printed matches source" exprSrc printed
+            case parseExpression "test.php" printed of
+              Left err -> assertFailure ("reparsing printed " ++ show printed ++ " failed: " ++ show (formatParseError err))
+              Right expr2 ->
+                assertEqual "round-trip AST equal" (stripAnnotations expr) (stripAnnotations expr2)
   ]

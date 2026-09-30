@@ -609,11 +609,17 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       pure (\sp -> ExprEval sp expr)
 
     -- @exit@ and @die@ take an optional parenthesized status, so @exit@ and
-    -- @exit()@ are the same statusless construct.
+    -- @exit()@ are the same statusless construct. In PHP 8.4+, they can also
+    -- form first-class callables via @exit(...)@ and @die(...)@ (Issue #322).
     parseExit = withSpan $ do
-      kind <- (ExitExit <$ keyword "exit") <|> (ExitDie <$ keyword "die")
-      mStatus <- optional (parens (optional parseExprRec))
-      pure (\sp -> ExprExit sp kind (join mStatus))
+      (spKind, kind) <- spanned ((ExitExit <$ keyword "exit") <|> (ExitDie <$ keyword "die"))
+      let parseCallable = parens (symbol "..." <* M.lookAhead (symbol ")"))
+      mCallable <- optional (M.try parseCallable)
+      case mCallable of
+        Just _ -> pure (\sp -> ExprCall sp (ExprExit spKind kind Nothing) FirstClassCallable)
+        Nothing -> do
+          mStatus <- optional (parens (optional parseExprRec))
+          pure (\sp -> ExprExit sp kind (join mStatus))
 
     parseConstFetch = withSpan $ do
       qn <- parseClassName

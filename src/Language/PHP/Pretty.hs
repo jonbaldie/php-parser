@@ -429,7 +429,7 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
     maybe mempty (\e -> " extends " <> prettyQualifiedName e) ext <>
     (if null impls then mempty else " implements " <> hsep (punctuate "," (map prettyQualifiedName impls))) <>
     " {" <> line <> indent 4 (vsep (map prettyMember members)) <> line <> "}"
-  ExprCall _ fn args -> prettyCallBase fn <> prettyCallArgs args
+  ExprCall _ fn args -> prettyCallBase fn args <> prettyCallArgs args
   ExprMethodCall _ obj member args ->
     prettyPostfixBase obj <> "->" <> prettyMemberName member <> prettyCallArgs args
   ExprNullsafeMethodCall _ obj member args ->
@@ -586,23 +586,23 @@ prettyCallArgs = \case
   ArgsList args -> "(" <> hsep (punctuate "," (map prettyArg args)) <> ")"
   FirstClassCallable -> "(...)"
 
-prettyCallBase :: HasLeadingTrivia a => Expr a -> Doc ann
-prettyCallBase e
-  | needsCallParens e = parens (prettyExpr e)
-  | otherwise         = prettyPostfixBase e
+prettyCallBase :: HasLeadingTrivia a => Expr a -> CallArgs a -> Doc ann
+prettyCallBase e args
+  | needsCallParens e args = parens (prettyExpr e)
+  | otherwise              = prettyPostfixBase e
 
-needsCallParens :: Expr a -> Bool
-needsCallParens = \case
-  ExprExit {}                  -> True
-  ExprPropertyFetch {}         -> True
-  ExprNullsafePropertyFetch {} -> True
-  ExprStaticPropertyFetch {}   -> True
-  ExprClassConstFetch {}       -> True
-  ExprYield {}                 -> True
-  ExprYieldFrom {}             -> True
-  ExprArrowFunction {}         -> True
-  ExprThrow {}                 -> True
-  _                            -> False
+needsCallParens :: Expr a -> CallArgs a -> Bool
+needsCallParens (ExprExit _ _ Nothing) FirstClassCallable = False
+needsCallParens (ExprExit {}) _                           = True
+needsCallParens (ExprPropertyFetch {}) _                  = True
+needsCallParens (ExprNullsafePropertyFetch {}) _          = True
+needsCallParens (ExprStaticPropertyFetch {}) _            = True
+needsCallParens (ExprClassConstFetch {}) _                = True
+needsCallParens (ExprYield {}) _                          = True
+needsCallParens (ExprYieldFrom {}) _                      = True
+needsCallParens (ExprArrowFunction {}) _                  = True
+needsCallParens (ExprThrow {}) _                          = True
+needsCallParens _ _                                       = False
 
 prettyPostfixBase :: HasLeadingTrivia a => Expr a -> Doc ann
 prettyPostfixBase e
