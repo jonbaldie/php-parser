@@ -27,6 +27,20 @@ prettyTests = testGroup "Pretty Printer Specifications"
             "<?php\n\n(new C())->f();"
             (prettyPrint ast)
 
+  , testCase "prettyPrint keeps parentheses around anonymous class instantiation before member access (Issue #324)" $ do
+      let src = "<?php (new class { public function m() {} })->m(); $p = (new class { public $x; })->x; $q = (new class {})?->m(); $r = (new class {})[0];"
+      case parseProgram "issue-324.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrint ast
+          assertEqual "Keeps parentheses around anonymous class before member access"
+            "<?php\n\n(new class() {\n    public function m() {\n        \n    }\n})->m();\n$p = (new class() {\n    public $x;\n})->x;\n$q = (new class() {\n    \n})?->m();\n$r = (new class() {\n    \n})[0];"
+            printed
+          case parseProgram "reparsed.php" printed of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
   , testCase "prettyPrint keeps parentheses around a closure before a call or member access (Issue #323)" $ do
       let src = "<?php (function () {})(); $f = (function () {})(...); (function () {})->bindTo($obj); (static function () {})[0];"
       case parseProgram "issue-323.php" src of
