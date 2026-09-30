@@ -1343,6 +1343,24 @@ expressionTests = testGroup "Expression Specifications"
             Right (ExprExit _ ExitExit (Just _)) -> pure ()
             Right other -> assertFailure ("Expected case-insensitive exit, got: " ++ show other)
 
+          case parseExpression "test.php" "exit(...)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprCall _ (ExprExit _ ExitExit Nothing) FirstClassCallable -> pure ()
+                other -> assertFailure ("Expected exit(...) ExprCall, got: " ++ show other)
+              assertEqual "pretty printed" "exit(...)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
+          case parseExpression "test.php" "die(...)" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr -> do
+              case expr of
+                ExprCall _ (ExprExit _ ExitDie Nothing) FirstClassCallable -> pure ()
+                other -> assertFailure ("Expected die(...) ExprCall, got: " ++ show other)
+              assertEqual "pretty printed" "die(...)" (prettyPrintExpr expr)
+              assertRoundTripExpr expr
+
           forM_ (["<?php exit;", "<?php exit();", "<?php exit(0);", "<?php exit(\"msg\");"] :: [Text]) $ \src ->
             case parseProgram "test.php" src of
               Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))

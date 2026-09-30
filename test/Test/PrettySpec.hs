@@ -380,6 +380,8 @@ prettyTests = testGroup "Pretty Printer Specifications"
             , ("binary operand", ExprBinary () OpLogicalOr varX dieStatus, "($x or die($x))")
             , ("assignment operand", ExprAssign () Nothing varX bareExit, "$x = exit")
             , ("call base", ExprCall () bareExit (ArgsList []), "(exit)()")
+            , ("first-class callable exit", ExprCall () bareExit FirstClassCallable, "exit(...)")
+            , ("first-class callable die", ExprCall () (ExprExit () ExitDie Nothing) FirstClassCallable, "die(...)")
             ]
       mapM_ (\(name, expr, expected) -> do
         let printed = prettyPrintExpr expr
