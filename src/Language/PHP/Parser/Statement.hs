@@ -14,12 +14,14 @@ module Language.PHP.Parser.Statement
 import Control.Applicative ((<|>), optional)
 import Control.Monad (void, when, unless)
 import Data.Maybe (isJust, isNothing)
+import Data.Monoid (Any (..))
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 
 import Language.PHP.AST
+import Language.PHP.Fold (queryExpr)
 import Language.PHP.Span (Span (..), SourcePos (..), combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
@@ -854,6 +856,19 @@ parseConstDecl = withSpan $ do
   _ <- semi
   pure (\sp -> ConstDecl sp attrs vis isFinal mType items)
 
+-- | Whether an initializer contains a @new@ expression outside any closure
+-- body. PHP permits @new@ in global constant initializers but not in class,
+-- interface, trait or enum constants. 'queryExpr' stops at the first
+-- non-'mempty' node, so a closure answers @Just (Any False)@ to leave its
+-- body (a separate scope) unvisited.
+containsNew :: Expr a -> Bool
+containsNew = maybe False getAny . queryExpr (\case
+  ExprNew {}             -> Just (Any True)
+  ExprNewAnonClass {}    -> Just (Any True)
+  ExprClosure {}         -> Just (Any False)
+  ExprArrowFunction {}   -> Just (Any False)
+  _                      -> Nothing)
+
 -- | Top-level constant declaration statement.
 -- Unlike class member constants, global constants forbid visibility modifiers,
 -- 'final', and type annotations.
@@ -974,7 +989,12 @@ parseClassMemberInContext ctx = do
 -- | Reject members that PHP forbids in the enclosing declaration kind.
 -- Hooked properties are legal in interfaces (PHP 8.4); bare ones are not.
 checkMember :: ClassContext -> ClassMember Span -> Parser ()
-checkMember ctx member =
+checkMember ctx member = do
+  case member of
+    MemberConst cd
+      | any (containsNew . snd) (constItems cd) ->
+          forbidden "New expressions are not supported in this context"
+    _ -> pure ()
   case (ctx, member) of
     (EnumContext enumName isBacked, MemberEnumCase (EnumCase _ _ (Ident _ caseName) mVal)) -> do
       when (not isBacked && isJust mVal) $
