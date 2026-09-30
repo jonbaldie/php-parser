@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.12.0
+
+* Accept `exit(...)` and `die(...)` as first-class callables, which PHP 8.4 allows but the library rejected with `unexpected ".", expecting expression`. `prettyPrint` reprints them as `exit(...)` rather than `(exit)(...)` (#322).
+
+* Keep parentheses around a closure used as the base of a call or postfix access. `prettyPrint` reprinted `(function () { return 1; })()` as `function () { return 1; }()`, and likewise for `(...)`, `->` and `[...]`, which PHP 8.2 to 8.5 reject (#323).
+
+* Keep parentheses around an anonymous class instantiation used as the base of a postfix access such as `->`, `?->` or `[...]`. `prettyPrint` reprinted `(new class {})->m()` as `new class() {}->m()`, which only PHP 8.4 and later accept (#324).
+
+* Reject an unparenthesized intersection inside a union type, which PHP refuses: `A&B|C` and `A|B&C` parsed because `&` bound tighter than `|`. An intersection may be a union member only when parenthesized as DNF, so `(A&B)|C` stays accepted, a bare `A&B` stays accepted, and `(A&B)&C` is now rejected (#325).
+
+* Reject a nullsafe chain in a write context, which PHP refuses at compile time: `unset($a?->b)`, `$x = &$a?->b`, `$a?->b++`, `++$a?->b->c` and `$x = &$a?->b::m()` parsed. `unset`, postfix and prefix increment and decrement, by-reference array items, `foreach` keys and values, and reference assignment now check their whole target chain. Other non-writable targets that PHP also rejects, such as `1++`, `foo()++`, `unset(foo())` and `foreach ($x as foo())`, are rejected too (#326).
+
+* Reject property hooks on a static property, which PHP 8.4 and 8.5 refuse with "Cannot declare hooks for static property": `class C { public static int $x { get => 1; } }` parsed. The check applies in classes, interfaces, traits and anonymous classes (#327).
+
+* Reject `new` in a class, interface, trait or enum constant initializer, which PHP refuses with "New expressions are not supported in this context": `class C { public const A = new X(); }` parsed. Nested uses such as `[new X]` are rejected too, while top-level `const` and `new` inside a closure body stay accepted (#328).
+
 ## 0.1.11.0
 
 * Keep parentheses around a `new` expression used as the base of a postfix access such as `->`. `prettyPrint` reprinted `(new C())->f()` as `new C()->f()`, which only PHP 8.4 and later accept, so formatting a program valid on PHP 8.2 or 8.3 produced source those versions reject (#308).
