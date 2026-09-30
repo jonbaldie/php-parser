@@ -52,6 +52,25 @@ php84Tests = testGroup "PHP 8.4 Specifications"
           Left err -> assertFailure ("unexpected parse failure for: " ++ show src ++ ": " ++ show (formatParseError err))
           Right _ -> pure ()
 
+  , testCase "Reject property hooks on static properties (Issue #327)" $ do
+      let rejected =
+            [ "<?php class C { public static int $x { get => 1; } }"
+            , "<?php class C { static public int $x { set => $value; } }"
+            , "<?php abstract class C { abstract public static int $x { get; } }"
+            , "<?php interface I { public static int $x { get; } }"
+            , "<?php trait T { public static int $x { get => 1; } }"
+            , "<?php $o = new class { public static int $x { get => 1; } };"
+            ]
+      forM_ rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left err ->
+            assertBool ("expected static hook diagnostic for: " ++ show src)
+              (maybe False (T.isInfixOf "Cannot declare hooks for static property") (errorCustom err))
+          Right _ -> assertFailure ("expected static hook rejection for: " ++ show src)
+      case parseProgram "test.php" "<?php class C { public static int $x = 1; public int $y { get => 1; } }" of
+        Left err -> assertFailure ("unexpected parse failure: " ++ show (formatParseError err))
+        Right _ -> pure ()
+
   , testCase "by-reference and attributed property hooks (Issue #116)" $ do
       let assertParses label src = case parseProgram "test.php" src of
             Left err -> assertFailure (label ++ " failed: " ++ show (formatParseError err))
