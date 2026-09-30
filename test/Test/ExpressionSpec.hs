@@ -1825,6 +1825,81 @@ expressionTests = testGroup "Expression Specifications"
                 ] assertParsesOkExpr
       ]
 
+  , testGroup "Nullsafe chains in write contexts (Issue #326)"
+      [ testCase "rejects the reported programs" $ do
+          forM_ [ "unset($a?->b);"
+                , "$x = &$a?->b;"
+                , "$a?->b++;"
+                , "++$a?->b;"
+                ] $ \stmt -> assertRejectsProgram ("<?php " <> stmt)
+
+      , testCase "rejects nullsafe chains anywhere in a write target" $ do
+          forM_ [ "unset($a?->b->c);"
+                , "unset($a?->b[0]);"
+                , "unset($a[0]?->b);"
+                , "unset($a?->b::$c);"
+                , "unset($a?->m());"
+                , "$x = &$a?->b->c;"
+                , "$x = &$a?->b[0];"
+                , "$x = &$a?->m();"
+                , "$x = &$a?->m()->c;"
+                , "$x = &$a->m()?->b;"
+                , "$x = &$a?->b::$c;"
+                , "$x = &$a?->b::m();"
+                , "$x = &$a?->b::m()->c;"
+                , "$a?->b::m()->c = 1;"
+                , "$a?->b--;"
+                , "--$a?->b;"
+                , "$a?->b->c++;"
+                , "++$a?->b->c;"
+                , "$a?->b[0]++;"
+                , "++$a?->b[0];"
+                , "$a?->m()->c++;"
+                , "$a?->b::$c++;"
+                , "$y = [&$a?->b];"
+                , "$y = [$k => &$a?->b];"
+                , "foreach ($x as $a?->b) {}"
+                , "foreach ($x as &$a?->b) {}"
+                , "foreach ($x as $k => $a?->b) {}"
+                , "foreach ($x as $a?->b => $v) {}"
+                , "foreach ($x as [$a?->b]) {}"
+                ] $ \stmt -> assertRejectsProgram ("<?php " <> stmt)
+
+      , testCase "rejects other non-writable increment, unset and reference targets" $ do
+          forM_ [ "1++;"
+                , "foo()++;"
+                , "unset(foo());"
+                , "$y = [&foo()];"
+                , "foreach ($x as foo()) {}"
+                , "foreach ($x as &[$a]) {}"
+                , "foreach ($x as [$a] => $b) {}"
+                ] $ \stmt -> assertRejectsProgram ("<?php " <> stmt)
+
+      , testCase "keeps nullsafe reads and non-nullsafe write targets accepted" $ do
+          forM_ [ "unset($a->b, $a[0], A::$b, A::$b[0], $a::$b, foo()->b);"
+                , "$x = &$a->b;"
+                , "$x = &$a->m();"
+                , "$x = &A::$b;"
+                , "$x = &$a?->b()();"
+                , "$a->b++;"
+                , "++$a->b;"
+                , "foo()[0]++;"
+                , "$a::$b++;"
+                , "$y = [&$a->b, $k => &$a[0]];"
+                , "$x = $a?->b;"
+                , "$a->m()?->b;"
+                , "isset($a?->b);"
+                , "$f = $a?->b::m(...);"
+                , "foreach ($x as &$a->b) {}"
+                , "foreach ($x as $k => [$a, $b]) {}"
+                , "foreach ($x as $a[0] => &$b) {}"
+                , "foreach ($x as [&$a, $b]) {}"
+                ] $ \stmt ->
+            case parseProgram "issue326.php" ("<?php " <> stmt) of
+              Left err -> assertFailure (T.unpack stmt ++ ": " ++ show (formatParseError err))
+              Right _ -> pure ()
+      ]
+
   , testGroup "By-reference assignment (Issue #138)"
       [ testCase "$a =& $b parses as a by-reference assignment" $ do
           case parseExpression "test.php" "$a =& $b" of
@@ -1844,7 +1919,6 @@ expressionTests = testGroup "Expression Specifications"
           forM_ [ "$a =& foo()"
                 , "$a =& $arr[0]"
                 , "$a =& $obj->prop"
-                , "$a =& $obj?->prop"
                 , "$a =& $obj->method()"
                 , "$a =& Klass::$prop"
                 , "$a =& Klass::make()"
@@ -2295,3 +2369,8 @@ assertParsesOkExpr :: Text -> Assertion
 assertParsesOkExpr src = case parseExpression "test.php" src of
   Left err -> assertFailure (show (formatParseError err))
   Right _ -> pure ()
+
+assertRejectsProgram :: Text -> Assertion
+assertRejectsProgram src = case parseProgram "test.php" src of
+  Left _ -> pure ()
+  Right program -> assertFailure (T.unpack src ++ ": expected a parse error, got: " ++ show program)

@@ -23,7 +23,7 @@ import Language.PHP.AST
 import Language.PHP.Span (Span (..), SourcePos (..), combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
-import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure)
+import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure, isAssignable, isWritable)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
@@ -306,6 +306,8 @@ parseUnset :: Parser (Stmt Span)
 parseUnset = withSpan $ do
   keyword_ "unset"
   targets <- parens (parseExpr `M.sepEndBy1` comma)
+  unless (all isWritable targets) $
+    fail "Cannot unset a non-writable expression"
   _ <- statementTerminator
   pure (\sp -> StmtUnset sp targets)
 
@@ -527,6 +529,10 @@ parseForeach = withSpan $ do
         else pure (Nothing, kOrV, False)
   when (hasEmptyDestructure val || maybe False hasEmptyDestructure mKey) $
     fail "Cannot use empty list"
+  -- The key and a by-reference value bind to single variables; a by-value
+  -- value may also destructure.  None may be a nullsafe chain.
+  unless (maybe True isWritable mKey && (if byRef then isWritable val else isAssignable val)) $
+    fail "Cannot assign foreach target to a non-writable expression"
   _ <- symbol ")"
   altBranch arr mKey val byRef <|> braceBranch arr mKey val byRef
   where
