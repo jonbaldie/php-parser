@@ -245,6 +245,14 @@ allMutations =
             "        get => $this->raw;"
             "        get => $this->raw;\n        get => $this->raw;"
       }
+  , -- Property hooks are an instance-property feature only.
+    Mutation
+      { mutationName = "static-hooked-property"
+      , mutationFeature = "84-property-hooks"
+      , mutationPHPRule = "Cannot declare hooks for static property"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "    public float $celsius {" "    public static float $celsius {"
+      }
   , -- Members where the declaration kind forbids them.
     Mutation
       { mutationName = "abstract-private-method"

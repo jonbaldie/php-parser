@@ -1091,6 +1091,8 @@ parseProperty enclosingReadonly attrs = withSpan $ do
     then if enclosingReadonly || propReadonly modif
       then M.empty
       else do
+        when (propStatic modif) $
+          M.fancyFailure (S.singleton (M.ErrorFail "Cannot declare hooks for static property"))
         hooks <- braces (parsePropertyHooks [])
         pure (\sp -> PropertyDecl sp attrs modif mType [(firstVar, mFirstVal)] hooks)
     else do
