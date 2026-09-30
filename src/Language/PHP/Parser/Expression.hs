@@ -19,6 +19,8 @@ module Language.PHP.Parser.Expression
   , parseLiteralWith
   , exprSpan
   , hasEmptyDestructure
+  , isAssignable
+  , isWritable
   ) where
 
 import Control.Applicative ((<|>), optional)
@@ -61,17 +63,16 @@ isEmptyDestructItems items = not (any isNonEmptyItem items) || any itemHasEmpty 
       ArrayItemEmpty {}     -> False
 
 -- | Whether an expression denotes a PHP @variable@, the only kind of source a
--- by-reference assignment can bind to.
+-- by-reference assignment can bind to.  PHP cannot take a reference to any
+-- part of a nullsafe chain (@$x = &$a?->b->c@), so such chains are excluded.
 isReferenceable :: Expr a -> Bool
-isReferenceable = \case
+isReferenceable e = not (hasNullsafe e) && case e of
   ExprVar {}                   -> True
   ExprArrayAccess {}           -> True
   ExprPropertyFetch {}         -> True
-  ExprNullsafePropertyFetch {} -> True
   ExprStaticPropertyFetch {}   -> True
   ExprCall {}                  -> True
   ExprMethodCall {}            -> True
-  ExprNullsafeMethodCall {}    -> True
   ExprStaticCall {}            -> True
   _                            -> False
 
@@ -83,17 +84,27 @@ isReferenceable = \case
 -- variable.
 isAssignable :: Expr a -> Bool
 isAssignable = \case
-  ExprVar {}                   -> True
-  ExprArrayAccess _ base _     -> isDereferenceable base
-  ExprPropertyFetch _ base _   -> isDereferenceable base
-  ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
   ExprArray _ items            -> all isAssignableItem items
   ExprList _ items             -> all isAssignableItem items
-  _                            -> False
+  e                            -> isWritable e
   where
     isAssignableItem = \case
       ArrayItem _ _ value isSpread _ -> not isSpread && isAssignable value
       ArrayItemEmpty {}              -> True
+
+-- | Whether an expression is a single writable variable: a target for
+-- @unset@, @++@/@--@, a by-reference array item or a foreach key.
+--
+-- PHP rejects any nullsafe operator in the chain of a write target
+-- (@unset($a?->b->c)@, @$a?->b[0]++@), which 'isDereferenceable' enforces
+-- for every base below the outermost access.
+isWritable :: Expr a -> Bool
+isWritable = \case
+  ExprVar {}                         -> True
+  ExprArrayAccess _ base _           -> isDereferenceable base
+  ExprPropertyFetch _ base _         -> isDereferenceable base
+  ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
+  _                                  -> False
 
 -- | Whether an expression can be dereferenced as the base of a writable
 -- array access or property fetch.  Calls produce dereferenceable values, but
@@ -106,7 +117,7 @@ isDereferenceable = \case
   ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
   ExprCall {}                        -> True
   ExprMethodCall _ base _ _          -> not (hasNullsafe base)
-  ExprStaticCall {}                  -> True
+  ExprStaticCall _ target _ _        -> isStaticTargetAssignable target
   _                                  -> False
 
 isStaticTargetAssignable :: ClassTarget a -> Bool
@@ -122,26 +133,14 @@ isDestructure = \case
   ExprList {}  -> True
   _            -> False
 
--- | Whether an expression is a valid target for prefix increment/decrement.
---
--- PHP's grammar gives @++@ and @--@ a greedy token before parsing the target,
--- so their operand is a variable-shaped postfix expression rather than an
--- arbitrary unary expression.  In particular, a literal after the token is
--- rejected (and @---1@ cannot fall back to unary minus).
-isIncrementable :: Expr a -> Bool
-isIncrementable = \case
-  ExprVar {}                   -> True
-  ExprArrayAccess {}           -> True
-  ExprPropertyFetch {}         -> True
-  ExprStaticPropertyFetch {}   -> True
-  _                            -> False
-
 -- | Whether an expression receiver chain contains a nullsafe operator (@?->@).
 --
 -- In PHP, first-class callable creation (@(...)@) cannot be combined with the
 -- nullsafe operator, either directly (@$obj?->method(...)@) or anywhere in the
 -- receiver chain of a method call (@$obj?->prop->method(...)@,
 -- @$obj?->m()->method(...)@, @$obj?->arr[0]->method(...)@).
+-- The same chains cannot be written to or referenced.  A static access whose
+-- class is a nullsafe chain (@$obj?->cls::m()@) continues that chain.
 hasNullsafe :: Expr a -> Bool
 hasNullsafe = \case
   ExprNullsafePropertyFetch {} -> True
@@ -150,6 +149,7 @@ hasNullsafe = \case
   ExprMethodCall _ base _ _    -> hasNullsafe base
   ExprArrayAccess _ base _     -> hasNullsafe base
   ExprStaticPropertyFetch _ target _ -> hasNullsafeClassTarget target
+  ExprStaticCall _ target _ _  -> hasNullsafeClassTarget target
   _                            -> False
   where
     hasNullsafeClassTarget = \case
@@ -412,10 +412,13 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           pure (\sp -> ExprShellExec sp parts)
 
         -- Prefix ++/-- take a variable, so they bind tighter than "**".
+        -- PHP's grammar gives @++@ and @--@ a greedy token before parsing the
+        -- target, so a literal after the token is rejected (and @---1@ cannot
+        -- fall back to unary minus).
         parseIncDec = withSpan $ do
           op <- (OpPreInc <$ symbol "++") <|> (OpPreDec <$ symbol "--")
           operand <- parsePostfix
-          guard (isIncrementable operand)
+          guard (isWritable operand)
           pure (\sp -> ExprUnary sp op operand)
 
         -- The remaining prefix operators bind looser than "**", so "-2 ** 2"
@@ -485,11 +488,19 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       where
         parsePostInc = do
           (spEnd, _) <- spanned (symbol "++")
+          requireWritable
           pure (ExprUnary (combineSpans (exprSpan base) spEnd) OpPostInc base)
 
         parsePostDec = do
           (spEnd, _) <- spanned (symbol "--")
+          requireWritable
           pure (ExprUnary (combineSpans (exprSpan base) spEnd) OpPostDec base)
+
+        -- Checked after the operator is consumed, so @1--1@ stays an error
+        -- rather than backtracking into a subtraction.
+        requireWritable =
+          when (not (isWritable base)) $
+            fail "Cannot increment or decrement a non-writable expression"
 
         parseMethodOrProp = do
           _ <- symbol "->"
@@ -870,7 +881,7 @@ parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
           isRef <- (True <$ symbol "&") <|> pure False
           if isRef
             then do
-              expr <- pExpr
+              expr <- refItem
               pure (\sp -> ArrayItem sp Nothing expr False True)
             else do
               kOrV <- pExpr
@@ -878,9 +889,17 @@ parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
               if isArrow
                 then do
                   valRef <- (True <$ symbol "&") <|> pure False
-                  v <- pExpr
+                  v <- if valRef then refItem else pExpr
                   pure (\sp -> ArrayItem sp (Just kOrV) v False valRef)
                 else pure (\sp -> ArrayItem sp Nothing kOrV False False)
+
+    -- A by-reference item binds to a single variable, in array literals and
+    -- destructuring alike: PHP rejects @[&foo()]@ and @[&$a?->b]@.
+    refItem = do
+      expr <- pExpr
+      when (not (isWritable expr)) $
+        fail "Cannot take a reference to a non-writable expression"
+      pure expr
 
 -- | Attributes #[ ... ]
 parseAttributes :: Parser [AttributeGroup Span]

@@ -221,12 +221,9 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           prop = MemberIdent (Ident () "prop")
           idx = Just (ExprLit () (LitInt () 0 "0"))
           contexts =
-            [ ("post-increment of include", ExprUnary () OpPostInc (inc IncInclude))
-            , ("post-decrement of include", ExprUnary () OpPostDec (inc IncInclude))
-            , ("post-increment of include_once", ExprUnary () OpPostInc (inc IncIncludeOnce))
-            , ("post-increment of require", ExprUnary () OpPostInc (inc IncRequire))
-            , ("post-increment of require_once", ExprUnary () OpPostInc (inc IncRequireOnce))
-            , ("property fetch on include", ExprPropertyFetch () (inc IncInclude) prop)
+            -- Postfix ++/-- on an include is not writable, so PHP and the
+            -- parser reject it; only its printed form is checked, in PrettySpec.
+            [ ("property fetch on include", ExprPropertyFetch () (inc IncInclude) prop)
             , ("array access on include", ExprArrayAccess () (inc IncInclude) idx)
             , ("call on include", ExprCall () (inc IncInclude) (ArgsList []))
             , ("top-level include", inc IncInclude)
@@ -242,7 +239,9 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
   , testCase "Round-trip post-increment and post-decrement of cast expressions (Issue #23)" $ do
       let varX = ExprVar () (SimpleVar () (VarName () "x"))
           varS = ExprVar () (SimpleVar () (VarName () "s"))
-          contexts =
+          -- Casts, clones, pre-increments and throws are not writable, so their
+          -- parenthesized post-increments are rejected like PHP (Issue #326).
+          rejected =
             [ ("post-increment of int cast", ExprUnary () OpPostInc
                 (ExprCast () CastInt varX))
             , ("post-decrement of string cast", ExprUnary () OpPostDec
@@ -253,15 +252,17 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
                 (ExprUnary () OpPreInc varX))
             , ("post-increment of throw", ExprUnary () OpPostInc
                 (ExprThrow () varX))
-            , ("post-increment of variable", ExprUnary () OpPostInc varX)
             ]
-      forM_ contexts $ \(name, ctx) -> do
-        let printed = prettyPrintExpr ctx
-        case parseExpression "test.php" printed of
-          Left err -> assertFailure (name ++ ": printed output does not parse: "
-                                     ++ T.unpack printed ++ "\n" ++ show (formatParseError err))
-          Right reparsed ->
-            assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
+          ctx = ExprUnary () OpPostInc varX
+      forM_ rejected $ \(name, bad) ->
+        case parseExpression "test.php" (prettyPrintExpr bad) of
+          Left _ -> pure ()
+          Right reparsed -> assertFailure (name ++ ": expected a parse error, got: " ++ show reparsed)
+      case parseExpression "test.php" (prettyPrintExpr ctx) of
+        Left err -> assertFailure ("post-increment of variable: printed output does not parse\n"
+                                   ++ show (formatParseError err))
+        Right reparsed ->
+          assertEqual "post-increment of variable: AST preserved" (stripAnnotations ctx) (stripAnnotations reparsed)
 
   , testCase "Round-trip unary operands of exponentiation (Issue #45)" $ do
       let lit n = ExprLit () (LitInt () n (T.pack (show n)))
