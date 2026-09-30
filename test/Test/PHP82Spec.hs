@@ -44,6 +44,44 @@ php82Tests = testGroup "PHP 8.2 Specifications"
             _ -> assertFailure "Expected 1 param"
           _ -> assertFailure "Expected StmtFunction"
 
+  , testGroup "DNF types require parenthesized intersections inside unions (Issue #325)"
+      [ testCase "rejects A&B|C in a parameter" $
+          assertParsesFail "<?php function f(A&B|C $x) {}"
+      , testCase "rejects A|B&C in a parameter" $
+          assertParsesFail "<?php function g(A|B&C $x) {}"
+      , testCase "rejects A&B|C in a return type" $
+          assertParsesFail "<?php function h(): A&B|C {}"
+      , testCase "rejects A|B&C in a property type" $
+          assertParsesFail "<?php class K { public A|B&C $p; }"
+      , testCase "rejects a parenthesized intersection inside another intersection" $
+          assertParsesFail "<?php function f((A&B)&C $x) {}"
+      , testCase "accepts a parenthesized intersection on the left of a union" $
+          assertParsesOk "<?php function f((A&B)|C $x) {}"
+      , testCase "accepts a parenthesized intersection on the right of a union" $
+          assertParsesOk "<?php function f(C|(A&B) $x) {}"
+      , testCase "accepts a DNF by-reference parameter" $
+          assertParsesOk "<?php function f((A&B)|C &$x) {}"
+      , testCase "accepts an intersection chain" $
+          assertParsesOk "<?php function f(A&B&C $x) {}"
+      , testCase "accepts an intersection by-reference parameter" $
+          assertParsesOk "<?php function f(A&B &$x) {}"
+      , testCase "accepts a DNF return type" $
+          assertParsesOk "<?php function f(): (A&B)|null {}"
+      ]
+
+  , testCase "Union-typed by-reference parameters remain valid" $ do
+      let src = "<?php function f(A|B &$x) {}"
+      case parseProgram "test.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right (Program _ [StmtFunction _ fn]) -> case funcParams fn of
+          [p] -> do
+            assertBool "parameter is by-reference" (paramByRef p)
+            case paramType p of
+              Just (UnionType _ [SimpleType _ _, SimpleType _ _]) -> pure ()
+              other -> assertFailure ("Unexpected parameter type: " ++ show other)
+          _ -> assertFailure "Expected 1 param"
+        other -> assertFailure ("Unexpected program: " ++ show other)
+
   , testCase "Standalone null, false, and true types" $ do
       let srcNull = "<?php function alwaysNull(): null { return null; }"
           srcFalse = "<?php function alwaysFalse(): false { return false; }"
@@ -123,9 +161,15 @@ php82Tests = testGroup "PHP 8.2 Specifications"
         case parseProgram "test.php" src of
           Left err -> assertFailure (show (formatParseError err))
           Right _ -> pure ()
+
   ]
 
 assertParsesOk :: Text -> Assertion
 assertParsesOk src = case parseProgram "test.php" src of
   Left err -> assertFailure (show (formatParseError err))
   Right _ -> pure ()
+
+assertParsesFail :: Text -> Assertion
+assertParsesFail src = case parseProgram "test.php" src of
+  Left _ -> pure ()
+  Right _ -> assertFailure ("Expected parse failure for: " ++ show src)
