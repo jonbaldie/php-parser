@@ -116,7 +116,18 @@ paramType name ty rule stance =
 
 allMutations :: [Mutation]
 allMutations =
-  [ -- Return-only types moved into parameter position.
+  [ -- Issue #325: an intersection may be a union member only when parenthesized.
+    paramType
+      "unparenthesized-dnf-before-union"
+      "A&B|C"
+      "syntax error, unexpected token \"|\""
+      Caught
+  , paramType
+      "unparenthesized-dnf-after-union"
+      "A|B&C"
+      "syntax error, unexpected token \"&\""
+      Caught
+  , -- Return-only types moved into parameter position.
     paramType
       "static-in-parameter-position"
       "static"

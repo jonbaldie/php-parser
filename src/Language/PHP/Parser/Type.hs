@@ -79,9 +79,9 @@ parseAtomicNonParen = withSpan $ do
   qn <- parseTypeName
   pure (\sp -> SimpleType sp qn)
 
--- | Parse union or intersection or DNF type. PHP's grammar only allows an
--- intersection inside a union when it is parenthesized, so a bare @&@ chain
--- is a whole type on its own (@A&B@) and never a union member (@A&B|C@).
+-- | Parse an intersection of bare type names or a union of atomic types.
+-- A bare @&@ chain is a whole type on its own (@A&B@), not a union member
+-- (@A&B|C@); intersections inside unions must be parenthesized as DNF.
 parseUnionOrIntersection :: Parser (Type Span)
 parseUnionOrIntersection = do
   t1 <- parseAtomicType
