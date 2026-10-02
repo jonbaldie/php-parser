@@ -24,6 +24,7 @@ import Language.PHP.AST
 import Language.PHP.Fold (queryExpr)
 import Language.PHP.Span (Span (..), SourcePos (..), combineSpans)
 import Language.PHP.Parser.Lexer
+import Language.PHP.Parser.Script (ScriptItem (..), checkScript)
 import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
 import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure, isAssignable, isWritable)
 
@@ -44,20 +45,33 @@ parseProgram = do
 -- A file begins in HTML mode, exactly as PHP's lexer does, and only a close
 -- tag returns the parser to it -- so an open tag met in code mode is an
 -- ordinary @<@ and a parse error, never a silent transition (Issue #271).
+-- The finished list is then judged by PHP's script-structure rules.
 parseProgramBody :: Parser [Stmt Span]
-parseProgramBody = parseHtmlRegion parseCodeChunks
+parseProgramBody = do
+  items <- parseHtmlRegion ScriptStmt parseCodeChunks
+  either failAtSpan pure (checkScript items)
+  pure [stmt | ScriptStmt stmt <- items]
 
--- | Statements in code mode, until a close tag or end of input. A close tag
--- returns the parser to HTML mode, where the next open tag -- an ordinary
+-- | Top-level items in code mode, until a close tag or end of input. A close
+-- tag returns the parser to HTML mode, where the next open tag -- an ordinary
 -- @<@ everywhere else -- may open a new region.
-parseCodeChunks :: Parser [Stmt Span]
+parseCodeChunks :: Parser [ScriptItem]
 parseCodeChunks =
-  (parseCloseTag *> parseHtmlRegion parseCodeChunks >>= \html -> (html ++) <$> parseCodeChunks)
+  (do
+    bare <- parseCloseTag
+    ([BareCloseTag | bare] ++) <$> parseHtmlRegion ScriptStmt parseCodeChunks)
   <|> (do
     isEof <- (True <$ M.lookAhead M.eof) <|> pure False
     if isEof
       then pure []
-      else (:) <$> parseStmt <*> parseCodeChunks)
+      else (:) <$> (ScriptStmt <$> parseTopStmt) <*> parseCodeChunks)
+
+-- | Report a script-structure violation at the offending statement.
+failAtSpan :: (Span, T.Text) -> Parser a
+failAtSpan (sp, msg) = failAtOffset (posOffset (spanStart sp)) (T.unpack msg)
+
+failAtOffset :: Int -> String -> Parser a
+failAtOffset o msg = M.parseError (M.FancyError o (S.singleton (M.ErrorFail msg)))
 
 -- | Parse an opening tag, excluding the whitespace and comments after it,
 -- so callers can backtrack over the tag without hiding errors in that trivia.
@@ -66,16 +80,16 @@ parseOpenTag =
   (M.try (C.string' "<?php") *> (phpCodeWhitespace1 <|> void M.eof))
     <|> (C.string "<?" *> M.notFollowedBy (C.char '=') *> M.notFollowedBy (C.string "php"))
 
-parseCloseTag :: Parser ()
+-- | A close tag, reporting whether it is bare: not the end of the statement
+-- before it, and so an empty statement of its own.
+parseCloseTag :: Parser Bool
 parseCloseTag = do
   _ <- C.string "?>"
-  markScriptStatement
   terminatesStatement <- takeCloseTagTerminator
-  unless terminatesStatement markNonDeclareContent
   -- PHP suppresses the newline immediately following a close tag,
   -- matching its lexer's NEWLINE rule: "\r\n" as a pair, "\n", or "\r".
   _ <- optional (C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n'))
-  pure ()
+  pure (not terminatesStatement)
 
 -- | A statement may end with a semicolon or an immediately following close tag.
 -- Leave the close tag for the statement list's mode driver, which switches to
@@ -100,29 +114,24 @@ parseShortEchoBody = do
 -- non-empty HTML chunks become 'StmtInlineHtml' nodes. A bare open tag inside
 -- code is a parse error (Issue #271), not a silent transition.
 parseMixedBody :: Parser [Stmt Span]
-parseMixedBody = concat <$> M.many parseMixedBodyElement
+parseMixedBody = parseBodyWith parseInnerStmt
 
-parseMixedBodyElement :: Parser [Stmt Span]
-parseMixedBodyElement =
-  parseHtmlChunk
-  <|> ((\s -> [s]) <$> parseStmt)
+-- | A statement list of the given statements, with HTML regions between them.
+parseBodyWith :: Parser (Stmt Span) -> Parser [Stmt Span]
+parseBodyWith stmt = concat <$> M.many (parseHtmlChunk <|> ((\s -> [s]) <$> stmt))
   where
     -- A close tag returns the parser to HTML mode: the inline HTML that
     -- follows ends at the next tag, which alone may open the next region.
-    parseHtmlChunk = M.try parseCloseTag *> parseHtmlRegion (pure [])
+    parseHtmlChunk = M.try parseCloseTag *> parseHtmlRegion id (pure [])
 
 -- | In HTML mode: the inline HTML up to the next tag, then the tag that ends
 -- it. An open tag is legal here and only here, so the tag never appears mid-code;
 -- a bare second <?php inside code is an unexpected @<@ (Issue #271). A
 -- @<?=@ tag opens its region as an echo. Empty HTML yields no node.
-parseHtmlRegion :: Parser [Stmt Span] -> Parser [Stmt Span]
-parseHtmlRegion k = do
+parseHtmlRegion :: (Stmt Span -> a) -> Parser [a] -> Parser [a]
+parseHtmlRegion wrap k = do
   (sp, html) <- spanned takeUntilPhpTag
-  let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
-  when (not (null html) && not (isLeadingShebang sp html)) $ do
-    markScriptStatement
-    markNonDeclareContent
-    markNamespaceBlockingContent
+  let htmlStmts = [wrap (StmtInlineHtml sp (T.pack html)) | not (null html)]
   isEof <- (True <$ M.lookAhead M.eof) <|> pure False
   if isEof
     then pure htmlStmts
@@ -131,30 +140,13 @@ parseHtmlRegion k = do
       if isShortEcho
         then do
           echoStmt <- parseShortEchoBody
-          markScriptStatement
-          markNonDeclareContent
-          markNamespaceBlockingContent
           rest <- k
-          pure (htmlStmts ++ echoStmt : rest)
+          pure (htmlStmts ++ wrap echoStmt : rest)
         else do
           _ <- parseOpenTag
           sc
           rest <- k
           pure (htmlStmts ++ rest)
-
--- | A shebang is not a statement. PHP skips a leading @#!@ line before the
--- file statement list, so it does not push a following namespace out of place.
-isLeadingShebang :: Span -> String -> Bool
-isLeadingShebang sp html =
-  posOffset (spanStart sp) == 0 && isShebangLine html
-  where
-    isShebangLine ('#':'!':rest) =
-      case span (not . isNewline) rest of
-        (_, []) -> True
-        (_, '\r':'\n':after) -> null after
-        (_, nl:after) -> isNewline nl && null after
-    isShebangLine _ = False
-    isNewline c = c == '\n' || c == '\r'
 
 takeUntilPhpTag :: Parser String
 takeUntilPhpTag = do
@@ -166,26 +158,25 @@ takeUntilPhpTag = do
       c <- M.anySingle
       (c :) <$> takeUntilPhpTag
 
--- | Parse a single statement.
+-- | Parse a single top-level statement, judged as a one-statement script.
 parseStmt :: Parser (Stmt Span)
 parseStmt = do
-  stmt <- withStatement parseStmtCore
-  case stmt of
-    StmtDeclare {} -> pure ()
-    StmtEmpty {} -> markNonDeclareContent
-    _ -> markNonDeclareContent *> markNamespaceBlockingContent
+  stmt <- parseTopStmt
+  either failAtSpan pure (checkScript [ScriptStmt stmt])
   pure stmt
 
-parseStmtCore :: Parser (Stmt Span)
-parseStmtCore =
-  parseNamespace
-  <|> parseUse
-  <|> parseClass
+-- | Statements by where they may appear. @namespace@, @use@ and @const@ are
+-- top-level statements, also allowed directly inside a bracketed namespace;
+-- @__halt_compiler@ is top-level only. Everything else may appear anywhere.
+parseTopStmt, parseNamespaceBodyStmt, parseInnerStmt :: Parser (Stmt Span)
+parseTopStmt = parseNamespace <|> parseUse <|> parseConstStmt <|> M.try parseHaltCompiler <|> parseInnerStmt
+parseNamespaceBodyStmt = parseNamespace <|> parseUse <|> parseConstStmt <|> parseInnerStmt
+parseInnerStmt =
+  parseClass
   <|> parseInterface
   <|> parseTrait
   <|> parseEnum
   <|> parseFunction
-  <|> parseConstStmt
   <|> parseIf
   <|> parseWhile
   <|> parseDoWhile
@@ -205,7 +196,7 @@ parseStmtCore =
   <|> parseGoto
   <|> parseUnset
   <|> parseEmptyStmt
-  <|> M.try parseHaltCompiler
+  <|> rejectNestedHaltCompiler
   <|> parseLabel
   <|> parseExprStmt
 
@@ -214,12 +205,6 @@ parseDeclare :: Parser (Stmt Span)
 parseDeclare = withSpan $ do
   keyword_ "declare"
   directives <- parens (parseDeclareDirective `M.sepEndBy1` comma)
-  hasStrictTypes <- pure (any isStrictTypesDirective directives)
-  inPrologue <- inDeclarePrologue
-  when (hasStrictTypes && not inPrologue) $
-    fail "strict_types declaration must be the very first statement in the script"
-  when (any isEncodingDirective directives && not inPrologue) $
-    fail "Encoding declaration pragma must be the very first statement in the script"
   bodyBranch directives
   where
     parseDeclareDirective = withSpan $ do
@@ -272,7 +257,7 @@ parseDeclare = withSpan $ do
       -- Single statement (declare(...) stmt)
       <|> (do
         rejectStrictTypesBody dirs
-        s <- parseStmt
+        s <- parseInnerStmt
         pure (\sp -> StmtDeclare sp dirs (Just [s])))
 
     rejectStrictTypesBody dirs =
@@ -280,8 +265,6 @@ parseDeclare = withSpan $ do
         fail "strict_types declaration must not use block mode"
 
     isStrictTypesDirective (DeclareDirective _ name _) = isStrictTypesName name
-
-    isEncodingDirective (DeclareDirective _ name _) = isEncodingName name
 
     isStrictTypesName (Ident _ name) = T.toLower name == "strict_types"
 
@@ -322,6 +305,14 @@ parseHaltCompiler = withSpan $ do
   _ <- C.char ';'
   payload <- M.takeRest
   pure (\sp -> StmtHaltCompiler sp payload)
+
+-- | @__halt_compiler@ below the top level. It is not a reserved word, so
+-- without this it would parse as a call to a function of that name.
+rejectNestedHaltCompiler :: Parser (Stmt Span)
+rejectNestedHaltCompiler = do
+  offset <- M.getOffset
+  _ <- M.try (keyword_ "__halt_compiler" *> M.lookAhead (symbol "("))
+  failAtOffset offset "__HALT_COMPILER() can only be used from the outermost scope"
 
 -- | Expression statement (expr ;).
 parseExprStmt :: Parser (Stmt Span)
@@ -451,7 +442,7 @@ parseIf = withSpan $ do
 
     parseStmtBody =
       (braces parseMixedBody)
-      <|> ((\s -> [s]) <$> parseStmt)
+      <|> ((\s -> [s]) <$> parseInnerStmt)
 
 -- | Body of an alternative-syntax control structure. It ends just before
 -- the terminator keyword (endif/endwhile/...).
@@ -472,14 +463,14 @@ parseWhile = withSpan $ do
       _ <- statementTerminator
       pure (\sp -> StmtWhile sp cond body)
     braceBranch cond = do
-      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
+      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseInnerStmt)
       pure (\sp -> StmtWhile sp cond body)
 
 -- | Do-While loop.
 parseDoWhile :: Parser (Stmt Span)
 parseDoWhile = withSpan $ do
   keyword_ "do"
-  body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
+  body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseInnerStmt)
   keyword_ "while"
   cond <- parens parseExpr
   _ <- semi
@@ -505,7 +496,7 @@ parseFor = withSpan $ do
       _ <- statementTerminator
       pure (\sp -> StmtFor sp inits conds incrs body)
     braceBranch inits conds incrs = do
-      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
+      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseInnerStmt)
       pure (\sp -> StmtFor sp inits conds incrs body)
 
 -- | Foreach loop, including the alternative (colon/keyword) syntax.
@@ -545,7 +536,7 @@ parseForeach = withSpan $ do
       _ <- statementTerminator
       pure (\sp -> StmtForeach sp arr mKey val byRef body)
     braceBranch arr mKey val byRef = do
-      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseStmt)
+      body <- (braces parseMixedBody) <|> ((\s -> [s]) <$> parseInnerStmt)
       pure (\sp -> StmtForeach sp arr mKey val byRef body)
 
 -- | Switch statement, including the alternative (colon/keyword) syntax.
@@ -624,17 +615,9 @@ parseNamespace = withSpan $ do
       Just _ -> do
         isBr <- (True <$ M.lookAhead (symbol "{")) <|> (False <$ semi)
         pure (mName, isBr)
-  tooLate <- namespaceDeclarationTooLate
-  when tooLate $
-    fail "Namespace declaration statement has to be the very first statement or after any declare call in the script"
-  mixed <- namespaceFormsMixed isBracketed
-  when mixed $
-    fail "Cannot mix bracketed namespace declarations with unbracketed namespace declarations"
-  noteNamespaceDeclaration
-  noteNamespaceForm isBracketed
   if isBracketed
     then do
-      stmts <- braces parseMixedBody
+      stmts <- braces (parseBodyWith parseNamespaceBodyStmt)
       pure (\sp -> StmtNamespace sp mName (Just stmts))
     else pure (\sp -> StmtNamespace sp mName Nothing)
   where

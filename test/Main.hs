@@ -7,6 +7,7 @@ import Test.PHP84Spec (php84Tests)
 import Test.PHP85Spec (php85Tests)
 import Test.ExpressionSpec (expressionTests)
 import Test.StatementSpec (statementTests)
+import Test.ScriptSpec (scriptTests)
 import Test.PrettySpec (prettyTests)
 import Test.RoundTripSpec (roundTripTests)
 import Test.RecursionSchemesSpec (recursionSchemesTests)
@@ -28,6 +29,7 @@ tests oracle = testGroup "PHP Parser Test Suite"
   , php85Tests
   , expressionTests
   , statementTests
+  , scriptTests
   , prettyTests
   , roundTripTests
   , recursionSchemesTests

@@ -1370,6 +1370,49 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php declare(strict_types=1); namespace A;"
         ]
 
+  , testCase "Script-structure rules hold at the top level only (Issue #337)" $ do
+      let noCodeMsg = Just "No code may exist outside of namespace {}"
+          nestedMsg = Just "Namespace declarations cannot be nested"
+          rejectsWith msg src = case parseProgram "test.php" src of
+            Left err -> assertEqual (T.unpack src) msg (errorCustom err)
+            Right prog -> assertFailure (T.unpack src ++ ": expected parse error, got: " ++ show prog)
+      mapM_ (rejectsWith noCodeMsg)
+        [ "<?php namespace B {}echo 1;"
+        , "<?php namespace {}echo 1;"
+        , "<?php namespace B {}function f(){}"
+        , "<?php namespace A {} ?>x"
+        , "<?php declare(ticks=1); namespace A {} declare(ticks=1);"
+        , "#!/usr/bin/env php\n<?php namespace A {} echo 1;"
+        , "<?php namespace A {} ?><?= 1 ?>"
+        ]
+      rejectsWith nestedMsg "<?php namespace A { namespace B {} }"
+      -- namespace, use, const and __halt_compiler are top-level statements:
+      -- an inner statement list has no production for them.
+      mapM_ assertParsesFail
+        [ "<?php function f() { namespace A; }"
+        , "<?php if (1) { namespace A; }"
+        , "<?php $f = function() { namespace A; };"
+        , "<?php function f() { use Foo\\Bar; }"
+        , "<?php function f() { const X = 1; }"
+        , "<?php { use X; }"
+        , "<?php declare(ticks=1) { namespace A; }"
+        , "<?php declare(ticks=1) { use X; }"
+        , "<?php function f() { __halt_compiler(); }"
+        , "<?php namespace A { __halt_compiler(); }"
+        , "<?php namespace A { declare(strict_types=1); }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php namespace A {} ;"
+        , "<?php namespace A {} ?>\n"
+        , "<?php namespace A {} ?><?php namespace B {}"
+        , "<?php namespace A {} __halt_compiler(); junk"
+        , "<?php namespace A { declare(ticks=1); }"
+        , "<?php namespace A { use X; const Y = 1; function f() {} }"
+        , "<?php declare(ticks=1); namespace A {}"
+        , "#!/usr/bin/env php\n<?php namespace A {}"
+        , "<?php function f() { $x = namespace\\g(); }"
+        ]
+
   , testGroup "List destructuring syntax in assignments and foreach loops (Issue #125)"
       [ testCase "list(...) destructuring in assignments" $ do
           assertParsesOk "<?php list($a, $b) = $arr;"

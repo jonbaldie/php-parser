@@ -38,6 +38,7 @@ library
                     , Language.PHP.Parser.Type
                     , Language.PHP.Parser.Expression
                     , Language.PHP.Parser.Statement
+                    , Language.PHP.Parser.Script
                     , Language.PHP.Pretty
     build-depends:    base >= 4.18 && < 5
                     , text >= 2.0 && < 2.2
@@ -72,6 +73,7 @@ test-suite php-parser-test
                     , Test.PHP85Spec
                     , Test.ExpressionSpec
                     , Test.StatementSpec
+                    , Test.ScriptSpec
                     , Test.PrettySpec
                     , Test.RoundTripSpec
                     , Test.RecursionSchemesSpec

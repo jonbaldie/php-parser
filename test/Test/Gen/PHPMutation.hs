@@ -340,6 +340,26 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "function mixedArgs" "<?= 1; function mixedArgs"
       }
+  , -- Code after a bracketed namespace (Issue #337). Alone, the function is
+    -- code outside the namespace. With context before it, PHP and the library
+    -- reject the namespace itself instead, as too late or as mixing with the
+    -- program's unbracketed namespace -- a rejection either way.
+    Mutation
+      { mutationName = "code-after-bracketed-namespace"
+      , mutationFeature = "functions"
+      , mutationPHPRule = "No code may exist outside of namespace {}"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "function mixedArgs" "namespace {}\nfunction mixedArgs"
+      }
+  , -- An import inside a function body (Issue #337). `use` is a top-level
+    -- statement, so PHP's grammar has no place for it there.
+    Mutation
+      { mutationName = "use-in-function-body"
+      , mutationFeature = "functions"
+      , mutationPHPRule = "syntax error, unexpected token \"use\""
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "): mixed {" "): mixed {\n    use Foo\\Bar;"
+      }
   ]
 
 --------------------------------------------------------------------------------
