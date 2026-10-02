@@ -3,21 +3,10 @@
 module Language.PHP.Parser.Lexer
   ( Parser
   , LexerState (..)
-  , NamespaceForm (..)
   , initialLexerState
   , runPHPParser
-  , withStatement
-  , markScriptStatement
-  , atScriptStart
-  , markNonDeclareContent
-  , markNamespaceBlockingContent
-  , namespaceDeclarationTooLate
-  , noteNamespaceDeclaration
-  , namespaceFormsMixed
-  , noteNamespaceForm
   , noteCloseTagTerminator
   , takeCloseTagTerminator
-  , inDeclarePrologue
   , spanned
   , withSpan
   , toSourcePos
@@ -77,23 +66,16 @@ import Language.PHP.Span (Span, SourcePos (..), combineSpans, mkSpan)
 data LexerState = LexerState
   { currentTrivia :: ![Trivia]
   , triviaBySpan  :: !(Map.Map Span [Trivia])
-  , scriptStatementSeen :: !Bool
-  , statementDepth :: !Int
-  , currentStatementIsFirst :: !Bool
-  , nonDeclareContentSeen :: !Bool
-  , namespaceBlockingContentSeen :: !Bool
-  , namespaceDeclarationSeen :: !Bool
-  , namespaceForm :: !(Maybe NamespaceForm)
+    -- | Whether the upcoming close tag ends the statement just parsed. A
+    -- close tag that does not is a nop to PHP's script-structure rules, which
+    -- the AST cannot show, so the parser reports it to
+    -- "Language.PHP.Parser.Script" separately. Only the declare-prologue rules
+    -- tell the two apart, and PHP 8.5 changed the strict_types one (#338).
   , closeTagIsTerminator :: !Bool
   } deriving (Eq, Show)
 
--- | Which namespace-declaration form a file has already used. PHP allows many
--- declarations of one form and refuses a file that uses both.
-data NamespaceForm = BracketedNamespace | UnbracketedNamespace
-  deriving (Eq, Show)
-
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty False 0 False False False False Nothing False
+initialLexerState = LexerState [] Map.empty False
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -104,95 +86,6 @@ runPHPParser p file input =
   in case res of
     Left err -> Left err
     Right (_, val) -> Right (val, triviaBySpan st)
-
--- | Run a statement parser with the script-position context it had when the
--- statement began.  Nested statements never count as the script's first
--- statement, even when they occur while parsing the first top-level one.
-withStatement :: Parser a -> Parser a
-withStatement p = do
-  original <- get
-  let topLevel = statementDepth original == 0
-      firstStatement = topLevel && not (scriptStatementSeen original)
-  modify' $ \st -> st
-    { statementDepth = statementDepth st + 1
-    , currentStatementIsFirst = firstStatement
-    }
-  result <- M.observing p
-  case result of
-    Left err -> do
-      put original
-      M.parseError err
-    Right value -> do
-      after <- get
-      put after
-        { statementDepth = statementDepth original
-        , currentStatementIsFirst = currentStatementIsFirst original
-        , scriptStatementSeen = scriptStatementSeen original || topLevel
-        }
-      pure value
-
--- | Mark content that precedes a later declaration in the script.  Inline
--- HTML, short-echo tags, and close tags all make a following strict_types
--- declaration too late, even when they do not produce an AST statement.
-markScriptStatement :: Parser ()
-markScriptStatement = modify' (\st -> st { scriptStatementSeen = True })
-
--- | Whether the statement currently being parsed is the script's first one.
-atScriptStart :: Parser Bool
-atScriptStart = currentStatementIsFirst <$> get
-
--- | Mark top-level content other than a declare statement.  PHP lets an
--- encoding declaration follow earlier top-level declare statements, but not
--- any other statement, inline HTML, or an empty statement -- which is what a
--- close tag becomes when it does not itself end a statement.  Content nested
--- inside a statement is judged through that statement, so it is ignored here.
-markNonDeclareContent :: Parser ()
-markNonDeclareContent = modify' $ \st ->
-  if statementDepth st == 0 then st { nonDeclareContentSeen = True } else st
-
--- | Mark top-level content that is neither a declare nor a nop. PHP lets the
--- first namespace follow declares and empty statements (@allow_nop@), but not
--- a real statement, inline HTML, or a short echo. A close tag that does not
--- end a statement is a nop, so it is not marked here.
-markNamespaceBlockingContent :: Parser ()
-markNamespaceBlockingContent = modify' $ \st ->
-  if statementDepth st == 0 then st { namespaceBlockingContentSeen = True } else st
-
--- | Whether this top-level namespace is the file's first and something other
--- than a declare or a nop already preceded it.
-namespaceDeclarationTooLate :: Parser Bool
-namespaceDeclarationTooLate = do
-  st <- get
-  pure $ statementDepth st == 1
-    && not (namespaceDeclarationSeen st)
-    && namespaceBlockingContentSeen st
-
--- | Record a top-level namespace declaration so a later one is not judged as
--- the file's first. Later namespaces may follow ordinary statements.
-noteNamespaceDeclaration :: Parser ()
-noteNamespaceDeclaration = modify' $ \st ->
-  if statementDepth st == 1 then st { namespaceDeclarationSeen = True } else st
-
--- | Whether this declaration's form differs from one already seen in the file.
--- The first form is recorded before its body is parsed, so a declaration
--- nested in that body is checked too.
-namespaceFormsMixed :: Bool -> Parser Bool
-namespaceFormsMixed isBracketed = do
-  st <- get
-  pure $ case namespaceForm st of
-    Nothing -> False
-    Just BracketedNamespace -> not isBracketed
-    Just UnbracketedNamespace -> isBracketed
-
--- | Remember the form of the first namespace declaration. Later declarations
--- are checked against it and do not replace it.
-noteNamespaceForm :: Bool -> Parser ()
-noteNamespaceForm isBracketed = modify' $ \st ->
-  case namespaceForm st of
-    Just _ -> st
-    Nothing -> st { namespaceForm = Just form }
-  where
-    form = if isBracketed then BracketedNamespace else UnbracketedNamespace
 
 -- | Record that the upcoming close tag ends the statement just parsed, so it
 -- is not also an empty statement of its own.
@@ -205,13 +98,6 @@ takeCloseTagTerminator = do
   st <- get
   put st { closeTagIsTerminator = False }
   pure (closeTagIsTerminator st)
-
--- | Whether the statement being parsed is a top-level declaration preceded
--- only by top-level declare statements: the PHP declare prologue.
-inDeclarePrologue :: Parser Bool
-inDeclarePrologue = do
-  st <- get
-  pure (statementDepth st == 1 && not (nonDeclareContentSeen st))
 
 toSourcePos :: M.SourcePos -> Int -> Language.PHP.Span.SourcePos
 toSourcePos sp offset = Language.PHP.Span.SourcePos
