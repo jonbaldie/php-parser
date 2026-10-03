@@ -734,24 +734,30 @@ checkVisibilityOrdering (Just v) (Just wv)
       modifierError "Visibility of property must not be weaker than set visibility"
 checkVisibilityOrdering _ _ = pure ()
 
--- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract, var).
--- Note: @var@ is an alias for @public@ visibility and cannot be combined with explicit visibility.
+-- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract),
+-- or the legacy @var@ on its own.
+-- Note: @var@ is an alias for @public@ visibility, but PHP's grammar takes it
+-- as the whole modifier list, so it cannot be combined with any other modifier
+-- in either order.
 -- At least one modifier is required: PHP has no modifierless property, so a
 -- bare @$x = 1;@ in a class or trait body is a syntax error, not a property.
 parsePropertyModifier :: Parser PropertyModifier
-parsePropertyModifier = do
-  modif@(PropertyModifier vis wVis _ _ _ _) <- loop Nothing Nothing False False False False
-  when (modif == PropertyModifier Nothing Nothing False False False False) M.empty
-  checkVisibilityOrdering vis wVis
-  pure modif
+parsePropertyModifier =
+  (PropertyModifier (Just Public) Nothing False False False False <$ keyword_ "var")
+  <|> modifierList
   where
+    modifierList = do
+      modif@(PropertyModifier vis wVis _ _ _ _) <- loop Nothing Nothing False False False False
+      when (modif == PropertyModifier Nothing Nothing False False False False) M.empty
+      checkVisibilityOrdering vis wVis
+      pure modif
     loop vis wVis isStat isRo isFin isAbs =
       (do
         wv <- parseAsymmetricWriteVis
         when (isJust wVis) $ duplicateModifier "access type"
         loop vis (Just wv) isStat isRo isFin isAbs)
       <|> (do
-        v <- (parseVisibility <|> (Public <$ keyword_ "var"))
+        v <- parseVisibility
         when (isJust vis) $ duplicateModifier "access type"
         loop (Just v) wVis isStat isRo isFin isAbs)
       <|> (do

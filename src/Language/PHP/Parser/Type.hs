@@ -126,13 +126,15 @@ typeSpan = \case
   IntersectionType sp _ -> sp
   DNFType sp _          -> sp
 
--- | Check whether a type contains void, never, or callable, which are
--- forbidden as property and promoted parameter types in PHP.
+-- | Check whether a type contains void, never, callable, or static, which are
+-- forbidden as property and promoted parameter types in PHP. Rejecting
+-- @static@ also keeps @var static $x;@ from reading as a @static@-typed
+-- property (Issue #341).
 disallowedPropertyType :: Type a -> Maybe Text
 disallowedPropertyType = \case
   SimpleType _ (QualifiedName _ _ parts) ->
     case parts of
-      [name] | T.toLower name `elem` ["void", "never", "callable"] -> Just (T.toLower name)
+      [name] | T.toLower name `elem` ["void", "never", "callable", "static"] -> Just (T.toLower name)
       _ -> Nothing
   NullableType _ inner -> disallowedPropertyType inner
   UnionType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
