@@ -213,6 +213,35 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class C { public readonly int $x; }"
         ]
 
+  , testCase "Reject var combined with other property modifiers (Issue #341)" $ do
+      mapM_ assertParsesFail
+        [ "<?php class C { var readonly int $x; }"
+        , "<?php class C { var static int $x; }"
+        , "<?php class C { var private(set) int $x; }"
+        , "<?php class C { var final int $x; }"
+        , "<?php abstract class C { var abstract int $x { get; } }"
+        , "<?php class C { var public int $x; }"
+        , "<?php class C { var var int $x; }"
+        , "<?php class C { readonly var int $x; }"
+        , "<?php class C { static var int $x; }"
+        , "<?php class C { private(set) var int $x; }"
+        , "<?php class C { final var int $x; }"
+        , "<?php abstract class C { abstract var int $x { get; } }"
+        , "<?php class C { public var int $x; }"
+        , "<?php class C { var static $x; }"
+        , "<?php class C { var readonly $x; }"
+        , "<?php class C { var final $x; }"
+        , "<?php class C { static var $x; }"
+        , "<?php class C { var ?static $x; }"
+        , "<?php class C { public int|static $x; }"
+        ]
+      mapM_ assertParsesOk
+        [ "<?php class C { var $x; }"
+        , "<?php class C { var int $x = 1, $y; }"
+        , "<?php class C { var ?C $x; }"
+        , "<?php class C { var int $x { get => 1; } }"
+        ]
+
   , testCase "Non-capturing catch statement" $ do
       let src = "<?php try { doWork(); } catch (NetworkException | TimeoutException) { logError(); }"
       case parseProgram "test.php" src of
@@ -719,30 +748,12 @@ statementTests = testGroup "Statement & Declaration Specifications"
               _ -> assertFailure "Expected MemberProperty"
             _ -> assertFailure "Expected StmtClass"
 
-      , testCase "var static $x; parses with public visibility and static modifier" $ do
-          case parseProgram "test.php" "<?php class Foo { var static $x; }" of
-            Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
-              [MemberProperty pd] -> do
-                assertEqual "visibility" (Just Public) (propVis (propModifier pd))
-                assertEqual "static" True (propStatic (propModifier pd))
-                assertEqual "no type" Nothing (propType pd)
-              _ -> assertFailure "Expected MemberProperty"
-            _ -> assertFailure "Expected StmtClass"
-
-      , testCase "static var $x; parses with public visibility and static modifier" $ do
-          case parseProgram "test.php" "<?php class Foo { static var $x; }" of
-            Left err -> assertFailure (show (formatParseError err))
-            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
-              [MemberProperty pd] -> do
-                assertEqual "visibility" (Just Public) (propVis (propModifier pd))
-                assertEqual "static" True (propStatic (propModifier pd))
-                assertEqual "no type" Nothing (propType pd)
-              _ -> assertFailure "Expected MemberProperty"
-            _ -> assertFailure "Expected StmtClass"
+      , testCase "var static $x; and static var $x; are rejected (Issue #341)" $ do
+          assertParsesFail "<?php class Foo { var static $x; }"
+          assertParsesFail "<?php class Foo { static var $x; }"
 
       , testCase "round-trip formatting and reparsing preserves property AST structure" $ do
-          let src = "<?php class Foo { var $x; var string $y; var static $z; }"
+          let src = "<?php class Foo { var $x; var string $y; var ?Foo $z; }"
           case parseProgram "test.php" src of
             Left err -> assertFailure (show (formatParseError err))
             Right ast -> do
