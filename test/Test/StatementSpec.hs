@@ -1904,6 +1904,33 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class Bar { public function __construct(callable $c) {} }"
         , "<?php class Foo { public function bar(callable $c): void {} }"
         ]
+    , testCase "Reject void, never, and callable class constant types (Issue #342)" $ do
+      mapM_ assertParsesFail
+        [ "<?php class C { const callable FOO = 'strlen'; }"
+        , "<?php class C { const void FOO = 1; }"
+        , "<?php class C { const never FOO = 1; }"
+        , "<?php class C { const ?callable FOO = null; }"
+        , "<?php class C { const int|callable FOO = 1; }"
+        , "<?php class C { public const VOID FOO = 1; }"
+        , "<?php class C { final const callable A = 1, B = 2; }"
+        , "<?php interface I { const callable FOO = 'strlen'; }"
+        , "<?php interface I { const void FOO = 1; }"
+        , "<?php trait T { const never FOO = 1; }"
+        , "<?php enum E { const callable FOO = 'strlen'; }"
+        , "<?php $c = new class { const void FOO = 1; };"
+        ]
+      case parseProgram "test.php" "<?php class C { const callable FOO = 'strlen'; }" of
+        Left err -> assertBool
+          "error should mention cannot have type callable"
+          (maybe False (T.isInfixOf "cannot have type callable") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php class C { const int FOO = 1; }"
+        , "<?php class C { const ?self FOO = null; }"
+        , "<?php class C { const mixed FOO = 1; }"
+        , "<?php interface I { const string FOO = 'x'; }"
+        , "<?php class C { const VOID = 1; const NEVER = 2; const CALLABLE = 3; }"
+        ]
     , testCase "Reject abstract private methods in classes (Issue #208)" $ do
       mapM_ assertParsesFail
         [ "<?php abstract class C { abstract private function f(); }"
