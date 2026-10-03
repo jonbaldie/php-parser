@@ -188,6 +188,38 @@ expressionTests = testGroup "Expression Specifications"
           Left err -> assertFailure (show okSrc ++ ": " ++ show (formatParseError err))
           Right _ -> pure ()
 
+  , testCase "Reject postfix operations on unparenthesized match expressions (Issue #346)" $ do
+      forM_
+        [ "<?php $a = match ($x) { 1 => new C() }->method();"
+        , "<?php $a = match ($x) { 1 => $o }->prop;"
+        , "<?php $a = match ($x) { 1 => $o }?->prop;"
+        , "<?php $a = match ($x) { 1 => $fn }();"
+        , "<?php $a = match ($x) { 1 => $fn }(...);"
+        , "<?php $a = match ($x) { 1 => [1, 2] }[0];"
+        , "<?php $a = match ($x) { 1 => 'C' }::X;"
+        , "<?php match ($x) { 1 => $y }++;"
+        ]
+        assertRejectsProgram
+      forM_
+        [ "<?php $a = (match ($x) { 1 => new C() })->method();"
+        , "<?php $a = (match ($x) { 1 => $fn })();"
+        , "<?php $a = (match ($x) { 1 => [1, 2] })[0];"
+        , "<?php $a = match ($x) { 1 => 2 } + 1;"
+        , "<?php $a = match ($x) { 1 => $o->m() };"
+        ]
+        $ \src -> case parseProgram "test.php" src of
+          Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+          Right _ -> pure ()
+      forM_
+        [ "(match ($x) { 1 => new C() })->method()"
+        , "(match ($x) { 1 => $o })?->prop"
+        , "(match ($x) { 1 => $fn })()"
+        , "(match ($x) { 1 => [1, 2] })[0]"
+        ]
+        $ \src -> case parseExpression "test.php" src of
+          Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+          Right expr -> assertRoundTripExpr expr
+
   , testCase "Reject match expressions with more than one default arm (Issue #196)" $ do
       let failCases =
             [ "match ($x) { default => 1, default => 2 }"

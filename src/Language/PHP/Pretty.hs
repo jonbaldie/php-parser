@@ -622,6 +622,7 @@ needsPostfixParens = \case
   ExprYield {}         -> True
   ExprYieldFrom {}     -> True
   ExprClosure {}       -> True
+  ExprMatch {}         -> True
   ExprArrowFunction {} -> True
   ExprThrow {}         -> True
   ExprInclude {}       -> True
