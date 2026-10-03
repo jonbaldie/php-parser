@@ -4,6 +4,7 @@ module Test.PHP85Spec (php85Tests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
+import Data.Text (Text)
 import Language.PHP
 
 php85Tests :: TestTree
@@ -137,4 +138,23 @@ php85Tests = testGroup "PHP 8.5 Specifications"
               assertBool "prop is static" (propStatic modif)
             _ -> assertFailure "Expected MemberProperty"
           _ -> assertFailure "Expected StmtClass"
+
+    -- PHP 8.4 rejects these ("Static property may not have asymmetric
+    -- visibility"), but PHP 8.5 accepts them, and parseProgram parses the
+    -- union of 8.2-8.5. Issue #343 reported them as false accepts; they are not.
+  , testCase "Asymmetric visibility on static properties in any modifier order (Issue #343)" $
+      mapM_ assertParsesOk
+        [ "<?php class C { public static private(set) int $x; }"
+        , "<?php class C { public private(set) static int $x; }"
+        , "<?php class C { static private(set) int $x; }"
+        , "<?php class C { private(set) static int $x; }"
+        , "<?php class C { static public protected(set) int $x; }"
+        , "<?php trait T { public static private(set) int $x; }"
+        , "<?php $o = new class { public static private(set) int $x; };"
+        ]
   ]
+
+assertParsesOk :: Text -> Assertion
+assertParsesOk src = case parseProgram "test.php" src of
+  Left err -> assertFailure (show (formatParseError err))
+  Right _ -> pure ()
