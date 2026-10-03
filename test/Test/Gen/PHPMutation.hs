@@ -189,6 +189,20 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "    protected static int $count = 0;" "    public readonly static int $count;"
       }
+  , Mutation
+      { mutationName = "untyped-asymmetric-property"
+      , mutationFeature = "84-asymmetric-visibility"
+      , mutationPHPRule = "Property with asymmetric visibility must have type"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst " string $varied = '';" " $varied = '';"
+      }
+  , Mutation
+      { mutationName = "untyped-asymmetric-promoted-property"
+      , mutationFeature = "84-asymmetric-visibility"
+      , mutationPHPRule = "Property with asymmetric visibility must have type"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "public private(set) readonly string $owner = ''" "public private(set) $owner = ''"
+      }
   , -- Duplicate members within one class. These need a per-declaration member
     -- table, not a program-wide symbol table, so they are in contract.
     Mutation

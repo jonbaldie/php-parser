@@ -936,6 +936,8 @@ parseParamInContext pCtx = withSpan $ do
     modifierError "Cannot declare variadic promoted property"
   when (isRo && isNothing typ) $
     modifierError "Readonly property must have type"
+  when (isJust wVis && isNothing typ) $
+    modifierError "Property with asymmetric visibility must have type"
   when isPromoted $
     case typ of
       Just t | Just bad <- disallowedPropertyType t ->
@@ -1110,6 +1112,8 @@ parseProperty :: Bool -> [AttributeGroup Span] -> Parser (PropertyDecl Span)
 parseProperty enclosingReadonly attrs = withSpan $ do
   modif <- parsePropertyModifier
   mType <- optional parseType
+  when (isJust (propWriteVis modif) && isNothing mType) $
+    modifierError "Property with asymmetric visibility must have type"
   case mType of
     Just typ | Just bad <- disallowedPropertyType typ ->
       modifierError ("Property cannot have type " <> T.unpack bad)
