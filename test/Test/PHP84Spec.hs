@@ -250,6 +250,25 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberMethod"
           _ -> assertFailure "Expected StmtClass"
 
+  , testCase "Untyped properties with asymmetric visibility require a type (Issue #344)" $ do
+      let rejected =
+            [ "<?php class C { public private(set) $x; }"
+            , "<?php class C { public function __construct(public private(set) $x) {} }"
+            ]
+          accepted =
+            [ "<?php class C { public private(set) int $x; }"
+            , "<?php class C { public function __construct(public private(set) int $x) {} }"
+            , "<?php class C { public $x; }"
+            ]
+      forM_ rejected $ \src ->
+        case parseProgram "test.php" src of
+          Left _ -> pure ()
+          Right _ -> assertFailure ("expected untyped asymmetric property rejection for: " ++ show src)
+      forM_ accepted $ \src ->
+        case parseProgram "test.php" src of
+          Left err -> assertFailure ("unexpected parse failure for: " ++ show src ++ ": " ++ show (formatParseError err))
+          Right _ -> pure ()
+
   , testCase "Reject property declarations and constructor-promoted parameters where read visibility is weaker than set visibility (Issue #193)" $ do
       let rejectedProps =
             [ "<?php class Foo { private public(set) string $bar; }"
