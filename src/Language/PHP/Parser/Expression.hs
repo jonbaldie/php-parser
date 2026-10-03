@@ -467,9 +467,13 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           _ <- optional (M.try (keyword "withProperties" *> colon))
           parseExprRec
 
-    parsePostfix = do
-      base <- parsePrimary
-      chainPostfix base
+    -- A @match@ expression is not dereferenceable in PHP: @match (...) { }[0]@
+    -- and @match (...) { }->m()@ are syntax errors, so it sits outside the
+    -- postfix chain. Parenthesizing it re-enters through 'parsePrimary'
+    -- (Issue #346).
+    parsePostfix =
+      parseMatch
+      <|> (parsePrimary >>= chainPostfix)
 
     chainPostfix base = do
       mNext <- optional (parseOnePostfix base)
@@ -590,7 +594,6 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
 
     parsePrimary =
       parseNew
-      <|> parseMatch
       <|> parseArrowFunction
       <|> parseClosure
       <|> parseArrayLit
