@@ -24,7 +24,7 @@ import Language.PHP.AST
 import Language.PHP.Fold (queryExpr)
 import Language.PHP.Span (Span (..), SourcePos (..), combineSpans)
 import Language.PHP.Parser.Lexer
-import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType)
+import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType, disallowedConstantType)
 import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure, isAssignable, isWritable)
 
 -- | Expression parser with full statements and class members in closures and anonymous classes.
@@ -858,6 +858,10 @@ parseConstDecl = withSpan $ do
     keyword_ "const"
     pure (attrs, vis, isFinal)
   mType <- optional (M.try (parseType <* M.lookAhead semiReservedIdentifier))
+  case mType of
+    Just typ | Just bad <- disallowedConstantType typ ->
+      modifierError ("Class constant cannot have type " <> T.unpack bad)
+    _ -> pure ()
   items <- parseConstItem `M.sepBy1` comma
   _ <- semi
   pure (\sp -> ConstDecl sp attrs vis isFinal mType items)

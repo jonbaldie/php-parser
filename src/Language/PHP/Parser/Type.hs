@@ -4,6 +4,7 @@ module Language.PHP.Parser.Type
   ( parseType
   , parseReturnType
   , disallowedPropertyType
+  , disallowedConstantType
   ) where
 
 
@@ -131,14 +132,27 @@ typeSpan = \case
 -- @static@ also keeps @var static $x;@ from reading as a @static@-typed
 -- property (Issue #341).
 disallowedPropertyType :: Type a -> Maybe Text
-disallowedPropertyType = \case
-  SimpleType _ (QualifiedName _ _ parts) ->
-    case parts of
-      [name] | T.toLower name `elem` ["void", "never", "callable", "static"] -> Just (T.toLower name)
-      _ -> Nothing
-  NullableType _ inner -> disallowedPropertyType inner
-  UnionType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
-  IntersectionType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
-  DNFType _ ts -> foldr (<|>) Nothing (map disallowedPropertyType ts)
+disallowedPropertyType = disallowedTypeAmong ["void", "never", "callable", "static"]
+
+-- | Check whether a type contains void, never, or callable, which PHP forbids
+-- as class, interface, trait, and enum constant types (Issue #342). Unlike
+-- properties, constants may be typed @static@.
+disallowedConstantType :: Type a -> Maybe Text
+disallowedConstantType = disallowedTypeAmong ["void", "never", "callable"]
+
+-- | First unqualified simple type, anywhere in the type, whose lowercased
+-- name is in the given list.
+disallowedTypeAmong :: [Text] -> Type a -> Maybe Text
+disallowedTypeAmong names = go
+  where
+    go = \case
+      SimpleType _ (QualifiedName _ _ parts) ->
+        case parts of
+          [name] | T.toLower name `elem` names -> Just (T.toLower name)
+          _ -> Nothing
+      NullableType _ inner -> go inner
+      UnionType _ ts -> foldr (<|>) Nothing (map go ts)
+      IntersectionType _ ts -> foldr (<|>) Nothing (map go ts)
+      DNFType _ ts -> foldr (<|>) Nothing (map go ts)
 
 
