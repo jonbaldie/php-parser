@@ -27,6 +27,20 @@ prettyTests = testGroup "Pretty Printer Specifications"
             "<?php\n\n(new C())->f();"
             (prettyPrint ast)
 
+  , testCase "prettyPrint keeps parentheses around a match expression before a call or member access (Issue #345)" $ do
+      let src = "<?php $a = (match ($x) { 1 => $o })->m(); $b = (match ($x) { 1 => $fn })(); $c = (match ($x) { 1 => $fn })(...); $d = (match ($x) { 1 => [1, 2] })[0]; $e = (match ($x) { 1 => $o })?->p;"
+      case parseProgram "issue-345.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrint ast
+          assertEqual "Keeps parentheses around match before call or member access"
+            "<?php\n\n$a = (match ($x) {\n    1 => $o\n})->m();\n$b = (match ($x) {\n    1 => $fn\n})();\n$c = (match ($x) {\n    1 => $fn\n})(...);\n$d = (match ($x) {\n    1 => [1, 2]\n})[0];\n$e = (match ($x) {\n    1 => $o\n})?->p;"
+            printed
+          case parseProgram "reparsed.php" printed of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
   , testCase "prettyPrint keeps parentheses around anonymous class instantiation before member access (Issue #324)" $ do
       let src = "<?php (new class { public function m() {} })->m(); $p = (new class { public $x; })->x; $q = (new class {})?->m(); $r = (new class {})[0];"
       case parseProgram "issue-324.php" src of

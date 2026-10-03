@@ -627,6 +627,7 @@ needsPostfixParens = \case
   ExprInclude {}       -> True
   ExprPrint {}         -> True
   ExprShellExec {}     -> True
+  ExprMatch {}         -> True
   _                    -> False
 
 prettyNewTarget :: HasLeadingTrivia a => ClassTarget a -> Doc ann
