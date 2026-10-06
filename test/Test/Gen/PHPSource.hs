@@ -390,6 +390,18 @@ allFeatures =
         , "    42 => 'answer',"
         , "    default => 'other',"
         , "};"
+        , "$len" <> n <> " = (match ($score" <> n <> ") {"
+        , "    default => 'strlen',"
+        , "})('abc');"
+        , "$first" <> n <> " = (match (true) {"
+        , "    default => [1, 2],"
+        , "})[0];"
+        , "$obj" <> n <> " = (match (true) {"
+        , "    default => new \\ArrayObject([]),"
+        , "})->count();"
+        , "$ref" <> n <> " = (match (true) {"
+        , "    default => 'strlen',"
+        , "})(...);"
         ]
   , Feature "enums" PHP82 $ \i -> do
       let n = sfx i

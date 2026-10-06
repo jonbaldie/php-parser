@@ -55,6 +55,20 @@ prettyTests = testGroup "Pretty Printer Specifications"
             Right reparsed ->
               assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
 
+  , testCase "prettyPrint keeps parentheses around a match before a call or member access (Issue #345)" $ do
+      let src = "<?php $a = (match ($x) { 1 => new C() })->method(); $p = (match ($x) { 1 => $o })->prop; $n = (match ($x) { 1 => $o })?->prop; $b = (match ($x) { 1 => $fn })(); $c = (match ($x) { 1 => $fn })(...); $d = (match ($x) { 1 => [1, 2] })[0]; $e = (match ($x) { 1 => 'C' })::X;"
+      case parseProgram "issue-345.php" src of
+        Left err -> assertFailure (show (formatParseError err))
+        Right ast -> do
+          let printed = prettyPrint ast
+          assertEqual "Keeps the match callee and dereference base parenthesized"
+            "<?php\n\n$a = (match ($x) {\n    1 => new C()\n})->method();\n$p = (match ($x) {\n    1 => $o\n})->prop;\n$n = (match ($x) {\n    1 => $o\n})?->prop;\n$b = (match ($x) {\n    1 => $fn\n})();\n$c = (match ($x) {\n    1 => $fn\n})(...);\n$d = (match ($x) {\n    1 => [1, 2]\n})[0];\n$e = (match ($x) {\n    1 => 'C'\n})::X;"
+            printed
+          case parseProgram "reparsed.php" printed of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed ->
+              assertEqual "Round-trips" (stripAnnotations ast) (stripAnnotations reparsed)
+
   , testCase "Pretty print anonymous class attributes after new (Issue #46)" $ do
       let attrs = [AttributeGroup () [Attribute () (QualifiedName () NameUnqualified ["Attribute"]) []]]
           expr = ExprNewAnonClass () attrs (ClassModifier False False False) [] Nothing [] []
