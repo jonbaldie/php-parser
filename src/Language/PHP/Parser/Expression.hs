@@ -370,7 +370,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     -- and above comparison operators (RFC: Change the precedence of the
     -- concatenation operator), so "a" . 1 + 2 parses as "a" . (1 + 2).
     parseConcat = parseBinaryLeft parseShift
-      [ (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=')))), OpConcat)
+      [ (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=' <|> C.digitChar)))), OpConcat)
       ]
 
     parseShift = parseBinaryLeft parseAddSub
