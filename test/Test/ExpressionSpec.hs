@@ -188,6 +188,24 @@ expressionTests = testGroup "Expression Specifications"
           Left err -> assertFailure (show okSrc ++ ": " ++ show (formatParseError err))
           Right _ -> pure ()
 
+  , testCase "Reject a dot followed by a digit as concatenation (Issue #347)" $ do
+      forM_
+        [ "<?php $a = \"hello\" .1;"
+        , "<?php $b = $x .123;"
+        , "<?php $c = 10.0.0;"
+        , "<?php $d = 10..20;"
+        ]
+        assertRejectsProgram
+      forM_
+        [ "<?php $a = \"hello\" . 1;"
+        , "<?php $b = $x . .5;"
+        , "<?php $c = $x.$y;"
+        , "<?php $d = 10 . 20;"
+        ]
+        $ \src -> case parseProgram "test.php" src of
+          Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+          Right _ -> pure ()
+
   , testCase "Reject postfix operations on unparenthesized match expressions (Issue #346)" $ do
       forM_
         [ "<?php $a = match ($x) { 1 => new C() }->method();"
@@ -544,9 +562,8 @@ expressionTests = testGroup "Expression Specifications"
         Left _ -> pure ()
         Right other -> assertFailure ("Expected parse error for 1._0, got: " ++ show other)
 
-      case parseProgram "test.php" "<?php $x = _1.0;" of
-        Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "x"))) (ExprBinary _ OpConcat (ExprConstFetch _ (QualifiedName _ NameUnqualified ["_1"])) (ExprLit _ (LitInt _ 0 "0"))))]) -> pure ()
-        other -> assertFailure ("Expected $x = _1 . 0, got: " ++ show other)
+      -- PHP scans _1.0 as the identifier _1 followed by the float .0 (Issue #347).
+      assertRejectsProgram "<?php $x = _1.0;"
 
       let validFloats =
             [ ("1_000.5", 1000.5, "1_000.5")
