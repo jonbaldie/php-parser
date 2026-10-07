@@ -107,6 +107,32 @@ expressionTests = testGroup "Expression Specifications"
                   (stripAnnotations expr)
                   (stripAnnotations reparsed)
 
+  , testCase "Binary concatenation immediately followed by a digit is rejected (Issue #347)" $ do
+      forM_
+        [ "<?php $a = \"hello\" .1;"
+        , "<?php $b = $x .123;"
+        , "<?php $c = 10.0.0;"
+        , "<?php $d = 10..20;"
+        , "<?php $e = 10. .20;"
+        , "<?php $f = $x.1;"
+        , "<?php $g = \"x\".1;"
+        ]
+        assertRejectsProgram
+      forM_
+        [ "\"hello\" . 1"
+        , "\"hello\". 1"
+        , "$x . 123"
+        , "$x. 123"
+        , "$x.\"world\""
+        , "$x./*comment*/1"
+        , "10.0 . 0"
+        , "10. . 20"
+        , "10 . .20"
+        , "10. . 1"
+        , "1 . 1"
+        ]
+        assertParsesOkExpr
+
   , testCase "Successful AST spans report input offsets (Issue #47)" $ do
       case parseExpression "offsets.php" "  $a + $b" of
         Left err -> assertFailure (show (formatParseError err))
@@ -545,6 +571,10 @@ expressionTests = testGroup "Expression Specifications"
         Right other -> assertFailure ("Expected parse error for 1._0, got: " ++ show other)
 
       case parseProgram "test.php" "<?php $x = _1.0;" of
+        Left _ -> pure ()
+        Right other -> assertFailure ("Expected parse error for _1.0, got: " ++ show other)
+
+      case parseProgram "test.php" "<?php $x = _1 . 0;" of
         Right (Program _ [StmtExpr _ (ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "x"))) (ExprBinary _ OpConcat (ExprConstFetch _ (QualifiedName _ NameUnqualified ["_1"])) (ExprLit _ (LitInt _ 0 "0"))))]) -> pure ()
         other -> assertFailure ("Expected $x = _1 . 0, got: " ++ show other)
 
