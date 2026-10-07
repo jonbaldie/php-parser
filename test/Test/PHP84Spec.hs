@@ -443,6 +443,34 @@ php84Tests = testGroup "PHP 8.4 Specifications"
               _ -> assertFailure "Expected MemberProperty"
             _ -> assertFailure "Expected StmtClass"
 
+    , testCase "hook abstractness must match property abstractness (Issue #349)" $ do
+        let rejected =
+              [ "<?php class C { public int $x { get; } }"
+              , "<?php class C { public int $x { get => 1; set; } }"
+              , "<?php abstract class A { public int $x { get; } }"
+              , "<?php trait T { public int $x { get; } }"
+              , "<?php new class { public int $x { get; } };"
+              , "<?php abstract class A { abstract public int $y { get => 1; } }"
+              , "<?php abstract class A { abstract public int $z { get => 1; set => $this->raw = $value; } }"
+              , "<?php trait T { abstract public int $x { get { return 1; } } }"
+              ]
+            accepted =
+              [ "<?php abstract class A { abstract public int $x { get; } }"
+              , "<?php abstract class A { abstract public int $x { get; set => 1; } }"
+              , "<?php abstract class A { abstract public int $x { get { return 1; } set; } }"
+              , "<?php trait T { abstract public int $x { get; } }"
+              , "<?php interface I { public int $x { get; set; } }"
+              , "<?php class C { public int $x { get => 1; set { } } }"
+              ]
+        forM_ rejected $ \src ->
+          case parseProgram "test.php" src of
+            Left _ -> pure ()
+            Right _ -> assertFailure ("expected hook abstractness rejection for: " ++ show src)
+        forM_ accepted $ \src ->
+          case parseProgram "test.php" src of
+            Left err -> assertFailure (show src ++ ": " ++ show (formatParseError err))
+            Right _ -> pure ()
+
     , testCase "abstract properties without hooks are rejected (Issue #348)" $ do
         let rejected =
               [ "<?php abstract class C { abstract public int $x; }"

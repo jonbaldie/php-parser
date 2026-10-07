@@ -1079,8 +1079,9 @@ parseMethodOrProperty ctx enclosingReadonly = do
   isMethod <- (True <$ M.lookAhead (M.try parseMethodLookAhead)) <|> pure False
   if isMethod
     then MemberMethod <$> parseMethod ctx attrs
-    else MemberProperty <$> parseProperty enclosingReadonly attrs
+    else MemberProperty <$> parseProperty isIface enclosingReadonly attrs
   where
+    isIface = case ctx of InterfaceContext _ -> True; _ -> False
     parseMethodLookAhead = do
       _ <- parseMethodModifier
       _ <- optional (symbol "&")
@@ -1108,8 +1109,11 @@ parseMethod ctx attrs = withSpan $ do
   pure (\sp -> MethodDecl sp attrs modif byRef name params retType body)
 
 -- | Property with optional PHP 8.4 hooks and asymmetric visibility.
-parseProperty :: Bool -> [AttributeGroup Span] -> Parser (PropertyDecl Span)
-parseProperty enclosingReadonly attrs = withSpan $ do
+--
+-- Interface properties are implicitly abstract, so their hooks may omit a
+-- body without the @abstract@ modifier.
+parseProperty :: Bool -> Bool -> [AttributeGroup Span] -> Parser (PropertyDecl Span)
+parseProperty implicitlyAbstract enclosingReadonly attrs = withSpan $ do
   modif <- parsePropertyModifier
   mType <- optional parseType
   when (isJust (propWriteVis modif) && isNothing mType) $
@@ -1128,6 +1132,11 @@ parseProperty enclosingReadonly attrs = withSpan $ do
         when (propStatic modif) $
           M.fancyFailure (S.singleton (M.ErrorFail "Cannot declare hooks for static property"))
         hooks <- braces (parsePropertyHooks [])
+        let hasAbstractHook = any (\h -> case hookBody h of HookAbstract -> True; _ -> False) hooks
+        when (not (propAbstract modif || implicitlyAbstract) && hasAbstractHook) $
+          modifierError "Non-abstract property hook must have a body"
+        when (propAbstract modif && not hasAbstractHook) $
+          modifierError "Abstract property must specify at least one abstract hook"
         pure (\sp -> PropertyDecl sp attrs modif mType [(firstVar, mFirstVal)] hooks)
     else do
       when (propAbstract modif) $
