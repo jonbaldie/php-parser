@@ -369,8 +369,11 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     -- Since PHP 8.0, "." sits on its own precedence level, below "<<"/">>"
     -- and above comparison operators (RFC: Change the precedence of the
     -- concatenation operator), so "a" . 1 + 2 parses as "a" . (1 + 2).
+    -- In PHP's lexical scanner, a dot immediately followed by a digit is
+    -- scanned as the beginning of a float literal (T_DNUMBER), never as
+    -- concatenation (Issue #347).
     parseConcat = parseBinaryLeft parseShift
-      [ (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=')))), OpConcat)
+      [ (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=' <|> C.digitChar)))), OpConcat)
       ]
 
     parseShift = parseBinaryLeft parseAddSub
