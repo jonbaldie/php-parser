@@ -274,6 +274,25 @@ allMutations =
       , mutationStance = Caught
       , mutationRewrite = replaceFirst "    public float $celsius {" "    public static float $celsius {"
       }
+  , -- A bodyless hook makes the property abstract, and an abstract property
+    -- needs at least one bodyless hook.
+    Mutation
+      { mutationName = "bodyless-hook-on-concrete-property"
+      , mutationFeature = "84-property-hooks"
+      , mutationPHPRule = "Non-abstract property hook must have a body"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "        set => (int) $value;" "        set;"
+      }
+  , Mutation
+      { mutationName = "abstract-property-without-abstract-hook"
+      , mutationFeature = "84-property-hooks"
+      , mutationPHPRule = "Abstract property must specify at least one abstract hook"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "    abstract public string $name { get; }"
+            "    abstract public string $name { get => 'named'; }"
+      }
   , -- Members where the declaration kind forbids them.
     Mutation
       { mutationName = "abstract-private-method"
