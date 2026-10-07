@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.13.0
+
+* Reject `var` when combined with any other property modifier, in either order, matching PHP's grammar (#341).
+
+* Reject `void`, `never` and `callable` class constant types, including nested nullable, union, intersection and DNF types, matching PHP's compile-time checks (#342).
+
+* Require an explicit type for properties with asymmetric set visibility, including constructor-promoted properties (#344).
+
+* Reject postfix access on unparenthesized `match` expressions, which PHP does not allow. Preserve required parentheses when pretty-printing parenthesized match expressions used as postfix bases (#345, #346).
+
+* Treat a dot immediately followed by a decimal digit as the start of a floating-point literal, not the concatenation operator (#347).
+
+* Reject abstract properties without hooks and enforce that abstract properties use a bodyless hook while concrete properties provide hook bodies. Interface properties retain implicit abstractness (#348, #349).
+
 ## 0.1.12.0
 
 * Accept `exit(...)` and `die(...)` as first-class callables, which PHP 8.4 allows but the library rejected with `unexpected ".", expecting expression`. `prettyPrint` reprints them as `exit(...)` rather than `(exit)(...)` (#322).
