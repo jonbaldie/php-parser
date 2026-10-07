@@ -1130,6 +1130,8 @@ parseProperty enclosingReadonly attrs = withSpan $ do
         hooks <- braces (parsePropertyHooks [])
         pure (\sp -> PropertyDecl sp attrs modif mType [(firstVar, mFirstVal)] hooks)
     else do
+      when (propAbstract modif) $
+        modifierError "Only hooked properties may be declared abstract"
       restItems <- M.many (comma *> parseItem)
       _ <- semi
       pure (\sp -> PropertyDecl sp attrs modif mType ((firstVar, mFirstVal) : restItems) [])

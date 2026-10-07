@@ -190,6 +190,13 @@ allMutations =
       , mutationRewrite = replaceFirst "    protected static int $count = 0;" "    public readonly static int $count;"
       }
   , Mutation
+      { mutationName = "unhooked-abstract-property"
+      , mutationFeature = "classes"
+      , mutationPHPRule = "Only hooked properties may be declared abstract"
+      , mutationStance = Caught
+      , mutationRewrite = replaceFirst "    protected static int $count = 0;" "    abstract protected int $count;"
+      }
+  , Mutation
       { mutationName = "untyped-asymmetric-property"
       , mutationFeature = "84-asymmetric-visibility"
       , mutationPHPRule = "Property with asymmetric visibility must have type"

@@ -429,8 +429,8 @@ php84Tests = testGroup "PHP 8.4 Specifications"
               _ -> assertFailure "Expected MemberProperty"
             _ -> assertFailure "Expected StmtClass"
 
-    , testCase "abstract property in abstract class parses without default" $ do
-        let src = "<?php abstract class C { abstract public string $name; }"
+    , testCase "abstract hooked property in abstract class parses without default" $ do
+        let src = "<?php abstract class C { abstract public string $name { get; } }"
         case parseProgram "test.php" src of
           Left err -> assertFailure (show (formatParseError err))
           Right (Program _ stmts) -> case stmts of
@@ -442,6 +442,19 @@ php84Tests = testGroup "PHP 8.4 Specifications"
                   (case propItems pd of [(_, v)] -> v; _ -> Just (error "unreachable"))
               _ -> assertFailure "Expected MemberProperty"
             _ -> assertFailure "Expected StmtClass"
+
+    , testCase "abstract properties without hooks are rejected (Issue #348)" $ do
+        let rejected =
+              [ "<?php abstract class C { abstract public int $x; }"
+              , "<?php abstract class C { public abstract string $x; }"
+              , "<?php abstract class C { abstract public int $x = 1; }"
+              , "<?php abstract class C { abstract public int $x, $y; }"
+              , "<?php abstract class C { abstract $x; }"
+              ]
+        forM_ rejected $ \src ->
+          case parseProgram "test.php" src of
+            Left _ -> pure ()
+            Right _ -> assertFailure ("expected unhooked abstract property rejection for: " ++ show src)
 
     , testCase "modifier permutations parse to equivalent ASTs" $ do
         let srcs =
@@ -473,7 +486,7 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected StmtClass"
 
     , testCase "final/abstract survive pretty-print round-trip" $ do
-        let src = "<?php abstract class C { final public string $a; abstract protected int $b; }"
+        let src = "<?php abstract class C { final public string $a; abstract protected int $b { get; } }"
         case parseProgram "test.php" src of
           Left err -> assertFailure (show (formatParseError err))
           Right prog -> do
