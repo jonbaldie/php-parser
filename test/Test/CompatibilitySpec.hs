@@ -21,6 +21,8 @@
 -- oracle here is the library's own documented invariants, not PHP itself.
 module Test.CompatibilitySpec (compatibilityTests) where
 
+import Data.Char (isSpace)
+import Data.Foldable (toList)
 import qualified Data.Text as T
 import Language.PHP
 import Test.Gen.PHPSource
@@ -47,6 +49,23 @@ versionCompatibility v =
           case parseProgram "gen.php" src of
             Left err -> failedWith prog "parse failed" (T.unpack (formatParseError err))
             Right _ -> property True
+    , testProperty "node spans exclude surrounding whitespace and comments (Issue #365)" $
+        forAllProgram v $ \prog src ->
+          withParsed prog src $ \ast ->
+            conjoin
+              [ let sp = annValue ann
+                    start = posOffset (spanStart sp)
+                    end = posOffset (spanEnd sp)
+                    text = T.take (end - start) (T.drop start src)
+                 in counterexample (show sp ++ " slices to " ++ show text) $
+                      start >= 0 && end >= start && end <= T.length src
+                        && (T.null text ||
+                              (not (isSpace (T.head text) || isSpace (T.last text))
+                                && not (any (`T.isPrefixOf` text) ["//", "/*"])
+                                && not ("#" `T.isPrefixOf` text && not ("#[" `T.isPrefixOf` text))
+                                && not ("*/" `T.isSuffixOf` text)))
+              | ann <- toList ast
+              ]
     , testProperty "printing and reparsing preserves the AST" $
         forAllProgram v $ \prog src ->
           withParsed prog src $ \ast ->

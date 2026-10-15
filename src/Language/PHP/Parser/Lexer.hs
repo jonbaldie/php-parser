@@ -75,7 +75,9 @@ import Language.PHP.AST
 import Language.PHP.Span (Span, SourcePos (..), combineSpans, mkSpan)
 
 data LexerState = LexerState
-  { currentTrivia :: ![Trivia]
+  { lastTokenEnd :: !SourcePos
+  , lastTriviaEnd :: !SourcePos
+  , currentTrivia :: ![Trivia]
   , triviaBySpan  :: !(Map.Map Span [Trivia])
   , scriptStatementSeen :: !Bool
   , statementDepth :: !Int
@@ -93,7 +95,9 @@ data NamespaceForm = BracketedNamespace | UnbracketedNamespace
   deriving (Eq, Show)
 
 initialLexerState :: LexerState
-initialLexerState = LexerState [] Map.empty False 0 False False False False Nothing False
+initialLexerState = LexerState unset unset [] Map.empty False 0 False False False False Nothing False
+  where
+    unset = SourcePos "" 0 0 (-1)
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -224,12 +228,24 @@ toSourcePos sp offset = Language.PHP.Span.SourcePos
 sourcePosHere :: Parser Language.PHP.Span.SourcePos
 sourcePosHere = toSourcePos <$> M.getSourcePos <*> M.getOffset
 
+-- | End at the last token only while still at its trailing-trivia boundary.
+-- Raw parsers can advance without calling 'sc'; speculative parsers can leave
+-- state ahead of a rewound input position. Neither may reuse that endpoint.
+spanEndHere :: SourcePos -> Parser SourcePos
+spanEndHere start = do
+  here <- sourcePosHere
+  st <- get
+  let end = lastTokenEnd st
+  pure $ if lastTriviaEnd st == here && start <= end && end <= here
+    then end
+    else here
+
 -- | Run a parser and record its source span.
 spanned :: Parser a -> Parser (Span, a)
 spanned p = do
   start <- sourcePosHere
   res <- p
-  end <- sourcePosHere
+  end <- spanEndHere start
   pure (mkSpan start end, res)
 
 -- | Wrap a parser that expects a Span.
@@ -240,7 +256,7 @@ withSpan p = do
   leading <- takeTrivia
   result <- M.observing $ do
     f <- p
-    end <- sourcePosHere
+    end <- spanEndHere start
     pure (f, end)
   case result of
     Left err -> do
@@ -268,17 +284,29 @@ addTrivia t = modify' (\s -> s { currentTrivia = currentTrivia s ++ [t] })
 
 -- | Space and comment consumer.
 sc :: Parser ()
-sc = L.space
+sc = trailingTrivia $ L.space
   phpCodeWhitespace
   (lineComment <|> hashComment)
   blockOrDocComment
 
 -- | Space consumer without consuming newlines.
 scNoNewline :: Parser ()
-scNoNewline = L.space
+scNoNewline = trailingTrivia $ L.space
   (void (M.satisfy (\c -> c == ' ' || c == '\t' || c == '\r')))
   (lineComment <|> hashComment)
   blockOrDocComment
+
+-- | Remember the token boundary before consuming trivia, and the input
+-- position afterwards. Repeated space consumers must not turn trivia into
+-- part of the preceding token.
+trailingTrivia :: Parser () -> Parser ()
+trailingTrivia p = do
+  before <- sourcePosHere
+  st <- get
+  let end = if lastTriviaEnd st == before then lastTokenEnd st else before
+  p
+  after <- sourcePosHere
+  modify' (\s -> s { lastTokenEnd = end, lastTriviaEnd = after })
 
 -- | PHP's code whitespace is deliberately narrower than 'Data.Char.isSpace'.
 -- Keep vertical tab for the lexer behaviour already supported by this parser,
