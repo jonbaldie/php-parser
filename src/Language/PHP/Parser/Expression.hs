@@ -196,22 +196,24 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       <|> parsePrintWith pAssignment
       <|> do
         lhs <- parseTernaryWith mode
-        assignRest lhs <|> pure lhs
+        parseAssignmentRestWith mode lhs <|> pure lhs
       where
         pAssignment = parseAssignmentWith mode
 
-        assignRest lhs = do
-          op <- parseAssignOp
-          when (not (isAssignable lhs)) $
-            fail "Cannot assign to non-assignable expression"
-          when (hasEmptyDestructure lhs) $
-            fail "Cannot use empty list"
-          case op of
-            Nothing -> assignRefRest lhs <|> assignValueRest Nothing lhs
-            Just _  -> do
-              when (isDestructure lhs) $
-                fail "Cannot use destructuring with compound assignment"
-              assignValueRest op lhs
+    parseAssignmentRestWith mode target = do
+      op <- parseAssignOp
+      when (not (isAssignable target)) $
+        fail "Cannot assign to non-assignable expression"
+      when (hasEmptyDestructure target) $
+        fail "Cannot use empty list"
+      case op of
+        Nothing -> assignRefRest target <|> assignValueRest Nothing target
+        Just _  -> do
+          when (isDestructure target) $
+            fail "Cannot use destructuring with compound assignment"
+          assignValueRest op target
+      where
+        pAssignment = parseAssignmentWith mode
 
         -- By-reference assignment. The ampersand belongs to the operator, not
         -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
@@ -403,8 +405,18 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
 
-    parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parseShellExec <|> parsePostfix
+    parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parseShellExec <|> parseAssignableOperand
       where
+        -- PHP can shift an assignment after a variable even in a tighter
+        -- operator's operand: $a && $b = 1 means $a && ($b = 1).
+        -- Recognize it before the surrounding operator claims the variable;
+        -- the assignment RHS still consumes a full assignment expression.
+        parseAssignableOperand = do
+          operand <- parsePostfix
+          if isAssignable operand
+            then parseAssignmentRestWith FullTernary operand <|> pure operand
+            else pure operand
+
         -- A backtick command is not dereferencable, so no postfix operator
         -- may follow it: PHP rejects @`ls`[0]@ and @`ls`()@.
         parseShellExec = withSpan $ do
