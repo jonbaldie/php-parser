@@ -196,22 +196,24 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       <|> parsePrintWith pAssignment
       <|> do
         lhs <- parseTernaryWith mode
-        assignRest lhs <|> pure lhs
+        parseAssignmentRestWith mode lhs <|> pure lhs
       where
         pAssignment = parseAssignmentWith mode
 
-        assignRest lhs = do
-          op <- parseAssignOp
-          when (not (isAssignable lhs)) $
-            fail "Cannot assign to non-assignable expression"
-          when (hasEmptyDestructure lhs) $
-            fail "Cannot use empty list"
-          case op of
-            Nothing -> assignRefRest lhs <|> assignValueRest Nothing lhs
-            Just _  -> do
-              when (isDestructure lhs) $
-                fail "Cannot use destructuring with compound assignment"
-              assignValueRest op lhs
+    parseAssignmentRestWith mode target = do
+      op <- parseAssignOp
+      when (not (isAssignable target)) $
+        fail "Cannot assign to non-assignable expression"
+      when (hasEmptyDestructure target) $
+        fail "Cannot use empty list"
+      case op of
+        Nothing -> assignRefRest target <|> assignValueRest Nothing target
+        Just _  -> do
+          when (isDestructure target) $
+            fail "Cannot use destructuring with compound assignment"
+          assignValueRest op target
+      where
+        pAssignment = parseAssignmentWith mode
 
         -- By-reference assignment. The ampersand belongs to the operator, not
         -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
@@ -233,11 +235,11 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssign sp op lhs rhs)
 
-        -- PHP takes a reference to a variable, never to a value: the source of
-        -- a by-reference assignment is drawn from the postfix level and must be
-        -- variable-like, so @$a =& new Foo()@ and @$a =& 1@ are syntax errors.
+        -- Validate the complete RHS, not just its first postfix expression:
+        -- $a =& $b + 1 must not escape as ($a =& $b) + 1 when nested
+        -- inside another operator's operand.
         parseReferenceSource = do
-          rhs <- parsePostfix
+          rhs <- pAssignment
           guard (isReferenceable rhs)
           pure rhs
 
@@ -338,7 +340,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       where
         parseCoalesceRest lhs = do
           _ <- lexeme (M.try (C.string "??" <* M.notFollowedBy (C.char '=')))
-          rhs <- parseCoalesceWith mode <|> parseThrowWith (parseAssignmentWith mode)
+          rhs <- parseAssignmentOperand (parseCoalesceWith mode)
+                 <|> parseThrowWith (parseAssignmentWith mode)
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprNullCoalesce sp lhs rhs)
 
@@ -399,9 +402,18 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       lhs <- parseUnary
       (do
         _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
-        rhs <- parseExponentiation
+        rhs <- parseAssignmentOperand parseExponentiation
         let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
+
+    -- PHP can shift an assignment after a variable in a tighter operator's
+    -- operand: $a && $b = 1 means $a && ($b = 1). The assignment RHS still
+    -- consumes a full assignment expression, rather than the operand's level.
+    parseAssignmentOperand next = do
+      operand <- next
+      if isAssignable operand
+        then parseAssignmentRestWith FullTernary operand <|> pure operand
+        else pure operand
 
     parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parseShellExec <|> parsePostfix
       where
@@ -429,7 +441,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
                 <|> (OpUnaryPlus <$ symbol "+")
                 <|> (OpUnaryMinus <$ symbol "-")
                 <|> (OpErrorSuppress <$ symbol "@")
-          operand <- parseExponentiation
+          operand <- parseAssignmentOperand parseExponentiation
           pure (\sp -> ExprUnary sp op operand)
 
         -- Casts likewise bind looser than "**".
@@ -437,7 +449,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           _ <- symbol "("
           castType <- parseCastType
           _ <- symbol ")"
-          operand <- parseExponentiation
+          operand <- parseAssignmentOperand parseExponentiation
           pure (\sp -> ExprCast sp castType operand)
 
         parseCastType =
@@ -460,7 +472,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           pure (\sp -> ExprClone sp obj mPayload)
 
         cloneOperand = do
-          obj <- parseUnary
+          obj <- parseAssignmentOperand parseUnary
           pure (\sp -> ExprClone sp obj Nothing)
 
         parseCloneWithPayload = do
@@ -786,6 +798,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       lit <- parseLiteralWith parseExprRec
       pure (\sp -> ExprLit sp lit)
 
+    parseBinaryLeft :: Parser (Expr Span) -> [(Parser a, BinOp)] -> Parser (Expr Span)
     parseBinaryLeft next ops = do
       lhs <- next
       parseRest lhs
@@ -795,7 +808,9 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           case mOp of
             Nothing -> pure lhs
             Just op -> do
-              rhs <- next
+              -- instanceof takes a class reference, not an unparenthesized
+              -- assignment; other binary operators admit assignment operands.
+              rhs <- if op == OpInstanceof then next else parseAssignmentOperand next
               let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
               parseRest (ExprBinary sp op lhs rhs)
 

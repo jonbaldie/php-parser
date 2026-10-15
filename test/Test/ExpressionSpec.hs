@@ -14,7 +14,79 @@ import qualified Language.PHP.Parser.Lexer as Lexer
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
-  [ testCase "Empty block comment /**/ is skipped before an expression" $ do
+  [ testCase "Assignment in tighter-binding operands (Issue #368)" $ do
+      let cases =
+            [ ("$a && $b = 1", "$a && ($b = 1)")
+            , ("$a = $b ?? $c = 1", "$a = ($b ?? ($c = 1))")
+            , ("false !== $p = 1", "false !== ($p = 1)")
+            , ("$x = ! $v = 1", "$x = !($v = 1)")
+            , ("$x = 1 + $y = 2", "$x = 1 + ($y = 2)")
+            , ("$x = $a . $b = 2", "$x = $a . ($b = 2)")
+            , ("$x = -$a = 1", "$x = -($a = 1)")
+            , ("$x = @$a = 1", "$x = @($a = 1)")
+            , ("$x = (int) $a = 1", "$x = (int)($a = 1)")
+            , ("$a instanceof B && $c = 1", "($a instanceof B) && ($c = 1)")
+            , ("$a && $b = 1 || $c", "$a && ($b = (1 || $c))")
+            , ("$a && $b += 1", "$a && ($b += 1)")
+            , ("$a && $b ??= 1", "$a && ($b ??= 1)")
+            , ("$a && $b =& $c", "$a && ($b =& $c)")
+            , ("$a ** $b = 1", "$a ** ($b = 1)")
+            , ("$a instanceof ($b = $c)", "$a instanceof ($b = $c)")
+            , ("$a && $b[0] = 1", "$a && ($b[0] = 1)")
+            , ("$a && $b->c = 1", "$a && ($b->c = 1)")
+            , ("$a && C::$b = 1", "$a && (C::$b = 1)")
+            , ("$a && [$b, $c] = $d", "$a && ([$b, $c] = $d)")
+            ] ++
+            [ ("$a && $b " <> op <> " 1", "$a && ($b " <> op <> " 1)")
+            | op <- ["-=", "*=", "**=", "/=", "%=", ".=", "&=", "|=", "^=", "<<=", ">>="]
+            ] ++
+            [ (op <> "$a = 1", op <> "($a = 1)")
+            | op <- ["+", "~", "(string)", "(bool)", "(array)", "(object)", "(float)"]
+            ]
+      forM_ cases $ \(src, expected) -> do
+        let program expr = "<?php " <> expr <> ";"
+        case (parseProgram "issue368.php" (program src),
+              parseProgram "issue368.php" (program expected)) of
+          (Right ast, Right expectedAst) -> do
+            assertEqual (T.unpack src ++ ": operand assignment shape")
+              (stripAnnotations expectedAst) (stripAnnotations ast)
+            case parseProgram "issue368.php" (prettyPrint ast) of
+              Left err -> assertFailure (show (formatParseError err))
+              Right reparsed -> assertEqual (T.unpack src ++ ": round trip")
+                (stripAnnotations ast) (stripAnnotations reparsed)
+          (actual, expectedResult) -> assertFailure
+            (T.unpack src ++ ": " ++ show (actual, expectedResult))
+
+  , testCase "Invalid assignment operands stay rejected (Issue #368)" $ do
+      forM_ [ "$a . 3.0 = 1", "1 + 2 = 3", "$a && foo() = 1"
+            , "!1 = 2", "(int) 1 = 2", "$a && $b?->c = 1"
+            , "$a && [$b] += $c", "$a && $b =& 1"
+            , "$a + $b =& $c + 1", "$a && $b =& $c ?? $d"
+            , "$a instanceof $b = 1"
+            ] $ \src -> case parseProgram "issue368.php" ("<?php " <> src <> ";") of
+              Left _ -> pure ()
+              Right ast -> assertFailure (T.unpack src ++ ": accepted " ++ show ast)
+
+  , testCase "Original assignment operand programs round-trip (Issue #368)" $ do
+      forM_
+        [ "<?php if ($a && $b = 1) {}"
+        , "<?php $a = $b ?? $c = 1;"
+        , "<?php if (false !== $p = 1) {}"
+        , "<?php $x = ! $v = 1;"
+        , "<?php $x = 1 + $y = 2;"
+        , "<?php $x = $a . $b = 2;"
+        , "<?php $x = -$a = 1;"
+        , "<?php $x = @$a = 1;"
+        , "<?php $x = (int) $a = 1;"
+        , "<?php if ($a instanceof B && $c = 1) {}"
+        ] $ \src -> case parseProgram "issue368.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right ast -> case parseProgram "issue368.php" (prettyPrint ast) of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed -> assertEqual (T.unpack src)
+              (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "Empty block comment /**/ is skipped before an expression" $ do
       case parseExpression "comment.php" "/**/ 1" of
         Left err -> assertFailure (show (formatParseError err))
         Right (ExprLit (Annotated _ triv) (LitInt _ 1 _)) ->
