@@ -10,6 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import System.Timeout (timeout)
 import Language.PHP
+import qualified Language.PHP.Parser.Lexer as Lexer
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
@@ -106,6 +107,62 @@ expressionTests = testGroup "Expression Specifications"
                 assertEqual (name ++ ": pretty-print round trip")
                   (stripAnnotations expr)
                   (stripAnnotations reparsed)
+
+  , testCase "Node spans exclude trailing trivia (Issue #365)" $ do
+      case parseExpression "e.php" "$a  +  $b" of
+        Right (ExprBinary _ _ left _) -> do
+          let sp = annValue (getAnnotation left)
+          assertEqual "variable offsets" (0, 2)
+            (posOffset (spanStart sp), posOffset (spanEnd sp))
+        other -> assertFailure (show other)
+      let src = "<?php\nfoo();\n/** Adds one. */\nfunction g(int   $a) {}\n"
+          slice ann = let sp = annValue ann
+                      in T.take (posOffset (spanEnd sp) - posOffset (spanStart sp))
+                           (T.drop (posOffset (spanStart sp)) src)
+      case parseProgram "spans.php" src of
+        Right (Program _ [StmtExpr stmtAnn _, StmtFunction funAnn fun]) -> do
+          assertEqual "statement" "foo();" (slice stmtAnn)
+          assertEqual "function" "function g(int   $a) {}" (slice funAnn)
+          assertEqual "docblock remains attached" [DocBlock " Adds one. "] (annTrivia funAnn)
+          case funcParams fun of
+            [param] -> case paramType param of
+              Just (SimpleType ann _) -> assertEqual "parameter type" "int" (slice ann)
+              other -> assertFailure (show other)
+            other -> assertFailure (show other)
+        other -> assertFailure (show other)
+      let multi = "<?php\nfunction f(int $a): int {\n  return $a;\n}\n\nclass C {}"
+      case parseProgram "multi.php" multi of
+        Right (Program _ [StmtFunction ann _, StmtClass _ _]) -> do
+          let sp = annValue ann
+          assertEqual "multiline function ends at brace"
+            "function f(int $a): int {\n  return $a;\n}"
+            (T.take (posOffset (spanEnd sp) - posOffset (spanStart sp))
+              (T.drop (posOffset (spanStart sp)) multi))
+        other -> assertFailure (show other)
+
+  , testCase "Raw tokens retain their full spans (Issue #365)" $ do
+      forM_ ["$a", "foo", "123", "'a '", "\"$a x\""] $ \src ->
+        case parseExpression "raw.php" src of
+          Right expr -> do
+            let sp = annValue (getAnnotation expr)
+            assertEqual (T.unpack src) (0, T.length src)
+              (posOffset (spanStart sp), posOffset (spanEnd sp))
+          other -> assertFailure (show other)
+
+  , testCase "Span boundaries handle raw tokens and repeated trivia consumers (Issue #365)" $ do
+      let cases =
+            [ ("raw token after symbol", "(foo)", (1, 4),
+                Lexer.symbol "(" *> Lexer.spanned Lexer.rawIdentifier <* Lexer.symbol ")")
+            , ("repeated sc", "foo /* comment */  ", (0, 3),
+                Lexer.spanned (Lexer.symbol "foo" <* Lexer.sc))
+            , ("scNoNewline", "foo /* comment */  \n", (0, 3),
+                Lexer.spanned (Lexer.rawIdentifier <* Lexer.scNoNewline) <* Lexer.sc)
+            ]
+      forM_ cases $ \(name, src, expected, parser) ->
+        case Lexer.runPHPParser parser "lexer.php" src of
+          Right ((sp, _), _) -> assertEqual name expected
+            (posOffset (spanStart sp), posOffset (spanEnd sp))
+          Left err -> assertFailure (show err)
 
   , testCase "Successful AST spans report input offsets (Issue #47)" $ do
       case parseExpression "offsets.php" "  $a + $b" of
