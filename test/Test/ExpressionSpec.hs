@@ -31,6 +31,7 @@ expressionTests = testGroup "Expression Specifications"
             , ("$a && $b ??= 1", "$a && ($b ??= 1)")
             , ("$a && $b =& $c", "$a && ($b =& $c)")
             , ("$a ** $b = 1", "$a ** ($b = 1)")
+            , ("$a instanceof ($b = $c)", "$a instanceof ($b = $c)")
             , ("$a && $b[0] = 1", "$a && ($b[0] = 1)")
             , ("$a && $b->c = 1", "$a && ($b->c = 1)")
             , ("$a && C::$b = 1", "$a && (C::$b = 1)")
@@ -60,6 +61,8 @@ expressionTests = testGroup "Expression Specifications"
       forM_ [ "$a . 3.0 = 1", "1 + 2 = 3", "$a && foo() = 1"
             , "!1 = 2", "(int) 1 = 2", "$a && $b?->c = 1"
             , "$a && [$b] += $c", "$a && $b =& 1"
+            , "$a + $b =& $c + 1", "$a && $b =& $c ?? $d"
+            , "$a instanceof $b = 1"
             ] $ \src -> case parseProgram "issue368.php" ("<?php " <> src <> ";") of
               Left _ -> pure ()
               Right ast -> assertFailure (T.unpack src ++ ": accepted " ++ show ast)
