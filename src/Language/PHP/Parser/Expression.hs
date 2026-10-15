@@ -509,7 +509,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         parseMethodOrProp = do
           _ <- symbol "->"
           name <- parseMemberName
-          mArgs <- optional parseCallArgs
+          mArgs <- optional (parseCallArgsWith parseExprRec)
           let sp = combineSpans (exprSpan base) (memberNameSpan name)
           case mArgs of
             Nothing -> pure (ExprPropertyFetch sp base name)
@@ -521,7 +521,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         parseNullsafeMethodOrProp = do
           _ <- symbol "?->"
           name <- parseMemberName
-          mArgs <- optional parseCallArgs
+          mArgs <- optional (parseCallArgsWith parseExprRec)
           let sp = combineSpans (exprSpan base) (memberNameSpan name)
           case mArgs of
             Nothing -> pure (ExprNullsafePropertyFetch sp base name)
@@ -535,7 +535,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           case target of
             Left varName -> do
               let sp = combineSpans (exprSpan base) (varNameSpan varName)
-              mArgs <- optional parseCallArgs
+              mArgs <- optional (parseCallArgsWith parseExprRec)
               case mArgs of
                 Nothing -> pure (ExprStaticPropertyFetch sp classTarget varName)
                 Just args ->
@@ -543,7 +543,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
                                   (SimpleVar (varNameSpan varName) varName)
                   in pure (ExprStaticCall sp classTarget (MemberExpr varExpr) args)
             Right constOrMethod -> do
-              mArgs <- optional parseCallArgs
+              mArgs <- optional (parseCallArgsWith parseExprRec)
               let sp = combineSpans (exprSpan base) (classConstSpan constOrMethod)
               case mArgs of
                 Nothing -> pure (ExprClassConstFetch sp classTarget constOrMethod)
@@ -561,7 +561,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           pure (ExprArrayAccess sp base mIdx)
 
         parseCall = do
-          (spEnd, args) <- spanned parseCallArgs
+          (spEnd, args) <- spanned (parseCallArgsWith parseExprRec)
           let sp = combineSpans (exprSpan base) spEnd
           pure (ExprCall sp base args)
 
@@ -841,9 +841,12 @@ parseArgWith pExpr = withSpan $ do
 
 -- | Call arguments list: (arg1, arg2) or first-class callable (...)
 parseCallArgs :: Parser (CallArgs Span)
-parseCallArgs = parens $
+parseCallArgs = parseCallArgsWith parseExpr
+
+parseCallArgsWith :: Parser (Expr Span) -> Parser (CallArgs Span)
+parseCallArgsWith pExpr = parens $
   (FirstClassCallable <$ M.try (symbol "..." <* M.lookAhead (symbol ")")))
-  <|> (ArgsList <$> parseArgList parseArg)
+  <|> (ArgsList <$> parseArgList (parseArgWith pExpr))
 
 -- | Match arm using expression parser.
 parseMatchArm :: Parser (MatchArm Span)

@@ -41,6 +41,26 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
             Right prog2 ->
               assertEqual "round-trip AST equal" (stripAnnotations prog) (stripAnnotations prog2)
 
+  , testGroup "Closures with statement bodies and anonymous classes as call arguments (Issue #367)" $
+      [ testCase (T.unpack src) (assertRoundTrips src)
+      | src <-
+          [ "<?php f(function () { return 1; });"
+          , "<?php f(function () { echo 1; });"
+          , "<?php f(function () { ; });"
+          , "<?php f(static function () { return 1; });"
+          , "<?php f(x: function () { return 1; });"
+          , "<?php f(...g(function () { return 1; }));"
+          , "<?php $o->m(static fn() => 1, function () { echo 1; });"
+          , "<?php f(new class { public $x; });"
+          , "<?php f(new class { public function m() { return 1; } });"
+          , "<?php f(g(function () { return function () { return 1; }; }));"
+          , "<?php $o->m(function () { return 1; });"
+          , "<?php $o?->m(function () { return 1; });"
+          , "<?php A::m(function () { return 1; });"
+          , "<?php $f(function () { return 1; });"
+          ]
+      ]
+
   , testCase "Round-trip PHP 8.5 pipe operator" $ do
       let src = "<?php\n$result = (($x |> 'trim') |> 'strtolower');"
       assertRoundTrips src
