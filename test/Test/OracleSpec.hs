@@ -274,7 +274,21 @@ versionProperties :: Oracles -> PHPVersion -> TestTree
 versionProperties oracles v =
   testGroup
     ("PHP " ++ versionLabel v ++ maybe "" skipTag (versionSkip oracles v))
-    [ testProperty "corpus health: the interpreter accepts every generated program" $
+    [ testProperty "ternary assignment RHS in false branches (Issue #369)" $
+        withOracle oracles v $ \o -> once $ conjoin
+          [ ioProperty $ do
+              verdict <- checkSource o src
+              case parseProgram "issue369.php" src of
+                Left err -> pure $ counterexample (show err) False
+                Right ast -> do
+                  printedVerdict <- checkSource o (prettyPrint ast)
+                  pure $ counterexample (T.unpack src) $
+                    verdict === Accepted .&&. printedVerdict === Accepted
+          | src <- [ "<?php $l ?: $l = $a ? 1 : 2;"
+                   , "<?php $c ? 1 : $l = $a ? 1 : 2;"
+                   ]
+          ]
+    , testProperty "corpus health: the interpreter accepts every generated program" $
         withOracle oracles v $ \o ->
           forAllProgram v $ \prog src ->
             acceptsOrReports o prog src " rejected a supposedly valid program"
