@@ -13,14 +13,17 @@ concurrency:
 jobs:
   build:
     name: GHC ${{ matrix.ghc }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         ghc: ['9.8.4', '9.10.1', '9.12.1']
         include:
+          # Keep the required check name, but avoid the macOS 27 SDK's new
+          # arm64e.x1 stubs, which GHC 9.12.1's linker cannot read.
           - os: macos-latest
+            runner: macos-15
             ghc: '9.12.1'
 
     steps:
