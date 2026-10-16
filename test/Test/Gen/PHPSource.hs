@@ -528,6 +528,11 @@ allFeatures =
         , "    echo 'done';"
         , "}"
         , "$thrower" <> n <> " = fn (): never => throw new \\LogicException('expr');"
+        , "$guard" <> n <> " || throw new \\LogicException('or');"
+        , "$guard" <> n <> " && throw new \\LogicException('and');"
+        , "$sum" <> n <> " = 1 + throw new \\LogicException('add');"
+        , "$not" <> n <> " = !throw new \\LogicException('not');"
+        , "$guard" <> n <> " || throw $e" <> n <> " && $f" <> n <> ";"
         ]
   , Feature "generators" PHP82 $ \i -> do
       let n = sfx i

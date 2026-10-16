@@ -14,7 +14,66 @@ import qualified Language.PHP.Parser.Lexer as Lexer
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
-  [ testCase "Assignment in tighter-binding operands (Issue #368)" $ do
+  [ testCase "Throw operands parse and round-trip (Issue #370)" $ do
+      forM_
+        [ "<?php $a || throw new E();"
+        , "<?php $a && throw new E();"
+        , "<?php $x = 1 + throw new E();"
+        , "<?php $x = !throw new E();"
+        ] $ \src -> case parseProgram "issue370.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right ast -> case parseProgram "issue370.php" (prettyPrint ast) of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed -> assertEqual (T.unpack src)
+              (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "Throw operand precedence (Issue #370)" $ do
+      let cases =
+            [ ("$a || throw $e && $f", \case
+                ExprBinary _ OpBoolOr (ExprVar _ (SimpleVar _ (VarName _ "a")))
+                  (ExprThrow _ (ExprBinary _ OpBoolAnd
+                    (ExprVar _ (SimpleVar _ (VarName _ "e")))
+                    (ExprVar _ (SimpleVar _ (VarName _ "f"))))) -> True
+                _ -> False)
+            , ("throw $e || $a", \case
+                ExprThrow _ (ExprBinary _ OpBoolOr
+                  (ExprVar _ (SimpleVar _ (VarName _ "e")))
+                  (ExprVar _ (SimpleVar _ (VarName _ "a")))) -> True
+                _ -> False)
+            , ("!throw $e = $f", \case
+                ExprUnary _ OpBoolNot (ExprThrow _ (ExprAssign _ Nothing _ _)) -> True
+                _ -> False)
+            ]
+      forM_ cases $ \(src, matches) ->
+        case parseExpression "issue370.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right expr -> do
+            assertBool (T.unpack src ++ ": AST shape") (matches expr)
+            assertRoundTripExpr expr
+
+  , testCase "Throw in binary and prefix operands (Issue #370)" $ do
+      let cases =
+            [ "$a " <> op <> " throw $e + $f"
+            | op <- ["||", "&&", "|", "^", "&", "==", "!=", "===", "!==", "<>",
+                     "<", "<=", ">", ">=", "<=>", ".", "<<", ">>", "+", "-",
+                     "*", "/", "%", "**", "??", "and", "or", "xor"]
+            ] ++
+            [ op <> "throw $e + $f"
+            | op <- ["!", "~", "+", "-", "@", "(int)", "(float)", "(string)",
+                     "(bool)", "(array)", "(object)", "clone "]
+            ] ++
+            [ "$a ?? throw $e ? $b : $c", "$a ? $b : $c || throw $e ? $f : $g" ]
+      forM_ cases $ \src -> case parseExpression "issue370.php" src of
+        Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+        Right expr -> assertRoundTripExpr expr
+
+  , testCase "Restricted operands still reject bare throw (Issue #370)" $ do
+      forM_ ["$a instanceof throw $e", "++throw $e", "--throw $e"] $ \src ->
+        case parseExpression "issue370.php" src of
+          Left _ -> pure ()
+          Right expr -> assertFailure (T.unpack src ++ ": accepted " ++ show expr)
+
+  , testCase "Assignment in tighter-binding operands (Issue #368)" $ do
       let cases =
             [ ("$a && $b = 1", "$a && ($b = 1)")
             , ("$a = $b ?? $c = 1", "$a = ($b ?? ($c = 1))")
