@@ -586,5 +586,34 @@ prettyTests = testGroup "Pretty Printer Specifications"
             Left err -> assertFailure ("program reparse failed: " ++ show (formatParseError err))
             Right reparsedProg ->
               assertEqual "program round-trip AST matches" (stripAnnotations progAst) (stripAnnotations reparsedProg)
-  ]
 
+  , testCase "prettyPrint emits newlines inside strings, inline HTML and comments verbatim in nested blocks (Issue #373)" $ do
+      let cases =
+            [ ("single-quoted string in a function"
+              , "<?php\nfunction f() {\n    return 'a\nb';\n}\n"
+              , "'a\nb'" )
+            , ("interpolated string in a method"
+              , "<?php\nclass A {\n    public function m($x) {\n        return \"a\n$x\n  {$x}b\";\n    }\n}\n"
+              , "\"a\n{$x}\n  {$x}b\"" )
+            , ("inline HTML in a foreach"
+              , "<?php foreach ([1] as $e) { ?>\n<b>\n</b>\n<?php }\n"
+              , "?><b>\n</b>\n<?php" )
+            , ("method docblock"
+              , "<?php\nclass A\n{\n    /**\n     * Doc.\n     */\n    public function m() {}\n}\n"
+              , "/**\n     * Doc.\n     */" )
+            , ("block comment in an if"
+              , "<?php\nif ($a) {\n    /* one\n  two */\n    f();\n}\n"
+              , "/* one\n  two */" )
+            ]
+      forM_ cases $ \(label, src, verbatim) ->
+        case parseProgram "issue-373.php" src of
+          Left err -> assertFailure (label ++ ": parse failed: " ++ show (formatParseError err))
+          Right ast -> do
+            let printed = prettyPrint ast
+            assertBool (label ++ ": contents emitted verbatim in " ++ show printed) (verbatim `T.isInfixOf` printed)
+            case parseProgram "reparsed.php" printed of
+              Left err -> assertFailure (label ++ ": reparse failed: " ++ show (formatParseError err))
+              Right reparsed -> do
+                assertEqual (label ++ ": round-trip AST") (stripAnnotations ast) (stripAnnotations reparsed)
+                assertEqual (label ++ ": printing is idempotent") printed (prettyPrint reparsed)
+  ]

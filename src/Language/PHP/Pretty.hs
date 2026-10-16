@@ -48,8 +48,17 @@ prettyLeadingTrivia annotation doc = case leadingTrivia annotation of
 prettyTrivia :: Trivia -> Doc ann
 prettyTrivia = \case
   CommentLine txt -> "//" <> pretty txt
-  CommentBlock txt -> "/*" <> pretty txt <> "*/"
-  DocBlock txt -> "/**" <> pretty txt <> "*/"
+  CommentBlock txt -> "/*" <> verbatim txt <> "*/"
+  DocBlock txt -> "/**" <> verbatim txt <> "*/"
+
+-- | Raw source text, emitted byte for byte.
+--
+-- 'pretty' turns each embedded newline into 'line', which picks up the
+-- enclosing indentation, so text inside a nested block would gain spaces after
+-- every newline (Issue #373). Here each newline resets the nesting to zero.
+verbatim :: Text -> Doc ann
+verbatim txt = nesting $ \i ->
+  nest (negate i) (concatWith (\a b -> a <> hardline <> b) (map pretty (T.splitOn "\n" txt)))
 
 -- | Render a complete PHP program to formatted Text.
 prettyPrint :: HasLeadingTrivia a => Program a -> Text
@@ -70,8 +79,8 @@ prettyPrintType typ = renderStrict (layoutPretty defaultLayoutOptions (prettyTyp
 -- | Wadler-Leijen Pretty Document for Program.
 prettyProgram :: HasLeadingTrivia a => Program a -> Doc ann
 prettyProgram (Program annotation stmts) = case stmts of
-  [StmtInlineHtml _ txt] | null trailing -> pretty txt
-  StmtInlineHtml _ txt : rest -> pretty txt <> php rest
+  [StmtInlineHtml _ txt] | null trailing -> verbatim txt
+  StmtInlineHtml _ txt : rest -> verbatim txt <> php rest
   _ -> php stmts
   where
     -- A program's trivia trails its last statement (see 'Program').
@@ -146,8 +155,8 @@ prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
   StmtGoto _ label -> "goto " <> prettyIdent label <> ";"
   StmtLabel _ label -> prettyIdent label <> ":"
   StmtUnset _ targets -> "unset(" <> hsep (punctuate "," (map prettyExpr targets)) <> ");"
-  StmtInlineHtml _ txt -> "?>" <> pretty txt <> "<?php"
-  StmtHaltCompiler _ txt -> "__halt_compiler();" <> pretty txt
+  StmtInlineHtml _ txt -> "?>" <> verbatim txt <> "<?php"
+  StmtHaltCompiler _ txt -> "__halt_compiler();" <> verbatim txt
   StmtEmpty _ -> ";"
   where
     prettyElifs = foldMap (\(c, ss) ->
@@ -475,7 +484,7 @@ prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
   ExprEval _ e -> "eval(" <> prettyExpr e <> ")"
   ExprInclude _ inc e -> prettyInclude inc <+> prettyExpr e
   ExprPrint _ e -> "print " <> prettyExpr e
-  ExprShellExec _ parts -> "`" <> foldMap (prettyStringPart escapeBacktickText) parts <> "`"
+  ExprShellExec _ parts -> "`" <> foldMap (prettyStringPart (verbatim . escapeBacktickText)) parts <> "`"
   ExprExit _ kind mStatus -> prettyExitKind kind <> maybe mempty (\e -> "(" <> prettyExpr e <> ")") mStatus
   ExprThrow _ e -> "throw " <> prettyExpr e
   ExprConstFetch _ qn -> prettyQualifiedName qn
@@ -688,8 +697,8 @@ prettyLiteral :: HasLeadingTrivia a => Literal a -> Doc ann
 prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case literal of
   LitInt _ _ raw -> pretty raw
   LitFloat _ _ raw -> pretty raw
-  LitString _ _ raw -> pretty (if isQuotedString raw then raw else quoteString raw)
-  LitInterpolated _ parts -> "\"" <> foldMap (prettyStringPart escapeInterpText) parts <> "\""
+  LitString _ _ raw -> verbatim (if isQuotedString raw then raw else quoteString raw)
+  LitInterpolated _ parts -> "\"" <> foldMap (prettyStringPart (verbatim . escapeInterpText)) parts <> "\""
   LitHeredoc _ tag _ False raw -> "<<<" <> pretty tag <> line <> pretty raw <> line <> pretty tag
   LitHeredoc _ tag _ True raw -> "<<<'" <> pretty tag <> "'" <> line <> pretty raw <> line <> pretty tag
   LitHeredocInterpolated _ tag parts ->
@@ -699,19 +708,20 @@ prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case l
   LitNull _ -> "null"
   where
     -- Only the first part of a heredoc body starts a line: every later text
-    -- part follows an expression.
+    -- part follows an expression. The body is indented along with its closing
+    -- label, which PHP strips again, so heredoc text keeps using 'pretty'.
     prettyHeredocParts tag = mconcat . zipWith (prettyHeredocPart tag) (True : repeat False)
-    prettyHeredocPart tag atBodyStart = prettyStringPart (escapeHeredocText tag atBodyStart)
+    prettyHeredocPart tag atBodyStart = prettyStringPart (pretty . escapeHeredocText tag atBodyStart)
     quoteString t = "'" <> T.concatMap escapeSingleChar t <> "'"
     escapeSingleChar '\\' = "\\\\"
     escapeSingleChar '\'' = "\\'"
     escapeSingleChar c = T.singleton c
 
--- | One part of an interpolating string, its literal text re-escaped by
--- @escape@.
-prettyStringPart :: HasLeadingTrivia a => (Text -> Text) -> StringPart a -> Doc ann
-prettyStringPart escape = \case
-  StrLit t -> pretty (escape t)
+-- | One part of an interpolating string, its literal text rendered by
+-- @literal@.
+prettyStringPart :: HasLeadingTrivia a => (Text -> Doc ann) -> StringPart a -> Doc ann
+prettyStringPart literal = \case
+  StrLit t -> literal t
   StrExpr e -> case isSimpleUnquotedArrayAccess e of
     Just (var, raw) -> prettyVar var <> "[" <> pretty raw <> "]"
     Nothing -> "{" <> prettyExpr e <> "}"
