@@ -402,9 +402,15 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       lhs <- parseUnary
       (do
         _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
-        rhs <- parseAssignmentOperand parseExponentiation
+        rhs <- parseOperand parseExponentiation
         let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
+
+    -- A throw may start a tighter operator's operand, but its own operand
+    -- still consumes a complete assignment-level expression (Issue #370).
+    -- Keep this out of parseUnary: instanceof and ++/-- require a restricted
+    -- operand and must not accept a bare throw.
+    parseOperand next = parseThrowWith parseAssignment <|> parseAssignmentOperand next
 
     -- PHP can shift an assignment after a variable in a tighter operator's
     -- operand: $a && $b = 1 means $a && ($b = 1). The assignment RHS still
@@ -441,7 +447,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
                 <|> (OpUnaryPlus <$ symbol "+")
                 <|> (OpUnaryMinus <$ symbol "-")
                 <|> (OpErrorSuppress <$ symbol "@")
-          operand <- parseAssignmentOperand parseExponentiation
+          operand <- parseOperand parseExponentiation
           pure (\sp -> ExprUnary sp op operand)
 
         -- Casts likewise bind looser than "**".
@@ -449,7 +455,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           _ <- symbol "("
           castType <- parseCastType
           _ <- symbol ")"
-          operand <- parseAssignmentOperand parseExponentiation
+          operand <- parseOperand parseExponentiation
           pure (\sp -> ExprCast sp castType operand)
 
         parseCastType =
@@ -472,7 +478,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
           pure (\sp -> ExprClone sp obj mPayload)
 
         cloneOperand = do
-          obj <- parseAssignmentOperand parseUnary
+          obj <- parseOperand parseUnary
           pure (\sp -> ExprClone sp obj Nothing)
 
         parseCloneWithPayload = do
@@ -809,8 +815,8 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
             Nothing -> pure lhs
             Just op -> do
               -- instanceof takes a class reference, not an unparenthesized
-              -- assignment; other binary operators admit assignment operands.
-              rhs <- if op == OpInstanceof then next else parseAssignmentOperand next
+              -- assignment or throw; other binary operators admit both.
+              rhs <- if op == OpInstanceof then next else parseOperand next
               let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
               parseRest (ExprBinary sp op lhs rhs)
 
