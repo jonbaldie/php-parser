@@ -40,6 +40,7 @@ module Language.PHP.Parser.Lexer
   , identifier
   , declarationIdentifier
   , semiReservedIdentifier
+  , classConstantIdentifier
   , rawIdentifier
   , variableName
   , qualifiedName
@@ -480,12 +481,19 @@ declarationIdentifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
     then M.empty
     else pure (\sp -> Ident sp tok)
 
--- | Identifier in a member-name position (methods, class constants), where PHP
--- allows semi-reserved keywords. Only @class@ stays reserved there.
+-- | Identifier in a method-name position, where PHP allows every
+-- semi-reserved keyword, @class@ included.
 semiReservedIdentifier :: Parser (Ident Span)
 semiReservedIdentifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
   tok <- rawIdentifier
-  if isKeyword tok && T.toLower tok == "class"
+  pure (\sp -> Ident sp tok)
+
+-- | Identifier naming a class constant or enum case. PHP allows semi-reserved
+-- keywords here too, except @class@, which is reserved for @Foo::class@.
+classConstantIdentifier :: Parser (Ident Span)
+classConstantIdentifier = M.label "identifier" $ lexeme $ withSpan $ M.try $ do
+  tok <- rawIdentifier
+  if T.toLower tok == "class"
     then M.empty
     else pure (\sp -> Ident sp tok)
 

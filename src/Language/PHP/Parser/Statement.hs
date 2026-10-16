@@ -844,7 +844,7 @@ parseConstModifier = loop Nothing False
 -- | Constant item: name and initial value expression.
 parseConstItem :: Parser (Ident Span, Expr Span)
 parseConstItem = do
-  name <- semiReservedIdentifier
+  name <- classConstantIdentifier
   _ <- symbol "="
   val <- parseExpr
   pure (name, val)
@@ -857,7 +857,7 @@ parseConstDecl = withSpan $ do
     (vis, isFinal) <- parseConstModifier
     keyword_ "const"
     pure (attrs, vis, isFinal)
-  mType <- optional (M.try (parseType <* M.lookAhead semiReservedIdentifier))
+  mType <- optional (M.try (parseType <* M.lookAhead classConstantIdentifier))
   case mType of
     Just typ | Just bad <- disallowedConstantType typ ->
       modifierError ("Class constant cannot have type " <> T.unpack bad)
@@ -1235,7 +1235,7 @@ parseEnumCase = withSpan $ do
   attrs <- parseAttributes
   keyword_ "case"
   -- PHP permits semi-reserved keywords such as `new` as enum case names.
-  name <- semiReservedIdentifier
+  name <- classConstantIdentifier
   mVal <- optional (symbol "=" *> parseExpr)
   _ <- semi
   pure (\sp -> EnumCase sp attrs name mVal)
