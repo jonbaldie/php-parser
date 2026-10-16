@@ -563,6 +563,30 @@ expressionTests = testGroup "Expression Specifications"
       assertParsesOkExpr src1
       assertParsesOkExpr src2
 
+  , testCase "Ternary assignment RHS in false branches (Issue #369)" $ do
+      forM_
+        ([ ("$l ?: $l = $a ? 1 : 2", "$l ?: ($l = ($a ? 1 : 2))")
+        , ("$c ? 1 : $l = $a ? 1 : 2", "$c ? 1 : ($l = ($a ? 1 : 2))")
+        , ("$l ?: $l = $b = $a ? 1 : 2", "$l ?: ($l = ($b = ($a ? 1 : 2)))")
+        ] ++
+        [ (outer <> "$l " <> op <> " $a ? 1 : 2",
+           outer <> "($l " <> op <> " ($a ? 1 : 2))")
+        | outer <- ["$l ?: ", "$c ? 1 : "]
+        , op <- ["+=", "-=", "*=", "**=", "/=", "%=", ".=", "&=", "|=", "^=", "<<=", ">>=", "??="]
+        ]) $ \(src, expected) -> do
+          let program expr = "<?php " <> expr <> ";"
+          case (parseProgram "issue369.php" (program src),
+                parseProgram "issue369.php" (program expected)) of
+            (Right ast, Right expectedAst) -> do
+              assertEqual (T.unpack src ++ ": assignment RHS shape")
+                (stripAnnotations expectedAst) (stripAnnotations ast)
+              case parseProgram "issue369.php" (prettyPrint ast) of
+                Left err -> assertFailure (show (formatParseError err))
+                Right reparsed -> assertEqual (T.unpack src ++ ": round trip")
+                  (stripAnnotations ast) (stripAnnotations reparsed)
+            (actual, expectedResult) -> assertFailure
+              (T.unpack src ++ ": " ++ show (actual, expectedResult))
+
   , testGroup "Unparenthesized nested ternaries (Issue #280)"
       [ testCase "rejects a nested false branch without parentheses" $ do
           let src = "<?php 1 ? 1 : 0 ? 1 : 0;"

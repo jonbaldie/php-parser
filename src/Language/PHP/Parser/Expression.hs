@@ -196,11 +196,13 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
       <|> parsePrintWith pAssignment
       <|> do
         lhs <- parseTernaryWith mode
-        parseAssignmentRestWith mode lhs <|> pure lhs
+        parseAssignmentRest lhs <|> pure lhs
       where
         pAssignment = parseAssignmentWith mode
 
-    parseAssignmentRestWith mode target = do
+    -- An assignment starts a complete RHS expression, even when its target
+    -- occurs in a ternary branch that forbids another unparenthesized ternary.
+    parseAssignmentRest target = do
       op <- parseAssignOp
       when (not (isAssignable target)) $
         fail "Cannot assign to non-assignable expression"
@@ -213,8 +215,6 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
             fail "Cannot use destructuring with compound assignment"
           assignValueRest op target
       where
-        pAssignment = parseAssignmentWith mode
-
         -- By-reference assignment. The ampersand belongs to the operator, not
         -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
         -- trivia and share this production (Issue #138).
@@ -231,7 +231,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         assignValueRest op lhs = do
           when (hasEmptyDestructure lhs) $
             fail "Cannot use empty list"
-          rhs <- pAssignment
+          rhs <- parseAssignment
           let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
           pure (ExprAssign sp op lhs rhs)
 
@@ -239,7 +239,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
         -- $a =& $b + 1 must not escape as ($a =& $b) + 1 when nested
         -- inside another operator's operand.
         parseReferenceSource = do
-          rhs <- pAssignment
+          rhs <- parseAssignment
           guard (isReferenceable rhs)
           pure rhs
 
@@ -412,7 +412,7 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
     parseAssignmentOperand next = do
       operand <- next
       if isAssignable operand
-        then parseAssignmentRestWith FullTernary operand <|> pure operand
+        then parseAssignmentRest operand <|> pure operand
         else pure operand
 
     parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parseShellExec <|> parsePostfix
