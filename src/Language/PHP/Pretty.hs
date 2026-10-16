@@ -60,6 +60,23 @@ verbatim :: Text -> Doc ann
 verbatim txt = nesting $ \i ->
   nest (negate i) (concatWith (\a b -> a <> hardline <> b) (map pretty (T.splitOn "\n" txt)))
 
+-- | The mode the printer is in when an inline HTML region starts.
+data HtmlEntry = InHtml | InPhp
+
+-- | An inline HTML region, spelled so that PHP outputs exactly its text.
+--
+-- PHP drops one newline (LF, CR or CRLF) right after @?>@, and the parser
+-- stores the text left after that drop. So text entered from PHP that starts
+-- with a newline would lose it on reparse (Issue #375); a separator newline
+-- goes first for PHP to drop instead. Text already in HTML mode needs none.
+inlineHtml :: HtmlEntry -> Text -> Doc ann
+inlineHtml InHtml txt = verbatim txt
+inlineHtml InPhp txt = "?>" <> verbatim (separator <> txt) <> "<?php"
+  where
+    separator
+      | T.take 1 txt `elem` ["\n", "\r"] = "\n"
+      | otherwise = ""
+
 -- | Render a complete PHP program to formatted Text.
 prettyPrint :: HasLeadingTrivia a => Program a -> Text
 prettyPrint prog = renderStrict (layoutPretty defaultLayoutOptions (prettyProgram prog))
@@ -79,8 +96,8 @@ prettyPrintType typ = renderStrict (layoutPretty defaultLayoutOptions (prettyTyp
 -- | Wadler-Leijen Pretty Document for Program.
 prettyProgram :: HasLeadingTrivia a => Program a -> Doc ann
 prettyProgram (Program annotation stmts) = case stmts of
-  [StmtInlineHtml _ txt] | null trailing -> verbatim txt
-  StmtInlineHtml _ txt : rest -> verbatim txt <> php rest
+  [StmtInlineHtml _ txt] | null trailing -> inlineHtml InHtml txt
+  StmtInlineHtml _ txt : rest -> inlineHtml InHtml txt <> php rest
   _ -> php stmts
   where
     -- A program's trivia trails its last statement (see 'Program').
@@ -155,7 +172,7 @@ prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
   StmtGoto _ label -> "goto " <> prettyIdent label <> ";"
   StmtLabel _ label -> prettyIdent label <> ":"
   StmtUnset _ targets -> "unset(" <> hsep (punctuate "," (map prettyExpr targets)) <> ");"
-  StmtInlineHtml _ txt -> "?>" <> verbatim txt <> "<?php"
+  StmtInlineHtml _ txt -> inlineHtml InPhp txt
   StmtHaltCompiler _ txt -> "__halt_compiler();" <> verbatim txt
   StmtEmpty _ -> ";"
   where

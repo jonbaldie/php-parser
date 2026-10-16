@@ -616,4 +616,40 @@ prettyTests = testGroup "Pretty Printer Specifications"
               Right reparsed -> do
                 assertEqual (label ++ ": round-trip AST") (stripAnnotations ast) (stripAnnotations reparsed)
                 assertEqual (label ++ ": printing is idempotent") printed (prettyPrint reparsed)
+
+  , testCase "prettyPrint keeps a leading newline of inline HTML after a close tag (Issue #375)" $ do
+      let cases =
+            [ ("second CRLF after a close tag", "<?php echo 1; ?>\r\n\r\nHTML", "\r\nHTML")
+            , ("second LF after a close tag", "<?php echo 1; ?>\n\nHTML", "\nHTML")
+            , ("second CR after a close tag", "<?php echo 1; ?>\r\rHTML", "\rHTML")
+            , ("LF after CRLF in a foreach", "<?php foreach ([1] as $e) { ?>\r\n\n<b><?php }", "\n<b>")
+            ]
+      forM_ cases $ \(label, src, html) ->
+        case parseProgram "issue-375.php" src of
+          Left err -> assertFailure (label ++ ": parse failed: " ++ show (formatParseError err))
+          Right ast -> do
+            let printed = prettyPrint ast
+            assertBool (label ++ ": HTML emitted after a separator in " ++ show printed)
+              (("?>\n" <> html) `T.isInfixOf` printed)
+            case parseProgram "reparsed.php" printed of
+              Left err -> assertFailure (label ++ ": reparse failed: " ++ show (formatParseError err))
+              Right reparsed -> do
+                assertEqual (label ++ ": round-trip AST") (stripAnnotations ast) (stripAnnotations reparsed)
+                assertEqual (label ++ ": printing is idempotent") printed (prettyPrint reparsed)
+
+  , testCase "prettyPrint adds no separator where no newline needs protecting (Issue #375)" $ do
+      let cases =
+            [ ("HTML-only program", "\nHTML\n", "\nHTML\n")
+            , ("initial HTML", "\nHTML<?php echo 1;", "\nHTML<?php\n\necho 1;")
+            , ("ordinary HTML after a close tag", "<?php echo 1; ?>HTML", "<?php\n\necho 1;\n?>HTML<?php")
+            ]
+      forM_ cases $ \(label, src, expected) ->
+        case parseProgram "issue-375.php" src of
+          Left err -> assertFailure (label ++ ": parse failed: " ++ show (formatParseError err))
+          Right ast -> assertEqual label expected (prettyPrint ast)
+
+  , testCase "prettyPrintStmt keeps a leading newline of inline HTML (Issue #375)" $
+      assertEqual "separator protects the stored newline"
+        "?>\n\nHTML<?php"
+        (prettyPrintStmt (StmtInlineHtml () "\nHTML"))
   ]
