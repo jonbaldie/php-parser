@@ -818,8 +818,31 @@ statementTests = testGroup "Statement & Declaration Specifications"
                 Left err2 -> assertFailure ("Reparse failed:\n" ++ T.unpack printed ++ "\nError: " ++ show (formatParseError err2))
                 Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
 
-      , testCase "class remains rejected as a method name" $ do
-          assertParsesFail "<?php class Foo { public function class() {} }"
+      , testCase "class is accepted as a method name (issue #371)" $ do
+          case parseProgram "test.php" "<?php class A { public function class() {} }" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right (Program _ [StmtClass _ cd]) -> case classMembers cd of
+              [MemberMethod md] -> assertEqual "method name" "class" (let Ident _ n = methodName md in n)
+              other -> assertFailure ("Expected one method, got: " ++ show other)
+            other -> assertFailure ("Expected StmtClass, got: " ++ show other)
+
+      , testCase "class method name is case-insensitive and allowed in interfaces (issue #371)" $ do
+          assertParsesOk "<?php class A { function CLASS() {} }"
+          assertParsesOk "<?php interface I { public function class(string $name); }"
+          assertParsesOk "<?php class A { public static function &class() {} }"
+
+      , testCase "round-trips a method named class and its calls (issue #371)" $ do
+          let src = "<?php\nclass A {\n    public function class() { return $this->class(); }\n}\nA::class();\n$a?->class();"
+          case parseProgram "test.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> do
+              let printed = prettyPrint ast
+              case parseProgram "test.php" printed of
+                Left err2 -> assertFailure ("Reparse failed:\n" ++ T.unpack printed ++ "\nError: " ++ show (formatParseError err2))
+                Right ast2 -> assertEqual "round-trip AST matches" (stripAnnotations ast) (stripAnnotations ast2)
+
+      , testCase "class remains rejected as an enum case name" $ do
+          assertParsesFail "<?php enum E { case class; }"
 
       , testCase "class remains rejected as a class constant name" $ do
           assertParsesFail "<?php class Foo { const CLASS = 1; }"
