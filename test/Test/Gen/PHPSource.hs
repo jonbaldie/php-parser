@@ -263,6 +263,38 @@ allFeatures =
         , "    nowdoc body, $notAVariable stays literal"
         , "    TEXT;"
         ]
+  , -- Raw text whose newlines the printer must not re-indent, at several
+    -- nesting depths
+    -- (<https://github.com/jonbaldie/php-parser/issues/373 #373>).
+    Feature "verbatim-text-in-nested-blocks" PHP82 $ \i -> do
+      let n = sfx i
+      pad <- elements ["", "  ", "        "]
+      pure $ ls
+        [ "class Verbatim" <> n
+        , "{"
+        , "    /**"
+        , "     * Doc."
+        , pad <> "* @return string"
+        , "     */"
+        , "    public function text(string $x): string"
+        , "    {"
+        , "        /* first"
+        , pad <> "second */"
+        , "        return 'a"
+        , pad <> "b' . \"c"
+        , pad <> "{$x} d $x"
+        , "e\";"
+        , "    }"
+        , "}"
+        , "function verbatim" <> n <> "(array $items): void"
+        , "{"
+        , "    foreach ($items as $item) {"
+        , "        if ($item) { ?>"
+        , "<li>"
+        , pad <> "</li><?php }"
+        , "    }"
+        , "}"
+        ]
   , -- Deprecated in 8.5, but still accepted: 'php -l' only warns
     -- (<https://github.com/jonbaldie/php-parser/issues/304 #304>).
     Feature "backtick-shell-exec" PHP82 $ \i -> do
