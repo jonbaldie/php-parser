@@ -14,7 +14,47 @@ import qualified Language.PHP.Parser.Lexer as Lexer
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
-  [ testCase "Throw operands parse and round-trip (Issue #370)" $ do
+  [ testCase "Suppressed includes parse and round-trip (Issue #372)" $ do
+      forM_ ["include", "include_once", "require", "require_once"] $ \keyword ->
+        forM_ ["$f", "\"x\"", "$a . '.php'"] $ \operand -> do
+          let src = "<?php @" <> keyword <> " " <> operand <> ";"
+          case parseProgram "issue372.php" src of
+            Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+            Right ast -> case parseProgram "issue372.php" (prettyPrint ast) of
+              Left err -> assertFailure (show (formatParseError err))
+              Right reparsed -> assertEqual (T.unpack src)
+                (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "Suppressed include precedence (Issue #372)" $ do
+      forM_ [("include", IncInclude), ("include_once", IncIncludeOnce),
+             ("require", IncRequire), ("require_once", IncRequireOnce)] $ \(keyword, inc) -> do
+        case parseExpression "issue372.php" ("@" <> keyword <> " $a . '.php'") of
+          Right expr@(ExprUnary _ OpErrorSuppress (ExprInclude _ actualInc
+            (ExprBinary _ OpConcat (ExprVar _ (SimpleVar _ (VarName _ "a")))
+              (ExprLit _ (LitString _ ".php" _))))) -> do
+                assertEqual "include kind" inc actualInc
+                assertRoundTripExpr expr
+          result -> assertFailure ("Expected suppression of include with concat operand: " ++ show result)
+        case parseExpression "issue372.php" ("$x = @" <> keyword <> " \"x\"") of
+          Right expr@(ExprAssign _ Nothing (ExprVar _ (SimpleVar _ (VarName _ "x")))
+            (ExprUnary _ OpErrorSuppress (ExprInclude _ actualInc _))) -> do
+              assertEqual "assigned include kind" inc actualInc
+              assertRoundTripExpr expr
+          result -> assertFailure ("Expected assignment of suppressed include: " ++ show result)
+
+  , testCase "Other prefix operators accept include (Issue #372)" $ do
+      forM_ ["!", "~", "+", "-", "@@", "!@"] $ \op ->
+        case parseExpression "issue372.php" (op <> "include $a . '.php'") of
+          Left err -> assertFailure (show (formatParseError err))
+          Right expr -> assertRoundTripExpr expr
+
+  , testCase "Restricted operands reject bare include (Issue #372)" $ do
+      forM_ ["++include $f", "--include $f", "$a instanceof include $f"] $ \src ->
+        case parseExpression "issue372.php" src of
+          Left _ -> pure ()
+          Right expr -> assertFailure (T.unpack src ++ ": accepted " ++ show expr)
+
+  , testCase "Throw operands parse and round-trip (Issue #370)" $ do
       forM_
         [ "<?php $a || throw new E();"
         , "<?php $a && throw new E();"

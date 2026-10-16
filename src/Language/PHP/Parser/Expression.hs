@@ -447,7 +447,10 @@ parseExprWithContextAndBody parseBody pMember = parseExprRec
                 <|> (OpUnaryPlus <$ symbol "+")
                 <|> (OpUnaryMinus <$ symbol "-")
                 <|> (OpErrorSuppress <$ symbol "@")
-          operand <- parseOperand parseExponentiation
+          -- Include/require may start a prefix operand, but still consume
+          -- their full assignment-level argument: @include $a . '.php'
+          -- suppresses the include of the concatenation (Issue #372).
+          operand <- parseIncludeWith parseAssignment <|> parseOperand parseExponentiation
           pure (\sp -> ExprUnary sp op operand)
 
         -- Casts likewise bind looser than "**".
