@@ -534,6 +534,20 @@ allFeatures =
         , "$not" <> n <> " = !throw new \\LogicException('not');"
         , "$guard" <> n <> " || throw $e" <> n <> " && $f" <> n <> ";"
         ]
+  , Feature "suppressed-includes" PHP82 $ \i -> do
+      let n = sfx i
+      pure $ ls
+        [ "@require $file" <> n <> ";"
+        , "@include 'x';"
+        , "@include_once 'x';"
+        , "@require_once 'x';"
+        , "@include $dir" <> n <> " . '.php';"
+        , "$loaded" <> n <> " = @include 'x';"
+        , "!include 'x';"
+        , "~include 'x';"
+        , "+include 'x';"
+        , "-include 'x';"
+        ]
   , Feature "generators" PHP82 $ \i -> do
       let n = sfx i
       pure $ ls
