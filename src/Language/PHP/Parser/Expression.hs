@@ -38,12 +38,16 @@ import Language.PHP.Parser.Internal
   , parseArrayItemWith
   , parseLiteralWith
   , parseParamList
-  , exprSpan
   , hasEmptyDestructure
   , isAssignable
   , isWritable
   )
 import qualified Language.PHP.Parser.Statement as Statement
+
+-- | Compatibility alias for the root span of an expression.
+-- Prefer 'annotation' for access shared across AST node families.
+exprSpan :: Expr Span -> Span
+exprSpan = annotation
 
 -- | Parse expression bound to the complete statement and class member grammar.
 parseExpr :: Parser (Expr Span)

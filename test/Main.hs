@@ -5,6 +5,7 @@ import Test.PHP82Spec (php82Tests)
 import Test.PHP83Spec (php83Tests)
 import Test.PHP84Spec (php84Tests)
 import Test.PHP85Spec (php85Tests)
+import Test.AnnotationSpec (annotationTests)
 import Test.ExpressionSpec (expressionTests)
 import Test.StatementSpec (statementTests)
 import Test.PrettySpec (prettyTests)
@@ -22,7 +23,8 @@ main = do
 
 tests :: TestTree -> TestTree
 tests oracle = testGroup "PHP Parser Test Suite"
-  [ php82Tests
+  [ annotationTests
+  , php82Tests
   , php83Tests
   , php84Tests
   , php85Tests

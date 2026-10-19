@@ -67,7 +67,8 @@ test-suite php-parser-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Main.hs
-    other-modules:    Test.PHP82Spec
+    other-modules:    Test.AnnotationSpec
+                    , Test.PHP82Spec
                     , Test.PHP83Spec
                     , Test.PHP84Spec
                     , Test.PHP85Spec

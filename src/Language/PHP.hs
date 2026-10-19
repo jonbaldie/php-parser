@@ -101,11 +101,14 @@ module Language.PHP
   , DeclareDirective (..)
   , Trivia (..)
   , Annotated (..)
+  , HasAnnotation (..)
+  , nodeSpan
   , getAnnotation
 
     -- * Source Spans and Positions
   , Span (..)
   , SourcePos (..)
+  , HasSpan (..)
   , emptySpan
   , mkSpan
   , combineSpans

@@ -93,7 +93,7 @@ parseUnionOrIntersection = do
         [] -> parseUnionTail t1
         rest -> do
           let allTypes = t1 : rest
-          let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
+          let sp = combineSpans (annotation t1) (annotation (last allTypes))
           pure (IntersectionType sp allTypes)
     _ -> parseUnionTail t1
 
@@ -105,7 +105,7 @@ parseUnionTail t1 = do
     rest -> do
       let allTypes = t1 : rest
       failIfNullable allTypes
-      let sp = combineSpans (typeSpan t1) (typeSpan (last allTypes))
+      let sp = combineSpans (annotation t1) (annotation (last allTypes))
       pure (UnionType sp allTypes)
 
 -- | The nullable shorthand (?Type) is only valid as a standalone type; it
@@ -118,14 +118,6 @@ failIfNullable types
     isNullableType = \case
       NullableType {} -> True
       _ -> False
-
-typeSpan :: Type Span -> Span
-typeSpan = \case
-  SimpleType sp _       -> sp
-  NullableType sp _     -> sp
-  UnionType sp _        -> sp
-  IntersectionType sp _ -> sp
-  DNFType sp _          -> sp
 
 -- | Check whether a type contains void, never, callable, or static, which are
 -- forbidden as property and promoted parameter types in PHP. Rejecting

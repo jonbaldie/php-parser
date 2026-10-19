@@ -54,11 +54,14 @@ module Language.PHP.AST
   , DeclareDirective (..)
   , Trivia (..)
   , Annotated (..)
+  , HasAnnotation (..)
+  , nodeSpan
   , getAnnotation
   ) where
 
 import GHC.Generics (Generic)
 import Data.Text (Text)
+import Language.PHP.Span (Span, HasSpan (..))
 
 -- | Trivia such as comments and PHPDoc blocks.
 data Trivia
@@ -554,43 +557,241 @@ data DeclareDirective a = DeclareDirective
 data Program a = Program !a ![Stmt a]
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
--- | Helper to extract annotation from any AST node.
+-- | Nodes with a total root annotation. Wrappers such as 'ClassMember'
+-- delegate to their contained node; no descendant traversal is needed.
+-- Containers without a root annotation (such as 'CallArgs', 'HookBody' and
+-- 'StringPart') deliberately have no instance.
+class HasAnnotation f where
+  annotation :: f a -> a
+
+-- | Source span of a node produced by the public parsing API.
+nodeSpan :: HasAnnotation f => f (Annotated Span) -> Span
+nodeSpan = annValue . annotation
+
+-- These declaration-facing instances keep 'HasSpan' useful without imposing
+-- a blanket instance on consumer-defined node types. Other node families can
+-- always use 'nodeSpan'.
+instance HasSpan (Expr (Annotated Span)) where
+  getSpan = nodeSpan
+
+instance HasSpan (Stmt (Annotated Span)) where
+  getSpan = nodeSpan
+
+instance HasSpan (ClassMember (Annotated Span)) where
+  getSpan = nodeSpan
+
+instance HasSpan (Type (Annotated Span)) where
+  getSpan = nodeSpan
+
+instance HasSpan (Param (Annotated Span)) where
+  getSpan = nodeSpan
+
+instance HasAnnotation Stmt where
+  annotation = \case
+    StmtExpr a _ -> a
+    StmtBlock a _ -> a
+    StmtIf a _ _ _ _ -> a
+    StmtWhile a _ _ -> a
+    StmtDoWhile a _ _ -> a
+    StmtFor a _ _ _ _ -> a
+    StmtForeach a _ _ _ _ _ -> a
+    StmtSwitch a _ _ -> a
+    StmtBreak a _ -> a
+    StmtContinue a _ -> a
+    StmtReturn a _ -> a
+    StmtThrowStmt a _ -> a
+    StmtTry a _ _ _ -> a
+    StmtNamespace a _ _ -> a
+    StmtUse a _ _ -> a
+    StmtGroupUse a _ _ _ -> a
+    StmtConst a _ -> a
+    StmtFunction a _ -> a
+    StmtClass a _ -> a
+    StmtInterface a _ -> a
+    StmtTrait a _ -> a
+    StmtEnum a _ -> a
+    StmtEcho a _ -> a
+    StmtGlobal a _ -> a
+    StmtStatic a _ -> a
+    StmtDeclare a _ _ -> a
+    StmtGoto a _ -> a
+    StmtLabel a _ -> a
+    StmtUnset a _ -> a
+    StmtInlineHtml a _ -> a
+    StmtHaltCompiler a _ -> a
+    StmtEmpty a -> a
+
+instance HasAnnotation Program where
+  annotation (Program a _) = a
+
+instance HasAnnotation Ident where
+  annotation (Ident a _) = a
+
+instance HasAnnotation VarName where
+  annotation (VarName a _) = a
+
+instance HasAnnotation QualifiedName where
+  annotation (QualifiedName a _ _) = a
+
+instance HasAnnotation Type where
+  annotation = \case
+    SimpleType a _ -> a
+    NullableType a _ -> a
+    UnionType a _ -> a
+    IntersectionType a _ -> a
+    DNFType a _ -> a
+
+instance HasAnnotation Literal where
+  annotation = \case
+    LitInt a _ _ -> a
+    LitFloat a _ _ -> a
+    LitString a _ _ -> a
+    LitInterpolated a _ -> a
+    LitHeredoc a _ _ _ _ -> a
+    LitHeredocInterpolated a _ _ -> a
+    LitBool a _ -> a
+    LitNull a -> a
+
+instance HasAnnotation Var where
+  annotation = \case
+    SimpleVar a _ -> a
+    DynamicVar a _ -> a
+
+instance HasAnnotation ClassMember where
+  annotation = \case
+    MemberProperty p -> annotation p
+    MemberMethod m -> annotation m
+    MemberConst c -> annotation c
+    MemberTraitUse t -> annotation t
+    MemberEnumCase e -> annotation e
+
+instance HasAnnotation ClassTarget where
+  annotation = \case
+    ClassTargetName n -> annotation n
+    ClassTargetExpr e -> annotation e
+
+instance HasAnnotation MemberName where
+  annotation = \case
+    MemberIdent n -> annotation n
+    MemberExpr e -> annotation e
+
+instance HasAnnotation ClassConstName where
+  annotation = \case
+    ConstNameIdent n -> annotation n
+    ConstNameDynamic e -> annotation e
+
+instance HasAnnotation MatchArm where
+  annotation = \case
+    MatchArm a _ _ -> a
+    MatchDefault a _ -> a
+
+instance HasAnnotation SwitchCase where
+  annotation = \case
+    SwitchCase a _ _ -> a
+    SwitchDefault a _ -> a
+
+instance HasAnnotation TraitAdaptation where
+  annotation = \case
+    TraitAlias a _ _ _ _ -> a
+    TraitPrecedence a _ _ _ -> a
+
+instance HasAnnotation AttributeGroup where
+  annotation (AttributeGroup a _) = a
+
+instance HasAnnotation Attribute where
+  annotation (Attribute a _ _) = a
+
+instance HasAnnotation PropertyHook where
+  annotation = hookAnn
+
+instance HasAnnotation PropertyDecl where
+  annotation = propAnn
+
+instance HasAnnotation ConstDecl where
+  annotation = constAnn
+
+instance HasAnnotation EnumCase where
+  annotation = enumCaseAnn
+
+instance HasAnnotation TraitUse where
+  annotation = traitUseAnn
+
+instance HasAnnotation Param where
+  annotation = paramAnn
+
+instance HasAnnotation MethodDecl where
+  annotation = methodAnn
+
+instance HasAnnotation ClassDecl where
+  annotation = classAnn
+
+instance HasAnnotation InterfaceDecl where
+  annotation = ifaceAnn
+
+instance HasAnnotation TraitDecl where
+  annotation = traitAnn
+
+instance HasAnnotation EnumDecl where
+  annotation = enumAnn
+
+instance HasAnnotation FunctionDecl where
+  annotation = funcAnn
+
+instance HasAnnotation Arg where
+  annotation = argAnn
+
+instance HasAnnotation CatchClause where
+  annotation = catchAnn
+
+instance HasAnnotation ArrayItem where
+  annotation = itemAnn
+
+instance HasAnnotation UseClause where
+  annotation = useClauseAnn
+
+instance HasAnnotation DeclareDirective where
+  annotation = declareDirectiveAnn
+
+-- | Extract the root annotation of an expression (compatibility alias).
 getAnnotation :: Expr a -> a
-getAnnotation = \case
-  ExprVar a _                  -> a
-  ExprLit a _                  -> a
-  ExprBinary a _ _ _           -> a
-  ExprUnary a _ _              -> a
-  ExprAssign a _ _ _           -> a
-  ExprAssignRef a _ _          -> a
-  ExprTernary a _ _ _          -> a
-  ExprNullCoalesce a _ _       -> a
-  ExprClone a _ _              -> a
-  ExprNew a _ _                -> a
-  ExprNewAnonClass a _ _ _ _ _ _ -> a
-  ExprCall a _ _               -> a
-  ExprMethodCall a _ _ _       -> a
-  ExprNullsafeMethodCall a _ _ _ -> a
-  ExprPropertyFetch a _ _      -> a
-  ExprNullsafePropertyFetch a _ _ -> a
-  ExprStaticCall a _ _ _       -> a
-  ExprStaticPropertyFetch a _ _ -> a
-  ExprClassConstFetch a _ _    -> a
-  ExprArray a _                -> a
-  ExprList a _                 -> a
-  ExprArrayAccess a _ _        -> a
-  ExprMatch a _ _              -> a
-  ExprClosure a _ _ _ _ _ _ _  -> a
-  ExprArrowFunction a _ _ _ _ _ _ -> a
-  ExprYield a _ _              -> a
-  ExprYieldFrom a _            -> a
-  ExprCast a _ _               -> a
-  ExprIsset a _                -> a
-  ExprEmpty a _                -> a
-  ExprEval a _                 -> a
-  ExprInclude a _ _            -> a
-  ExprPrint a _                -> a
-  ExprShellExec a _            -> a
-  ExprExit a _ _               -> a
-  ExprThrow a _                -> a
-  ExprConstFetch a _           -> a
+getAnnotation = annotation
+
+instance HasAnnotation Expr where
+  annotation = \case
+    ExprVar a _                  -> a
+    ExprLit a _                  -> a
+    ExprBinary a _ _ _           -> a
+    ExprUnary a _ _              -> a
+    ExprAssign a _ _ _           -> a
+    ExprAssignRef a _ _          -> a
+    ExprTernary a _ _ _          -> a
+    ExprNullCoalesce a _ _       -> a
+    ExprClone a _ _              -> a
+    ExprNew a _ _                -> a
+    ExprNewAnonClass a _ _ _ _ _ _ -> a
+    ExprCall a _ _               -> a
+    ExprMethodCall a _ _ _       -> a
+    ExprNullsafeMethodCall a _ _ _ -> a
+    ExprPropertyFetch a _ _      -> a
+    ExprNullsafePropertyFetch a _ _ -> a
+    ExprStaticCall a _ _ _       -> a
+    ExprStaticPropertyFetch a _ _ -> a
+    ExprClassConstFetch a _ _    -> a
+    ExprArray a _                -> a
+    ExprList a _                 -> a
+    ExprArrayAccess a _ _        -> a
+    ExprMatch a _ _              -> a
+    ExprClosure a _ _ _ _ _ _ _  -> a
+    ExprArrowFunction a _ _ _ _ _ _ -> a
+    ExprYield a _ _              -> a
+    ExprYieldFrom a _            -> a
+    ExprCast a _ _               -> a
+    ExprIsset a _                -> a
+    ExprEmpty a _                -> a
+    ExprEval a _                 -> a
+    ExprInclude a _ _            -> a
+    ExprPrint a _                -> a
+    ExprShellExec a _            -> a
+    ExprExit a _ _               -> a
+    ExprThrow a _                -> a
+    ExprConstFetch a _           -> a
