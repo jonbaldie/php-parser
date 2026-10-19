@@ -5,10 +5,16 @@ module Language.PHP.Parser.Statement
   , parseProgramBody
   , parseStmt
   , parseClassMember
+  , parseClassMemberInContext
+  , ClassContext (..)
   , parseExpr
   , parseParam
+  , parseParamInContext
+  , ParamContext (..)
   , parseAttributes
   , parseAttributeGroup
+  , parseAttribute
+  , parseArg
   ) where
 
 import Control.Applicative ((<|>), optional)
@@ -25,11 +31,43 @@ import Language.PHP.Fold (queryExpr)
 import Language.PHP.Span (Span (..), SourcePos (..), combineSpans)
 import Language.PHP.Parser.Lexer
 import Language.PHP.Parser.Type (parseType, parseReturnType, disallowedPropertyType, disallowedConstantType)
-import Language.PHP.Parser.Expression (parseExprWithContextAndBody, parseAttributes, parseAttributeGroup, exprSpan, parseParamList, hasEmptyDestructure, isAssignable, isWritable)
+import Language.PHP.Parser.Internal
+  ( Grammar (..)
+  , parseExprWithGrammar
+  , parseAttributesWith
+  , parseAttributeGroupWith
+  , parseAttributeWith
+  , parseArgWith
+  , exprSpan
+  , parseParamList
+  , hasEmptyDestructure
+  , isAssignable
+  , isWritable
+  )
 
--- | Expression parser with full statements and class members in closures and anonymous classes.
+-- | Expression parser with full statements, parameters, and class members in closures and anonymous classes.
 parseExpr :: Parser (Expr Span)
-parseExpr = parseExprWithContextAndBody parseMixedBody (\ro -> parseClassMemberInContext (AnonClassContext ro))
+parseExpr = parseExprWithGrammar Grammar
+  { gBody   = parseMixedBody
+  , gMember = \ro -> parseClassMemberInContext (AnonClassContext ro)
+  , gParam  = parseParamInContext NonConstructorParam
+  }
+
+-- | Attributes #[ ... ]
+parseAttributes :: Parser [AttributeGroup Span]
+parseAttributes = parseAttributesWith parseExpr
+
+-- | Single attribute group #[ ... ]
+parseAttributeGroup :: Parser (AttributeGroup Span)
+parseAttributeGroup = parseAttributeGroupWith parseExpr
+
+-- | Attribute within a group
+parseAttribute :: Parser (Attribute Span)
+parseAttribute = parseAttributeWith parseExpr
+
+-- | Single call argument
+parseArg :: Parser (Arg Span)
+parseArg = parseArgWith parseExpr
 
 -- | Parse a complete PHP program, handling optional opening tags, inline HTML, and statements.
 -- Nothing precedes a program, so its trivia is whatever follows the last

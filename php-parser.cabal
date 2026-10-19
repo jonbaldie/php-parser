@@ -39,6 +39,7 @@ library
                     , Language.PHP.Parser.Expression
                     , Language.PHP.Parser.Statement
                     , Language.PHP.Pretty
+    other-modules:    Language.PHP.Parser.Internal
     build-depends:    base >= 4.18 && < 5
                     , text >= 2.0 && < 2.2
                     , bytestring >= 0.11 && < 0.13

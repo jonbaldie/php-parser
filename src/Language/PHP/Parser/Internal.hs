@@ -1,0 +1,1010 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Language.PHP.Parser.Internal
+  ( Grammar (..)
+  , parseExprWithGrammar
+  , parseAttributesWith
+  , parseAttributeGroupWith
+  , parseAttributeWith
+  , parseArgWith
+  , parseArgList
+  , parseCallArgsWith
+  , parseParamList
+  , parseMatchArmWith
+  , parseArrayItemWith
+  , parseLiteralWith
+  , exprSpan
+  , hasEmptyDestructure
+  , isAssignable
+  , isWritable
+  , isReferenceable
+  , isDereferenceable
+  , isStaticTargetAssignable
+  , isDestructure
+  , hasNullsafe
+  , varNameSpan
+  , memberNameSpan
+  , classConstSpan
+  , toClassTarget
+  , parseClassName
+  ) where
+
+import Control.Applicative ((<|>), optional)
+import Control.Monad (guard, join, void, when)
+import Data.Maybe (isJust, isNothing)
+import qualified Data.Set as S
+import qualified Data.Text as T
+import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec.Char as C
+import Language.PHP.AST
+import Language.PHP.Span (Span, combineSpans)
+import Language.PHP.Parser.Lexer
+import Language.PHP.Parser.Type (parseReturnType)
+
+-- | Recursive grammar knot containing parsers for constructs embedded in expressions.
+data Grammar = Grammar
+  { gBody   :: Parser [Stmt Span]
+  , gMember :: Bool -> Parser (ClassMember Span)
+  , gParam  :: Parser (Param Span)
+  }
+
+-- | Which unparenthesized ternary forms are available in the current branch.
+-- PHP permits nesting in the middle operand, and permits chains of short
+-- ternaries, but a false branch cannot contain an unparenthesized ternary.
+data TernaryMode
+  = FullTernary
+  | ShortTernary
+  | NoTernary
+
+-- | Check whether an expression is an empty destructuring pattern or contains
+-- an empty destructuring pattern at any nested level.
+hasEmptyDestructure :: Expr a -> Bool
+hasEmptyDestructure = \case
+  ExprArray _ items -> isEmptyDestructItems items
+  ExprList _ items  -> isEmptyDestructItems items
+  _                 -> False
+
+-- | Check whether a list of destructuring items is empty or contains an empty destructure.
+isEmptyDestructItems :: [ArrayItem a] -> Bool
+isEmptyDestructItems items = not (any isNonEmptyItem items) || any itemHasEmpty items
+  where
+    isNonEmptyItem = \case
+      ArrayItem {}      -> True
+      ArrayItemEmpty {} -> False
+    itemHasEmpty = \case
+      ArrayItem _ _ val _ _ -> hasEmptyDestructure val
+      ArrayItemEmpty {}     -> False
+
+-- | Whether an expression denotes a PHP @variable@, the only kind of source a
+-- by-reference assignment can bind to.  PHP cannot take a reference to any
+-- part of a nullsafe chain (@$x = &$a?->b->c@), so such chains are excluded.
+isReferenceable :: Expr a -> Bool
+isReferenceable e = not (hasNullsafe e) && case e of
+  ExprVar {}                   -> True
+  ExprArrayAccess {}           -> True
+  ExprPropertyFetch {}         -> True
+  ExprStaticPropertyFetch {}   -> True
+  ExprCall {}                  -> True
+  ExprMethodCall {}            -> True
+  ExprStaticCall {}            -> True
+  _                            -> False
+
+-- | Whether an expression can be written to by an assignment.
+--
+-- Destructuring targets are expressions in the AST, but only their writable
+-- items can appear on the left-hand side.  Array spreads are values rather
+-- than assignment targets, so they are excluded even when their operand is a
+-- variable.
+isAssignable :: Expr a -> Bool
+isAssignable = \case
+  ExprArray _ items            -> all isAssignableItem items
+  ExprList _ items             -> all isAssignableItem items
+  e                            -> isWritable e
+  where
+    isAssignableItem = \case
+      ArrayItem _ _ value isSpread _ -> not isSpread && isAssignable value
+      ArrayItemEmpty {}              -> True
+
+-- | Whether an expression is a single writable variable: a target for
+-- @unset@, @++@/@--@, a by-reference array item or a foreach key.
+--
+-- PHP rejects any nullsafe operator in the chain of a write target
+-- (@unset($a?->b->c)@, @$a?->b[0]++@), which @isDereferenceable@ enforces
+-- for every base below the outermost access.
+isWritable :: Expr a -> Bool
+isWritable = \case
+  ExprVar {}                         -> True
+  ExprArrayAccess _ base _           -> isDereferenceable base
+  ExprPropertyFetch _ base _         -> isDereferenceable base
+  ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
+  _                                  -> False
+
+-- | Whether an expression can be dereferenced as the base of a writable
+-- array access or property fetch.  Calls produce dereferenceable values, but
+-- temporary expressions and nullsafe accesses do not.
+isDereferenceable :: Expr a -> Bool
+isDereferenceable = \case
+  ExprVar {}                         -> True
+  ExprArrayAccess _ base _           -> isDereferenceable base
+  ExprPropertyFetch _ base _         -> isDereferenceable base
+  ExprStaticPropertyFetch _ target _ -> isStaticTargetAssignable target
+  ExprCall {}                        -> True
+  ExprMethodCall _ base _ _          -> not (hasNullsafe base)
+  ExprStaticCall _ target _ _        -> isStaticTargetAssignable target
+  _                                  -> False
+
+isStaticTargetAssignable :: ClassTarget a -> Bool
+isStaticTargetAssignable = \case
+  ClassTargetName {} -> True
+  ClassTargetExpr e  -> not (hasNullsafe e)
+
+-- | Whether an expression is a destructuring target rather than a single
+-- writable expression.
+isDestructure :: Expr a -> Bool
+isDestructure = \case
+  ExprArray {} -> True
+  ExprList {}  -> True
+  _            -> False
+
+-- | Whether an expression receiver chain contains a nullsafe operator (@?->@).
+--
+-- In PHP, first-class callable creation (@(...)@) cannot be combined with the
+-- nullsafe operator, either directly (@$obj?->method(...)@) or anywhere in the
+-- receiver chain of a method call (@$obj?->prop->method(...)@,
+-- @$obj?->m()->method(...)@, @$obj?->arr[0]->method(...)@).
+-- The same chains cannot be written to or referenced.  A static access whose
+-- class is a nullsafe chain (@$obj?->cls::m()@) continues that chain.
+hasNullsafe :: Expr a -> Bool
+hasNullsafe = \case
+  ExprNullsafePropertyFetch {} -> True
+  ExprNullsafeMethodCall {}    -> True
+  ExprPropertyFetch _ base _   -> hasNullsafe base
+  ExprMethodCall _ base _ _    -> hasNullsafe base
+  ExprArrayAccess _ base _     -> hasNullsafe base
+  ExprStaticPropertyFetch _ target _ -> hasNullsafeClassTarget target
+  ExprStaticCall _ target _ _  -> hasNullsafeClassTarget target
+  _                            -> False
+  where
+    hasNullsafeClassTarget = \case
+      ClassTargetName {} -> False
+      ClassTargetExpr e  -> hasNullsafe e
+
+-- | Parse an expression with a grammar knot supplying statement, member, and parameter parsers.
+parseExprWithGrammar :: Grammar -> Parser (Expr Span)
+parseExprWithGrammar grammar = parseExprRec
+  where
+    parseExprRec = parseLogicalOr
+
+    parseLogicalOr = parseBinaryLeft parseLogicalXor [ (keyword "or", OpLogicalOr) ]
+    parseLogicalXor = parseBinaryLeft parseLogicalAnd [ (keyword "xor", OpLogicalXor) ]
+    parseLogicalAnd = parseBinaryLeft parseAssignment [ (keyword "and", OpLogicalAnd) ]
+
+    parseAssignment = parseAssignmentWith FullTernary
+    parseAssignmentShortOnly = parseAssignmentWith ShortTernary
+    parseAssignmentNoTernary = parseAssignmentWith NoTernary
+
+    parseAssignmentWith mode =
+      parseYieldWith pAssignment
+      <|> parseThrowWith pAssignment
+      <|> parseIncludeWith pAssignment
+      <|> parsePrintWith pAssignment
+      <|> do
+        lhs <- parseTernaryWith mode
+        parseAssignmentRest lhs <|> pure lhs
+      where
+        pAssignment = parseAssignmentWith mode
+
+    -- An assignment starts a complete RHS expression, even when its target
+    -- occurs in a ternary branch that forbids another unparenthesized ternary.
+    parseAssignmentRest target = do
+      op <- parseAssignOp
+      when (not (isAssignable target)) $
+        fail "Cannot assign to non-assignable expression"
+      when (hasEmptyDestructure target) $
+        fail "Cannot use empty list"
+      case op of
+        Nothing -> assignRefRest target <|> assignValueRest Nothing target
+        Just _  -> do
+          when (isDestructure target) $
+            fail "Cannot use destructuring with compound assignment"
+          assignValueRest op target
+      where
+        -- By-reference assignment. The ampersand belongs to the operator, not
+        -- to the source expression, so @$a =& $b@ and @$a = &$b@ differ only in
+        -- trivia and share this production (Issue #138).
+        assignRefRest lhs = do
+          when (hasEmptyDestructure lhs) $
+            fail "Cannot use empty list"
+          _ <- symbol "&"
+          when (isDestructure lhs) $
+            fail "Cannot use destructuring with by-reference assignment"
+          rhs <- parseReferenceSource
+          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          pure (ExprAssignRef sp lhs rhs)
+
+        assignValueRest op lhs = do
+          when (hasEmptyDestructure lhs) $
+            fail "Cannot use empty list"
+          rhs <- parseAssignment
+          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          pure (ExprAssign sp op lhs rhs)
+
+        -- Validate the complete RHS, not just its first postfix expression:
+        -- $a =& $b + 1 must not escape as ($a =& $b) + 1 when nested
+        -- inside another operator's operand.
+        parseReferenceSource = do
+          rhs <- parseAssignment
+          guard (isReferenceable rhs)
+          pure rhs
+
+        parseAssignOp =
+          (Nothing <$ lexeme (M.try (C.char '=' <* M.notFollowedBy (C.char '=' <|> C.char '>'))))
+          <|> (Just OpAdd <$ symbol "+=")
+          <|> (Just OpSub <$ symbol "-=")
+          <|> (Just OpMul <$ symbol "*=")
+          <|> (Just OpPow <$ symbol "**=")
+          <|> (Just OpDiv <$ symbol "/=")
+          <|> (Just OpMod <$ symbol "%=")
+          <|> (Just OpConcat <$ symbol ".=")
+          <|> (Just OpBitAnd <$ symbol "&=")
+          <|> (Just OpBitOr <$ symbol "|=")
+          <|> (Just OpBitXor <$ symbol "^=")
+          <|> (Just OpShiftLeft <$ symbol "<<=")
+          <|> (Just OpShiftRight <$ symbol ">>=")
+          <|> (Just OpCoalesce <$ symbol "??=")
+
+    parseYieldWith pAssignment = withSpan $ do
+      _ <- keyword "yield"
+      isFrom <- (True <$ keyword "from") <|> pure False
+      if isFrom
+        then do
+          expr <- pAssignment
+          pure (\sp -> ExprYieldFrom sp expr)
+        else do
+          mKeyOrVal <- optional pAssignment
+          case mKeyOrVal of
+            Nothing -> pure (\sp -> ExprYield sp Nothing Nothing)
+            Just kOrV -> do
+              isArrow <- (True <$ symbol "=>") <|> pure False
+              if isArrow
+                then do
+                  val <- pAssignment
+                  pure (\sp -> ExprYield sp (Just kOrV) (Just val))
+                else pure (\sp -> ExprYield sp Nothing (Just kOrV))
+
+    parseThrowWith pAssignment = withSpan $ do
+      _ <- keyword "throw"
+      expr <- pAssignment
+      pure (\sp -> ExprThrow sp expr)
+
+    parseIncludeWith pAssignment = withSpan $ do
+      incType <- parseIncludeType
+      expr <- pAssignment
+      pure (\sp -> ExprInclude sp incType expr)
+
+    parsePrintWith pAssignment = withSpan $ do
+      _ <- keyword "print"
+      expr <- pAssignment
+      pure (\sp -> ExprPrint sp expr)
+
+    parseIncludeType =
+      (IncIncludeOnce <$ keyword "include_once")
+      <|> (IncInclude <$ keyword "include")
+      <|> (IncRequireOnce <$ keyword "require_once")
+      <|> (IncRequire <$ keyword "require")
+
+    parseTernaryWith mode = case mode of
+      NoTernary -> parseCoalesceWith NoTernary
+      ShortTernary -> do
+        cond <- parseCoalesceWith ShortTernary
+        parseShortTernaryRest cond <|> pure cond
+      FullTernary -> do
+        cond <- parseCoalesceWith FullTernary
+        parseFullTernaryRest cond <|> pure cond
+      where
+        parseShortTernaryRest cond = do
+          _ <- M.try $ do
+            _ <- parseTernaryQuestion
+            symbol ":"
+          fBranch <- parseAssignmentShortOnly
+          let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+          pure (ExprTernary sp cond Nothing fBranch)
+
+        parseFullTernaryRest cond = do
+          _ <- parseTernaryQuestion
+          isShort <- (True <$ symbol ":") <|> pure False
+          if isShort
+            then do
+              fBranch <- parseAssignmentShortOnly
+              let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+              pure (ExprTernary sp cond Nothing fBranch)
+            else do
+              tBranch <- parseExprRec
+              _ <- symbol ":"
+              fBranch <- parseAssignmentNoTernary
+              let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+              pure (ExprTernary sp cond (Just tBranch) fBranch)
+
+        parseTernaryQuestion =
+          lexeme (M.try (C.char '?' <* M.notFollowedBy (C.char '?' <|> C.char '>')))
+
+    parseCoalesceWith mode = do
+      lhs <- parseBoolOr
+      parseCoalesceRest lhs <|> pure lhs
+      where
+        parseCoalesceRest lhs = do
+          _ <- lexeme (M.try (C.string "??" <* M.notFollowedBy (C.char '=')))
+          rhs <- parseAssignmentOperand (parseCoalesceWith mode)
+                 <|> parseThrowWith (parseAssignmentWith mode)
+          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          pure (ExprNullCoalesce sp lhs rhs)
+
+    parseBoolOr = parseBinaryLeft parseBoolAnd [ (void (symbol "||"), OpBoolOr) ]
+    parseBoolAnd = parseBinaryLeft parseBitOr [ (void (symbol "&&"), OpBoolAnd) ]
+    parseBitOr = parseBinaryLeft parseBitXor [ (void (lexeme (M.try (C.char '|' <* M.notFollowedBy (C.char '|' <|> C.char '>' <|> C.char '=')))), OpBitOr) ]
+    parseBitXor = parseBinaryLeft parseBitAnd [ (void (lexeme (M.try (C.char '^' <* M.notFollowedBy (C.char '=')))), OpBitXor) ]
+    parseBitAnd = parseBinaryLeft parseEquality [ (void (lexeme (M.try (C.char '&' <* M.notFollowedBy (C.char '&' <|> C.char '=')))), OpBitAnd) ]
+
+    parseEquality = parseBinaryLeft parseComparison
+      [ (void (symbol "==="), OpIdentical)
+      , (void (symbol "!=="), OpNotIdentical)
+      , (void (symbol "=="), OpEq)
+      , (void (symbol "!="), OpNotEq)
+      , (void (symbol "<>"), OpNotEq)
+      ]
+
+    parseComparison = parseBinaryLeft parsePipe
+      [ (void (symbol "<=>"), OpSpaceship)
+      , (void (symbol "<="), OpLte)
+      , (void (symbol ">="), OpGte)
+      , (void (lexeme (M.try (C.char '<' <* M.notFollowedBy (C.char '<' <|> C.char '=' <|> C.char '>')))), OpLt)
+      , (void (lexeme (M.try (C.char '>' <* M.notFollowedBy (C.char '>' <|> C.char '=')))), OpGt)
+      ]
+
+    parsePipe = parseBinaryLeft parseConcat [ (void (symbol "|>"), OpPipe) ]
+
+    -- Since PHP 8.0, "." sits on its own precedence level, below "<<"/">>"
+    -- and above comparison operators (RFC: Change the precedence of the
+    -- concatenation operator), so "a" . 1 + 2 parses as "a" . (1 + 2).
+    parseConcat = parseBinaryLeft parseShift
+      [ (void (lexeme (M.try (C.char '.' <* M.notFollowedBy (C.char '.' <|> C.char '=' <|> C.digitChar)))), OpConcat)
+      ]
+
+    parseShift = parseBinaryLeft parseAddSub
+      [ (void (lexeme (M.try (C.string "<<" <* M.notFollowedBy (C.char '=')))), OpShiftLeft)
+      , (void (lexeme (M.try (C.string ">>" <* M.notFollowedBy (C.char '=')))), OpShiftRight)
+      ]
+
+    parseAddSub = parseBinaryLeft parseMulDivMod
+      [ (void (lexeme (M.try (C.char '+' <* M.notFollowedBy (C.char '+' <|> C.char '=')))), OpAdd)
+      , (void (lexeme (M.try (C.char '-' <* M.notFollowedBy (C.char '-' <|> C.char '>' <|> C.char '=')))), OpSub)
+      ]
+
+    -- @instanceof@ binds below unary operators and exponentiation, but above
+    -- multiplicative, additive, shift, pipe, and comparison operators.
+    parseInstanceof = parseBinaryLeft parseExponentiation
+      [ (void (keyword "instanceof"), OpInstanceof)
+      ]
+
+    parseMulDivMod = parseBinaryLeft parseInstanceof
+      [ (void (lexeme (M.try (C.char '*' <* M.notFollowedBy (C.char '*' <|> C.char '=')))), OpMul)
+      , (void (lexeme (M.try (C.char '/' <* M.notFollowedBy (C.char '/' <|> C.char '*' <|> C.char '=')))), OpDiv)
+      , (void (lexeme (M.try (C.char '%' <* M.notFollowedBy (C.char '=')))), OpMod)
+      ]
+
+    parseExponentiation = do
+      lhs <- parseUnary
+      (do
+        _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
+        rhs <- parseOperand parseExponentiation
+        let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+        pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
+
+    -- A throw may start a tighter operator's operand, but its own operand
+    -- still consumes a complete assignment-level expression (Issue #370).
+    -- Keep this out of parseUnary: instanceof and ++/-- require a restricted
+    -- operand and must not accept a bare throw.
+    parseOperand next = parseThrowWith parseAssignment <|> parseAssignmentOperand next
+
+    -- PHP can shift an assignment after a variable in a tighter operator's
+    -- operand: $a && $b = 1 means $a && ($b = 1). The assignment RHS still
+    -- consumes a full assignment expression, rather than the operand's level.
+    parseAssignmentOperand next = do
+      operand <- next
+      if isAssignable operand
+        then parseAssignmentRest operand <|> pure operand
+        else pure operand
+
+    parseUnary = parseClone <|> parseIncDec <|> parsePrefix <|> parseCast <|> parseShellExec <|> parsePostfix
+      where
+        -- A backtick command is not dereferencable, so no postfix operator
+        -- may follow it: PHP rejects @`ls`[0]@ and @`ls`()@.
+        parseShellExec = withSpan $ do
+          parts <- shellExecParts parseExprRec
+          pure (\sp -> ExprShellExec sp parts)
+
+        -- Prefix ++/-- take a variable, so they bind tighter than "**".
+        -- PHP's grammar gives @++@ and @--@ a greedy token before parsing the
+        -- target, so a literal after the token is rejected (and @---1@ cannot
+        -- fall back to unary minus).
+        parseIncDec = withSpan $ do
+          op <- (OpPreInc <$ symbol "++") <|> (OpPreDec <$ symbol "--")
+          operand <- parsePostfix
+          guard (isWritable operand)
+          pure (\sp -> ExprUnary sp op operand)
+
+        -- The remaining prefix operators bind looser than "**", so "-2 ** 2"
+        -- is "-(2 ** 2)"; their operand is parsed at exponentiation level.
+        parsePrefix = withSpan $ do
+          op <- (OpBoolNot <$ symbol "!")
+                <|> (OpBitNot <$ symbol "~")
+                <|> (OpUnaryPlus <$ symbol "+")
+                <|> (OpUnaryMinus <$ symbol "-")
+                <|> (OpErrorSuppress <$ symbol "@")
+          -- Include/require may start a prefix operand, but still consume
+          -- their full assignment-level argument: @include $a . '.php'
+          -- suppresses the include of the concatenation (Issue #372).
+          operand <- parseIncludeWith parseAssignment <|> parseOperand parseExponentiation
+          pure (\sp -> ExprUnary sp op operand)
+
+        -- Casts likewise bind looser than "**".
+        parseCast = withSpan $ M.try $ do
+          _ <- symbol "("
+          castType <- parseCastType
+          _ <- symbol ")"
+          operand <- parseOperand parseExponentiation
+          pure (\sp -> ExprCast sp castType operand)
+
+        parseCastType =
+          (CastInt <$ (keyword "int" <|> keyword "integer"))
+          <|> (CastFloat <$ (keyword "float" <|> keyword "double"))
+          <|> (CastString <$ (keyword "string" <|> keyword "binary"))
+          <|> (CastBool <$ (keyword "bool" <|> keyword "boolean"))
+          <|> (CastArray <$ keyword "array")
+          <|> (CastObject <$ keyword "object")
+
+    parseClone = withSpan $ do
+      _ <- keyword "clone"
+      cloneWith <|> cloneOperand
+      where
+        cloneWith = M.try $ parens $ do
+          obj <- parseExprRec
+          _ <- comma
+          mPayload <- optional parseCloneWithPayload
+          _ <- optional comma
+          pure (\sp -> ExprClone sp obj mPayload)
+
+        cloneOperand = do
+          obj <- parseOperand parseUnary
+          pure (\sp -> ExprClone sp obj Nothing)
+
+        parseCloneWithPayload = do
+          _ <- optional (M.try (keyword "withProperties" *> colon))
+          parseExprRec
+
+    -- A @match@ expression is not dereferenceable in PHP: @match (...) { }[0]@
+    -- and @match (...) { }->m()@ are syntax errors, so it sits outside the
+    -- postfix chain. Parenthesizing it re-enters through 'parsePrimary'
+    -- (Issue #346).
+    parsePostfix =
+      parseMatch
+      <|> (parsePrimary >>= chainPostfix)
+
+    chainPostfix base = do
+      mNext <- optional (parseOnePostfix base)
+      case mNext of
+        Nothing -> pure base
+        Just next -> chainPostfix next
+
+    parseOnePostfix base =
+      parsePostInc
+      <|> parsePostDec
+      <|> parseMethodOrProp
+      <|> parseNullsafeMethodOrProp
+      <|> parseStaticAccess
+      <|> parseArrayAccess
+      <|> parseCall
+      where
+        parsePostInc = do
+          (spEnd, _) <- spanned (symbol "++")
+          requireWritable
+          pure (ExprUnary (combineSpans (exprSpan base) spEnd) OpPostInc base)
+
+        parsePostDec = do
+          (spEnd, _) <- spanned (symbol "--")
+          requireWritable
+          pure (ExprUnary (combineSpans (exprSpan base) spEnd) OpPostDec base)
+
+        -- Checked after the operator is consumed, so @1--1@ stays an error
+        -- rather than backtracking into a subtraction.
+        requireWritable =
+          when (not (isWritable base)) $
+            fail "Cannot increment or decrement a non-writable expression"
+
+        parseMethodOrProp = do
+          _ <- symbol "->"
+          name <- parseMemberName
+          mArgs <- optional (parseCallArgsWith parseExprRec)
+          let sp = combineSpans (exprSpan base) (memberNameSpan name)
+          case mArgs of
+            Nothing -> pure (ExprPropertyFetch sp base name)
+            Just FirstClassCallable
+              | hasNullsafe base -> fail "Cannot combine nullsafe operator with Closure creation"
+              | otherwise        -> pure (ExprMethodCall sp base name FirstClassCallable)
+            Just args -> pure (ExprMethodCall sp base name args)
+
+        parseNullsafeMethodOrProp = do
+          _ <- symbol "?->"
+          name <- parseMemberName
+          mArgs <- optional (parseCallArgsWith parseExprRec)
+          let sp = combineSpans (exprSpan base) (memberNameSpan name)
+          case mArgs of
+            Nothing -> pure (ExprNullsafePropertyFetch sp base name)
+            Just FirstClassCallable -> fail "Cannot combine nullsafe operator with Closure creation"
+            Just args -> pure (ExprNullsafeMethodCall sp base name args)
+
+        parseStaticAccess = do
+          _ <- doubleColon
+          target <- parseStaticTarget
+          let classTarget = toClassTarget base
+          case target of
+            Left varName -> do
+              let sp = combineSpans (exprSpan base) (varNameSpan varName)
+              mArgs <- optional (parseCallArgsWith parseExprRec)
+              case mArgs of
+                Nothing -> pure (ExprStaticPropertyFetch sp classTarget varName)
+                Just args ->
+                  let varExpr = ExprVar (varNameSpan varName)
+                                  (SimpleVar (varNameSpan varName) varName)
+                  in pure (ExprStaticCall sp classTarget (MemberExpr varExpr) args)
+            Right constOrMethod -> do
+              mArgs <- optional (parseCallArgsWith parseExprRec)
+              let sp = combineSpans (exprSpan base) (classConstSpan constOrMethod)
+              case mArgs of
+                Nothing -> pure (ExprClassConstFetch sp classTarget constOrMethod)
+                Just args ->
+                  let member = case constOrMethod of
+                        ConstNameIdent id' -> MemberIdent id'
+                        ConstNameDynamic e -> MemberExpr e
+                  in pure (ExprStaticCall sp classTarget member args)
+
+        parseArrayAccess = do
+          _ <- symbol "["
+          mIdx <- optional parseExprRec
+          (spEnd, _) <- spanned (symbol "]")
+          let sp = combineSpans (exprSpan base) spEnd
+          pure (ExprArrayAccess sp base mIdx)
+
+        parseCall = do
+          (spEnd, args) <- spanned (parseCallArgsWith parseExprRec)
+          let sp = combineSpans (exprSpan base) spEnd
+          pure (ExprCall sp base args)
+
+    parseStaticTarget =
+      (Left <$> variableName)
+      <|> (Right <$> parseClassConstName)
+
+    parseClassConstName =
+      dynamicConst
+      <|> (ConstNameIdent <$> parseAnyIdent)
+      where
+        dynamicConst = braces $ do
+          expr <- parseExprRec
+          pure (ConstNameDynamic expr)
+
+        parseAnyIdent = withSpan $ do
+          tok <- rawIdentifier
+          _ <- sc
+          pure (\sp -> Ident sp tok)
+
+    parseMemberName =
+      (MemberExpr <$> braces parseExprRec)
+      <|> (MemberExpr <$> parseVariableExpr)
+      <|> (MemberIdent <$> parseAnyIdent)
+      where
+        parseAnyIdent = withSpan $ do
+          tok <- rawIdentifier
+          _ <- sc
+          pure (\sp -> Ident sp tok)
+
+    parsePrimary =
+      parseNew
+      <|> parseArrowFunction
+      <|> parseClosure
+      <|> parseArrayLit
+      <|> parseListLit
+      <|> parseVariableExpr
+      <|> parseLiteralExpr
+      <|> parseIsset
+      <|> parseEmpty
+      <|> parseEval
+      <|> parseExit
+      <|> parseConstFetch
+      <|> parens parseExprRec
+
+    parseIsset = withSpan $ do
+      keyword_ "isset"
+      args <- parens (parseExprRec `M.sepEndBy1` comma)
+      pure (\sp -> ExprIsset sp args)
+
+    parseEmpty = withSpan $ do
+      keyword_ "empty"
+      expr <- parens parseExprRec
+      pure (\sp -> ExprEmpty sp expr)
+
+    parseEval = withSpan $ do
+      keyword_ "eval"
+      expr <- parens parseExprRec
+      pure (\sp -> ExprEval sp expr)
+
+    -- @exit@ and @die@ take an optional parenthesized status, so @exit@ and
+    -- @exit()@ are the same statusless construct. In PHP 8.4+, they can also
+    -- form first-class callables via @exit(...)@ and @die(...)@ (Issue #322).
+    parseExit = withSpan $ do
+      (spKind, kind) <- spanned ((ExitExit <$ keyword "exit") <|> (ExitDie <$ keyword "die"))
+      let parseCallable = parens (symbol "..." <* M.lookAhead (symbol ")"))
+      mCallable <- optional (M.try parseCallable)
+      case mCallable of
+        Just _ -> pure (\sp -> ExprCall sp (ExprExit spKind kind Nothing) FirstClassCallable)
+        Nothing -> do
+          mStatus <- optional (parens (optional parseExprRec))
+          pure (\sp -> ExprExit sp kind (join mStatus))
+
+    parseConstFetch = withSpan $ do
+      qn <- parseClassName
+      pure (\sp -> ExprConstFetch sp qn)
+
+    parseNew = withSpan $ M.try $ do
+      keyword_ "new"
+      attrs <- parseAttributesWith parseExprRec
+      isReadonlyAnon <- (True <$ M.try (keyword "readonly" *> keyword "class")) <|> pure False
+      isAnon <- if isReadonlyAnon then pure True else (True <$ keyword "class") <|> pure False
+      if isAnon
+        then do
+          let modif = ClassModifier False False isReadonlyAnon
+          mArgs <- optional (parens (parseArgList (parseArgWith parseExprRec)))
+          let args = maybe [] id mArgs
+          mExtends <- optional (keyword "extends" *> qualifiedName)
+          impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
+          members <- braces (M.many (gMember grammar isReadonlyAnon))
+          pure (\sp -> ExprNewAnonClass sp attrs modif args mExtends impls members)
+        else do
+          guard (null attrs)
+          target <- parseNewTarget
+          mArgs <- optional (parens (parseArgList (parseArgWith parseExprRec)))
+          case mArgs of
+            Nothing -> do
+              -- An unparenthesized @new@ over a named class is not
+              -- dereferenceable in PHP: @new Foo->bar@ is a syntax error,
+              -- while @new Foo()->bar@ is valid (Issue #130). Anonymous
+              -- classes @new class { ... }@ are terminated by their braces
+              -- and may be dereferenced without call parentheses.
+              _ <- M.notFollowedBy
+                (M.lookAhead (symbol "->" <|> symbol "?->" <|> doubleColon <|> symbol "["))
+              pure (\sp -> ExprNew sp target [])
+            Just args -> pure (\sp -> ExprNew sp target args)
+      where
+        parseNewTarget =
+          (ClassTargetExpr <$> parens parseExprRec)
+          <|> (parseVariableExpr >>= chainDynamicTarget)
+          <|> M.try (do
+                QualifiedName qnSp kind parts <- parseClassName
+                let qn = QualifiedName qnSp kind parts
+                _ <- doubleColon
+                vn <- variableName
+                let sp = combineSpans qnSp (varNameSpan vn)
+                chainDynamicTarget (ExprStaticPropertyFetch sp (ClassTargetName qn) vn))
+          <|> (ClassTargetName <$> parseClassName)
+
+        chainDynamicTarget base = do
+          mNext <- optional (parseDynamicStep base)
+          case mNext of
+            Nothing   -> pure (toClassTarget base)
+            Just next -> chainDynamicTarget next
+
+        parseDynamicStep base =
+          parseProp
+          <|> parseNullsafeProp
+          <|> parseStaticProp
+          <|> parseArr
+          where
+            parseProp = do
+              _ <- symbol "->"
+              name <- parseMemberName
+              let sp = combineSpans (exprSpan base) (memberNameSpan name)
+              pure (ExprPropertyFetch sp base name)
+
+            parseNullsafeProp = do
+              _ <- symbol "?->"
+              name <- parseMemberName
+              let sp = combineSpans (exprSpan base) (memberNameSpan name)
+              pure (ExprNullsafePropertyFetch sp base name)
+
+            parseStaticProp = do
+              _ <- doubleColon
+              vn <- variableName
+              let sp = combineSpans (exprSpan base) (varNameSpan vn)
+              pure (ExprStaticPropertyFetch sp (toClassTarget base) vn)
+
+            parseArr = do
+              _ <- symbol "["
+              mIdx <- optional parseExprRec
+              (spEnd, _) <- spanned (symbol "]")
+              let sp = combineSpans (exprSpan base) spEnd
+              pure (ExprArrayAccess sp base mIdx)
+
+    parseMatch = withSpan $ do
+      _ <- keyword "match"
+      subject <- parens parseExprRec
+      arms <- braces (M.try (parseMatchArmWith parseExprRec) `M.sepEndBy` comma)
+      when (length [() | MatchDefault {} <- arms] > 1) $
+        fail "Match expressions may only contain one default arm"
+      pure (\sp -> ExprMatch sp subject arms)
+
+    parseArrowFunction = withSpan $ M.try $ do
+      attrs1 <- parseAttributesWith parseExprRec
+      isStatic <- (True <$ keyword "static") <|> pure False
+      attrs2 <- if isStatic then parseAttributesWith parseExprRec else pure []
+      let attrs = attrs1 ++ attrs2
+      keyword_ "fn"
+      byRef <- (True <$ symbol "&") <|> pure False
+      params <- parens (parseParamList (gParam grammar))
+      retType <- parseReturnType
+      _ <- symbol "=>"
+      body <- parseAssignment
+      pure (\sp -> ExprArrowFunction sp attrs byRef isStatic params retType body)
+
+    parseClosure = withSpan $ M.try $ do
+      attrs1 <- parseAttributesWith parseExprRec
+      isStatic <- (True <$ keyword "static") <|> pure False
+      attrs2 <- if isStatic then parseAttributesWith parseExprRec else pure []
+      let attrs = attrs1 ++ attrs2
+      keyword_ "function"
+      byRef <- (True <$ symbol "&") <|> pure False
+      params <- parens (parseParamList (gParam grammar))
+      uses <- (keyword "use" *> parens (parseClosureUse `M.sepEndBy` comma)) <|> pure []
+      retType <- parseReturnType
+      body <- braces (gBody grammar)
+      pure (\sp -> ExprClosure sp attrs byRef isStatic params uses retType body)
+      where
+        parseClosureUse = do
+          isRef <- (True <$ symbol "&") <|> pure False
+          var <- variableName
+          pure (var, isRef)
+
+    parseArrayLit = withSpan $ (brackets parseItems <|> (keyword "array" *> parens parseItems))
+      where
+        parseItems = do
+          items <- parseArrayItemWith parseExprRec `M.sepEndBy` comma
+          pure (\sp -> ExprArray sp items)
+
+    parseListLit = withSpan $ do
+      keyword_ "list"
+      items <- parens (parseArrayItemWith parseExprRec `M.sepEndBy` comma)
+      pure (\sp -> ExprList sp items)
+
+    parseVariableExpr = withSpan $ do
+      v <- parseVar
+      pure (\sp -> ExprVar sp v)
+      where
+        parseVar = parseSimple <|> parseDynamic
+        parseSimple = withSpan $ M.try $ do
+          vn <- variableName
+          pure (\sp -> SimpleVar sp vn)
+        parseDynamic = withSpan $ do
+          _ <- symbol "$"
+          inner <- parseBraced <|> parseVariableExpr
+          pure (\sp -> DynamicVar sp inner)
+        parseBraced = braces parseExprRec
+
+    parseLiteralExpr = withSpan $ do
+      lit <- parseLiteralWith parseExprRec
+      pure (\sp -> ExprLit sp lit)
+
+    parseBinaryLeft :: Parser (Expr Span) -> [(Parser a, BinOp)] -> Parser (Expr Span)
+    parseBinaryLeft next ops = do
+      lhs <- next
+      parseRest lhs
+      where
+        parseRest lhs = do
+          mOp <- optional (M.choice [op <$ p | (p, op) <- ops])
+          case mOp of
+            Nothing -> pure lhs
+            Just op -> do
+              -- instanceof takes a class reference, not an unparenthesized
+              -- assignment or throw; other binary operators admit both.
+              rhs <- if op == OpInstanceof then next else parseOperand next
+              let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+              parseRest (ExprBinary sp op lhs rhs)
+
+-- | Parse a literal using a custom expression parser for string interpolations.
+parseLiteralWith :: Parser (Expr Span) -> Parser (Literal Span)
+parseLiteralWith pExpr =
+  literalFloat
+  <|> literalInt
+  <|> literalString pExpr
+  <|> literalHeredocOrNowdoc pExpr
+  <|> parseBool
+  <|> parseNull
+  where
+    parseBool = withSpan $ do
+      val <- (True <$ keyword "true") <|> (False <$ keyword "false")
+      pure (\sp -> LitBool sp val)
+
+    parseNull = withSpan $ do
+      keyword_ "null"
+      pure (\sp -> LitNull sp)
+
+parseArgWith :: Parser (Expr Span) -> Parser (Arg Span)
+parseArgWith pExpr = withSpan $ do
+  mName <- optional (M.try (spanned (rawIdentifier <* sc) <* colon <* M.notFollowedBy (C.char ':')))
+  let mIdent = case mName of
+        Nothing -> Nothing
+        Just (spId, n) -> Just (Ident spId n)
+  isUnpack <- (True <$ symbol "...") <|> pure False
+  expr <- pExpr
+  pure (\sp -> Arg sp mIdent expr isUnpack)
+
+parseCallArgsWith :: Parser (Expr Span) -> Parser (CallArgs Span)
+parseCallArgsWith pExpr = parens $
+  (FirstClassCallable <$ M.try (symbol "..." <* M.lookAhead (symbol ")")))
+  <|> (ArgsList <$> parseArgList (parseArgWith pExpr))
+
+parseMatchArmWith :: Parser (Expr Span) -> Parser (MatchArm Span)
+parseMatchArmWith pExpr = withSpan $ do
+  isDefault <- (True <$ keyword "default") <|> pure False
+  if isDefault
+    then do
+      _ <- symbol "=>"
+      body <- pExpr
+      pure (\sp -> MatchDefault sp body)
+    else do
+      conds <- pExpr `M.sepEndBy1` comma
+      _ <- symbol "=>"
+      body <- pExpr
+      pure (\sp -> MatchArm sp conds body)
+
+parseArrayItemWith :: Parser (Expr Span) -> Parser (ArrayItem Span)
+parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
+  where
+    parseOmittedSlot = do
+      _ <- M.lookAhead comma
+      withSpan (pure (\sp -> ArrayItemEmpty sp))
+
+    parseItem = withSpan $ do
+      isSpread <- (True <$ symbol "...") <|> pure False
+      if isSpread
+        then do
+          expr <- pExpr
+          pure (\sp -> ArrayItem sp Nothing expr True False)
+        else do
+          isRef <- (True <$ symbol "&") <|> pure False
+          if isRef
+            then do
+              expr <- refItem
+              pure (\sp -> ArrayItem sp Nothing expr False True)
+            else do
+              kOrV <- pExpr
+              isArrow <- (True <$ symbol "=>") <|> pure False
+              if isArrow
+                then do
+                  valRef <- (True <$ symbol "&") <|> pure False
+                  v <- if valRef then refItem else pExpr
+                  pure (\sp -> ArrayItem sp (Just kOrV) v False valRef)
+                else pure (\sp -> ArrayItem sp Nothing kOrV False False)
+
+    -- A by-reference item binds to a single variable, in array literals and
+    -- destructuring alike: PHP rejects @[&foo()]@ and @[&$a?->b]@.
+    refItem = do
+      expr <- pExpr
+      when (not (isWritable expr)) $
+        fail "Cannot take a reference to a non-writable expression"
+      pure expr
+
+-- | Attributes #[ ... ]
+parseAttributesWith :: Parser (Expr Span) -> Parser [AttributeGroup Span]
+parseAttributesWith pExpr = M.many (parseAttributeGroupWith pExpr)
+
+-- | Parse a single attribute group @#[ ... ]@.
+parseAttributeGroupWith :: Parser (Expr Span) -> Parser (AttributeGroup Span)
+parseAttributeGroupWith pExpr = withSpan $ do
+  _ <- symbol "#["
+  attrs <- parseAttributeWith pExpr `M.sepEndBy1` comma
+  _ <- symbol "]"
+  pure (\sp -> AttributeGroup sp attrs)
+
+-- | Parse an attribute declaration within an attribute group.
+parseAttributeWith :: Parser (Expr Span) -> Parser (Attribute Span)
+parseAttributeWith pExpr = withSpan $ do
+  qn <- qualifiedName
+  mArgs <- optional (parens (parseArgList (parseArgWith pExpr)))
+  let args = maybe [] id mArgs
+  if any argUnpack args
+    then fail "Cannot use unpacking in attribute argument list"
+    else pure (\sp -> Attribute sp qn args)
+
+-- | Parse an argument list and reject positional arguments following argument
+-- unpacking or following named arguments.
+parseArgList :: Parser (Arg Span) -> Parser [Arg Span]
+parseArgList p = do
+  args <- p `M.sepEndBy` comma
+  case () of
+    _ | hasPositionalAfterUnpack args ->
+          M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after argument unpacking")) *> pure args
+      | hasPositionalAfterNamed args ->
+          M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after named argument")) *> pure args
+      | otherwise -> pure args
+  where
+    hasPositionalAfterUnpack = go False
+      where
+        go _ [] = False
+        go seenUnpack (arg : rest)
+          | argUnpack arg = go True rest
+          | isPositional arg && seenUnpack = True
+          | otherwise = go seenUnpack rest
+
+    hasPositionalAfterNamed = go False
+      where
+        go _ [] = False
+        go seenNamed (arg : rest)
+          | isPositional arg && seenNamed = True
+          | isJust (argName arg) = go True rest
+          | otherwise = go seenNamed rest
+
+    isPositional a = isNothing (argName a) && not (argUnpack a)
+
+-- | Parse a parameter list, rejecting duplicate parameter names and
+-- variadic parameters before its end.
+parseParamList :: Parser (Param Span) -> Parser [Param Span]
+parseParamList p = do
+  params <- p `M.sepEndBy` comma
+  case firstDuplicateName params of
+    Just name ->
+      M.registerFancyFailure (S.singleton (M.ErrorFail ("Redefinition of parameter $" <> T.unpack name))) *> pure params
+    Nothing ->
+      if hasNonFinalVariadic params
+        then M.registerFancyFailure (S.singleton (M.ErrorFail "Only the last parameter can be variadic")) *> pure params
+        else pure params
+  where
+    hasNonFinalVariadic [] = False
+    hasNonFinalVariadic [_] = False
+    hasNonFinalVariadic (param : rest) = paramVariadic param || hasNonFinalVariadic rest
+
+    firstDuplicateName = go S.empty
+      where
+        go _ [] = Nothing
+        go seen (param : rest) =
+          let VarName _ name = paramName param
+          in if S.member name seen
+               then Just name
+               else go (S.insert name seen) rest
+
+-- | Helper to extract span of any expression.
+exprSpan :: Expr Span -> Span
+exprSpan = getAnnotation
+
+varNameSpan :: VarName Span -> Span
+varNameSpan (VarName sp _) = sp
+
+memberNameSpan :: MemberName Span -> Span
+memberNameSpan = \case
+  MemberIdent (Ident sp _) -> sp
+  MemberExpr e             -> exprSpan e
+
+classConstSpan :: ClassConstName Span -> Span
+classConstSpan = \case
+  ConstNameIdent (Ident sp _) -> sp
+  ConstNameDynamic e          -> exprSpan e
+
+-- | Convert an expression to a class target (e.g. constant fetch -> ClassTargetName).
+toClassTarget :: Expr a -> ClassTarget a
+toClassTarget (ExprConstFetch _ qn) = ClassTargetName qn
+toClassTarget e                     = ClassTargetExpr e
+
+-- | Class name, including late static binding `static`.
+parseClassName :: Parser (QualifiedName Span)
+parseClassName = qualifiedName <|> staticClassName
+  where
+    staticClassName = withSpan $ do
+      tok <- keyword "static"
+      pure (\sp -> QualifiedName sp NameUnqualified [tok])

@@ -4,7 +4,9 @@ module Test.PHP85Spec (php85Tests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
+import Control.Monad (forM_)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Language.PHP
 
 php85Tests :: TestTree
@@ -152,6 +154,19 @@ php85Tests = testGroup "PHP 8.5 Specifications"
         , "<?php trait T { public static private(set) int $x; }"
         , "<?php $o = new class { public static private(set) int $x; };"
         ]
+
+  , testCase "Closures in attribute arguments parse and round-trip (Issue #321)" $ do
+      let cases =
+            [ "<?php #[A(static function () { return 1; })] function f() {}"
+            , "<?php $f = #[A(static function () { return 1; })] fn () => 1;"
+            ]
+      forM_ cases $ \src -> do
+        case parseProgram "issue321.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right ast -> case parseProgram "issue321.php" (prettyPrint ast) of
+            Left err -> assertFailure ("Pretty-printed round-trip failed: " ++ show (formatParseError err))
+            Right reparsed -> assertEqual (T.unpack src)
+              (stripAnnotations ast) (stripAnnotations reparsed)
   ]
 
 assertParsesOk :: Text -> Assertion
