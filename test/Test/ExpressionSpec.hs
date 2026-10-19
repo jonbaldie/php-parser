@@ -11,6 +11,7 @@ import qualified Data.Text as T
 import System.Timeout (timeout)
 import Language.PHP
 import qualified Language.PHP.Parser.Lexer as Lexer
+import qualified Language.PHP.Parser.Expression as ExprParser
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
@@ -2653,6 +2654,56 @@ expressionTests = testGroup "Expression Specifications"
           assertParsesOkExpr "list(list($a)) = $arr"
           assertParsesOkExpr "list(\"k\" => $v) = $arr"
       ]
+
+  , testCase "Public expression entry points accept closures with return statements (Issue #321)" $ do
+      let assertEntryOk name p src =
+            case Lexer.runPHPParser (Lexer.sc *> p) "test.php" src of
+              Left err -> assertFailure (name ++ " failed to parse " ++ T.unpack src ++ ": " ++ show err)
+              Right _ -> pure ()
+
+      assertEntryOk "parseExpr" ExprParser.parseExpr "function () { return 1; }"
+      assertEntryOk "parsePrimaryExpr" ExprParser.parsePrimaryExpr "function () { return 1; }"
+      assertEntryOk "parseArg" ExprParser.parseArg "function () { return 1; }"
+      assertEntryOk "parseCallArgs" ExprParser.parseCallArgs "(function () { return 1; })"
+      assertEntryOk "parseMatchArm" ExprParser.parseMatchArm "default => function () { return 1; }"
+      assertEntryOk "parseArrayItem" ExprParser.parseArrayItem "function () { return 1; }"
+      assertEntryOk "parseAttributes" ExprParser.parseAttributes "#[A(function () { return 1; })]"
+      assertEntryOk "parseAttributeGroup" ExprParser.parseAttributeGroup "#[A(function () { return 1; })]"
+      assertEntryOk "parseAttribute" ExprParser.parseAttribute "A(function () { return 1; })"
+      assertEntryOk "parseLiteral" ExprParser.parseLiteral "\"prefix{$f(function () { return 1; })}suffix\""
+
+  , testCase "Closure and arrow function parameters share unified parameter validation (Issue #321)" $ do
+      forM_
+        [ "<?php $f = function (public $x) {};"
+        , "<?php $f = fn (public $x) => 1;"
+        , "<?php $f = function (readonly int $x) {};"
+        , "<?php $f = fn (readonly int $x) => 1;"
+        , "<?php $f = function (private(set) int $x) {};"
+        , "<?php $f = fn (private(set) int $x) => 1;"
+        , "<?php $f = function (public private(set) int $x) {};"
+        , "<?php $f = fn (public private(set) int $x) => 1;"
+        , "<?php $f = function (final public $x) {};"
+        , "<?php $f = fn (final public $x) => 1;"
+        ] $ \src -> do
+          case parseProgram "test.php" src of
+            Left err -> do
+              let errMsg = show (formatParseError err)
+              assertBool ("Expected promoted property outside constructor error in: " ++ errMsg)
+                (T.isInfixOf "Cannot declare promoted property outside a constructor" (T.pack errMsg))
+            Right prog -> assertFailure (T.unpack src ++ ": expected parse failure, got: " ++ show prog)
+
+  , testCase "Parameters in closures and arrow functions accept attributes with static closures (Issue #321)" $ do
+      let cases =
+            [ "<?php $f = function (#[A(static function () { return 1; })] $x) {};"
+            , "<?php $f = fn (#[A(static function () { return 1; })] $x) => 1;"
+            ]
+      forM_ cases $ \src -> do
+        case parseProgram "issue321.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right ast -> case parseProgram "issue321.php" (prettyPrint ast) of
+            Left err -> assertFailure ("Pretty-printed round-trip failed: " ++ show (formatParseError err))
+            Right reparsed -> assertEqual (T.unpack src)
+              (stripAnnotations ast) (stripAnnotations reparsed)
   ]
 
 refAB :: Expr ()
