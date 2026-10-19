@@ -13,7 +13,6 @@ module Language.PHP.Parser.Internal
   , parseMatchArmWith
   , parseArrayItemWith
   , parseLiteralWith
-  , exprSpan
   , hasEmptyDestructure
   , isAssignable
   , isWritable
@@ -22,9 +21,6 @@ module Language.PHP.Parser.Internal
   , isStaticTargetAssignable
   , isDestructure
   , hasNullsafe
-  , varNameSpan
-  , memberNameSpan
-  , classConstSpan
   , toClassTarget
   , parseClassName
   ) where
@@ -219,14 +215,14 @@ parseExprWithGrammar grammar = parseExprRec
           when (isDestructure lhs) $
             fail "Cannot use destructuring with by-reference assignment"
           rhs <- parseReferenceSource
-          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          let sp = combineSpans (annotation lhs) (annotation rhs)
           pure (ExprAssignRef sp lhs rhs)
 
         assignValueRest op lhs = do
           when (hasEmptyDestructure lhs) $
             fail "Cannot use empty list"
           rhs <- parseAssignment
-          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          let sp = combineSpans (annotation lhs) (annotation rhs)
           pure (ExprAssign sp op lhs rhs)
 
         -- Validate the complete RHS, not just its first postfix expression:
@@ -307,7 +303,7 @@ parseExprWithGrammar grammar = parseExprRec
             _ <- parseTernaryQuestion
             symbol ":"
           fBranch <- parseAssignmentShortOnly
-          let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+          let sp = combineSpans (annotation cond) (annotation fBranch)
           pure (ExprTernary sp cond Nothing fBranch)
 
         parseFullTernaryRest cond = do
@@ -316,13 +312,13 @@ parseExprWithGrammar grammar = parseExprRec
           if isShort
             then do
               fBranch <- parseAssignmentShortOnly
-              let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+              let sp = combineSpans (annotation cond) (annotation fBranch)
               pure (ExprTernary sp cond Nothing fBranch)
             else do
               tBranch <- parseExprRec
               _ <- symbol ":"
               fBranch <- parseAssignmentNoTernary
-              let sp = combineSpans (exprSpan cond) (exprSpan fBranch)
+              let sp = combineSpans (annotation cond) (annotation fBranch)
               pure (ExprTernary sp cond (Just tBranch) fBranch)
 
         parseTernaryQuestion =
@@ -336,7 +332,7 @@ parseExprWithGrammar grammar = parseExprRec
           _ <- lexeme (M.try (C.string "??" <* M.notFollowedBy (C.char '=')))
           rhs <- parseAssignmentOperand (parseCoalesceWith mode)
                  <|> parseThrowWith (parseAssignmentWith mode)
-          let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+          let sp = combineSpans (annotation lhs) (annotation rhs)
           pure (ExprNullCoalesce sp lhs rhs)
 
     parseBoolOr = parseBinaryLeft parseBoolAnd [ (void (symbol "||"), OpBoolOr) ]
@@ -397,7 +393,7 @@ parseExprWithGrammar grammar = parseExprRec
       (do
         _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
         rhs <- parseOperand parseExponentiation
-        let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+        let sp = combineSpans (annotation lhs) (annotation rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
 
     -- A throw may start a tighter operator's operand, but its own operand
@@ -508,12 +504,12 @@ parseExprWithGrammar grammar = parseExprRec
         parsePostInc = do
           (spEnd, _) <- spanned (symbol "++")
           requireWritable
-          pure (ExprUnary (combineSpans (exprSpan base) spEnd) OpPostInc base)
+          pure (ExprUnary (combineSpans (annotation base) spEnd) OpPostInc base)
 
         parsePostDec = do
           (spEnd, _) <- spanned (symbol "--")
           requireWritable
-          pure (ExprUnary (combineSpans (exprSpan base) spEnd) OpPostDec base)
+          pure (ExprUnary (combineSpans (annotation base) spEnd) OpPostDec base)
 
         -- Checked after the operator is consumed, so @1--1@ stays an error
         -- rather than backtracking into a subtraction.
@@ -525,7 +521,7 @@ parseExprWithGrammar grammar = parseExprRec
           _ <- symbol "->"
           name <- parseMemberName
           mArgs <- optional (parseCallArgsWith parseExprRec)
-          let sp = combineSpans (exprSpan base) (memberNameSpan name)
+          let sp = combineSpans (annotation base) (annotation name)
           case mArgs of
             Nothing -> pure (ExprPropertyFetch sp base name)
             Just FirstClassCallable
@@ -537,7 +533,7 @@ parseExprWithGrammar grammar = parseExprRec
           _ <- symbol "?->"
           name <- parseMemberName
           mArgs <- optional (parseCallArgsWith parseExprRec)
-          let sp = combineSpans (exprSpan base) (memberNameSpan name)
+          let sp = combineSpans (annotation base) (annotation name)
           case mArgs of
             Nothing -> pure (ExprNullsafePropertyFetch sp base name)
             Just FirstClassCallable -> fail "Cannot combine nullsafe operator with Closure creation"
@@ -549,17 +545,17 @@ parseExprWithGrammar grammar = parseExprRec
           let classTarget = toClassTarget base
           case target of
             Left varName -> do
-              let sp = combineSpans (exprSpan base) (varNameSpan varName)
+              let sp = combineSpans (annotation base) (annotation varName)
               mArgs <- optional (parseCallArgsWith parseExprRec)
               case mArgs of
                 Nothing -> pure (ExprStaticPropertyFetch sp classTarget varName)
                 Just args ->
-                  let varExpr = ExprVar (varNameSpan varName)
-                                  (SimpleVar (varNameSpan varName) varName)
+                  let varExpr = ExprVar (annotation varName)
+                                  (SimpleVar (annotation varName) varName)
                   in pure (ExprStaticCall sp classTarget (MemberExpr varExpr) args)
             Right constOrMethod -> do
               mArgs <- optional (parseCallArgsWith parseExprRec)
-              let sp = combineSpans (exprSpan base) (classConstSpan constOrMethod)
+              let sp = combineSpans (annotation base) (annotation constOrMethod)
               case mArgs of
                 Nothing -> pure (ExprClassConstFetch sp classTarget constOrMethod)
                 Just args ->
@@ -572,12 +568,12 @@ parseExprWithGrammar grammar = parseExprRec
           _ <- symbol "["
           mIdx <- optional parseExprRec
           (spEnd, _) <- spanned (symbol "]")
-          let sp = combineSpans (exprSpan base) spEnd
+          let sp = combineSpans (annotation base) spEnd
           pure (ExprArrayAccess sp base mIdx)
 
         parseCall = do
           (spEnd, args) <- spanned (parseCallArgsWith parseExprRec)
-          let sp = combineSpans (exprSpan base) spEnd
+          let sp = combineSpans (annotation base) spEnd
           pure (ExprCall sp base args)
 
     parseStaticTarget =
@@ -692,7 +688,7 @@ parseExprWithGrammar grammar = parseExprRec
                 let qn = QualifiedName qnSp kind parts
                 _ <- doubleColon
                 vn <- variableName
-                let sp = combineSpans qnSp (varNameSpan vn)
+                let sp = combineSpans qnSp (annotation vn)
                 chainDynamicTarget (ExprStaticPropertyFetch sp (ClassTargetName qn) vn))
           <|> (ClassTargetName <$> parseClassName)
 
@@ -711,26 +707,26 @@ parseExprWithGrammar grammar = parseExprRec
             parseProp = do
               _ <- symbol "->"
               name <- parseMemberName
-              let sp = combineSpans (exprSpan base) (memberNameSpan name)
+              let sp = combineSpans (annotation base) (annotation name)
               pure (ExprPropertyFetch sp base name)
 
             parseNullsafeProp = do
               _ <- symbol "?->"
               name <- parseMemberName
-              let sp = combineSpans (exprSpan base) (memberNameSpan name)
+              let sp = combineSpans (annotation base) (annotation name)
               pure (ExprNullsafePropertyFetch sp base name)
 
             parseStaticProp = do
               _ <- doubleColon
               vn <- variableName
-              let sp = combineSpans (exprSpan base) (varNameSpan vn)
+              let sp = combineSpans (annotation base) (annotation vn)
               pure (ExprStaticPropertyFetch sp (toClassTarget base) vn)
 
             parseArr = do
               _ <- symbol "["
               mIdx <- optional parseExprRec
               (spEnd, _) <- spanned (symbol "]")
-              let sp = combineSpans (exprSpan base) spEnd
+              let sp = combineSpans (annotation base) spEnd
               pure (ExprArrayAccess sp base mIdx)
 
     parseMatch = withSpan $ do
@@ -814,7 +810,7 @@ parseExprWithGrammar grammar = parseExprRec
               -- instanceof takes a class reference, not an unparenthesized
               -- assignment or throw; other binary operators admit both.
               rhs <- if op == OpInstanceof then next else parseOperand next
-              let sp = combineSpans (exprSpan lhs) (exprSpan rhs)
+              let sp = combineSpans (annotation lhs) (annotation rhs)
               parseRest (ExprBinary sp op lhs rhs)
 
 -- | Parse a literal using a custom expression parser for string interpolations.
@@ -978,23 +974,6 @@ parseParamList p = do
           in if S.member name seen
                then Just name
                else go (S.insert name seen) rest
-
--- | Helper to extract span of any expression.
-exprSpan :: Expr Span -> Span
-exprSpan = getAnnotation
-
-varNameSpan :: VarName Span -> Span
-varNameSpan (VarName sp _) = sp
-
-memberNameSpan :: MemberName Span -> Span
-memberNameSpan = \case
-  MemberIdent (Ident sp _) -> sp
-  MemberExpr e             -> exprSpan e
-
-classConstSpan :: ClassConstName Span -> Span
-classConstSpan = \case
-  ConstNameIdent (Ident sp _) -> sp
-  ConstNameDynamic e          -> exprSpan e
 
 -- | Convert an expression to a class target (e.g. constant fetch -> ClassTargetName).
 toClassTarget :: Expr a -> ClassTarget a

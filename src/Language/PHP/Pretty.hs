@@ -25,7 +25,8 @@ import Numeric (showHex)
 import Prettyprinter
 import Prettyprinter.Render.Text (renderStrict)
 
-import Language.PHP.AST
+import Language.PHP.AST hiding (annotation)
+import qualified Language.PHP.AST as AST (annotation)
 
 -- | An annotation may carry comments that precede the annotated node.
 --
@@ -106,7 +107,7 @@ prettyProgram (Program annotation stmts) = case stmts of
 
 -- | Pretty Document for Statements.
 prettyStmt :: HasLeadingTrivia a => Stmt a -> Doc ann
-prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
+prettyStmt stmt = prettyLeadingTrivia (AST.annotation stmt) $ case stmt of
   StmtExpr _ expr -> prettyExpr expr <> ";"
   StmtBlock _ stmts ->
     "{" <> line <> indent 4 (vsep (map prettyStmt stmts)) <> line <> "}"
@@ -183,59 +184,19 @@ prettyStmt stmt = prettyLeadingTrivia (stmtAnnotation stmt) $ case stmt of
       " else {" <> line <> indent 4 (vsep (map prettyStmt ss)) <> line <> "}")
     prettyStaticItem (var, mDef) =
       prettyVarName var <> maybe mempty (\d -> " = " <> prettyExpr d) mDef
-    prettyCase switchCase = prettyLeadingTrivia (switchCaseAnnotation switchCase) $ case switchCase of
+    prettyCase switchCase = prettyLeadingTrivia (AST.annotation switchCase) $ case switchCase of
       SwitchCase _ c ss -> "case " <> prettyExpr c <> ":" <> line <> indent 4 (vsep (map prettyStmt ss))
       SwitchDefault _ ss -> "default:" <> line <> indent 4 (vsep (map prettyStmt ss))
-    prettyCatch catchClause = prettyLeadingTrivia (catchAnnotation catchClause) $ case catchClause of
+    prettyCatch catchClause = prettyLeadingTrivia (AST.annotation catchClause) $ case catchClause of
       CatchClause _ types mVar body ->
         " catch (" <> hcat (punctuate "|" (map prettyQualifiedName types)) <>
         maybe mempty (\v -> " " <> prettyVarName v) mVar <> ") {" <> line <>
         indent 4 (vsep (map prettyStmt body)) <> line <> "}"
 
-    switchCaseAnnotation = \case
-      SwitchCase annotation _ _ -> annotation
-      SwitchDefault annotation _ -> annotation
-    catchAnnotation (CatchClause annotation _ _ _) = annotation
-
 prettyDeclareDirective :: HasLeadingTrivia a => DeclareDirective a -> Doc ann
 prettyDeclareDirective (DeclareDirective annotation name val) =
   prettyLeadingTrivia annotation $
     prettyIdent name <> "=" <> prettyExpr val
-
-stmtAnnotation :: Stmt a -> a
-stmtAnnotation = \case
-  StmtExpr a _ -> a
-  StmtBlock a _ -> a
-  StmtIf a _ _ _ _ -> a
-  StmtWhile a _ _ -> a
-  StmtDoWhile a _ _ -> a
-  StmtFor a _ _ _ _ -> a
-  StmtForeach a _ _ _ _ _ -> a
-  StmtSwitch a _ _ -> a
-  StmtBreak a _ -> a
-  StmtContinue a _ -> a
-  StmtReturn a _ -> a
-  StmtThrowStmt a _ -> a
-  StmtTry a _ _ _ -> a
-  StmtNamespace a _ _ -> a
-  StmtUse a _ _ -> a
-  StmtGroupUse a _ _ _ -> a
-  StmtConst a _ -> a
-  StmtFunction a _ -> a
-  StmtClass a _ -> a
-  StmtInterface a _ -> a
-  StmtTrait a _ -> a
-  StmtEnum a _ -> a
-  StmtEcho a _ -> a
-  StmtGlobal a _ -> a
-  StmtStatic a _ -> a
-  StmtDeclare a _ _ -> a
-  StmtGoto a _ -> a
-  StmtLabel a _ -> a
-  StmtUnset a _ -> a
-  StmtInlineHtml a _ -> a
-  StmtHaltCompiler a _ -> a
-  StmtEmpty a -> a
 
 prettyUseType :: UseType -> Doc ann
 prettyUseType = \case
@@ -376,7 +337,7 @@ prettyTraitUse (TraitUse annotation names adapts) = prettyLeadingTrivia annotati
     then ";"
     else " {" <> line <> indent 4 (vsep (map prettyAdaptation adapts)) <> line <> "}"
   where
-    prettyAdaptation adaptation = prettyLeadingTrivia (traitAdaptationAnnotation adaptation) $ case adaptation of
+    prettyAdaptation adaptation = prettyLeadingTrivia (AST.annotation adaptation) $ case adaptation of
       TraitPrecedence _ tr met others ->
         prettyQualifiedName tr <> "::" <> prettyIdent met <+> "insteadof " <>
         hsep (punctuate "," (map prettyQualifiedName others)) <> ";"
@@ -385,10 +346,6 @@ prettyTraitUse (TraitUse annotation names adapts) = prettyLeadingTrivia annotati
         prettyIdent met <+> "as" <>
         maybe mempty (\v -> " " <> prettyVisibility v) vis <>
         maybe mempty (\n -> " " <> prettyIdent n) mNew <> ";"
-
-    traitAdaptationAnnotation = \case
-      TraitPrecedence triviaAnn _ _ _ -> triviaAnn
-      TraitAlias triviaAnn _ _ _ _ -> triviaAnn
 
 prettyEnumCase :: HasLeadingTrivia a => EnumCase a -> Doc ann
 prettyEnumCase (EnumCase annotation attrs name mVal) = prettyLeadingTrivia annotation $
@@ -425,7 +382,7 @@ prettyArg (Arg annotation mName expr isUnpack) = prettyLeadingTrivia annotation 
 
 -- | Pretty document for PHP Expressions.
 prettyExpr :: HasLeadingTrivia a => Expr a -> Doc ann
-prettyExpr expr = prettyLeadingTrivia (getAnnotation expr) $ case expr of
+prettyExpr expr = prettyLeadingTrivia (AST.annotation expr) $ case expr of
   ExprVar _ v -> prettyVar v
   ExprLit _ l -> prettyLiteral l
   ExprBinary _ OpPow lhs rhs ->
@@ -700,18 +657,13 @@ prettyArrayItem = \case
   ArrayItemEmpty annotation -> prettyLeadingTrivia annotation mempty
 
 prettyMatchArm :: HasLeadingTrivia a => MatchArm a -> Doc ann
-prettyMatchArm arm = prettyLeadingTrivia (matchArmAnnotation arm) $ case arm of
+prettyMatchArm arm = prettyLeadingTrivia (AST.annotation arm) $ case arm of
   MatchArm _ conds res ->
     hsep (punctuate "," (map prettyExpr conds)) <+> "=> " <> prettyExpr res
   MatchDefault _ res -> "default => " <> prettyExpr res
 
-matchArmAnnotation :: MatchArm a -> a
-matchArmAnnotation = \case
-  MatchArm annotation _ _ -> annotation
-  MatchDefault annotation _ -> annotation
-
 prettyLiteral :: HasLeadingTrivia a => Literal a -> Doc ann
-prettyLiteral literal = prettyLeadingTrivia (literalAnnotation literal) $ case literal of
+prettyLiteral literal = prettyLeadingTrivia (AST.annotation literal) $ case literal of
   LitInt _ _ raw -> pretty raw
   LitFloat _ _ raw -> pretty raw
   LitString _ _ raw -> verbatim (if isQuotedString raw then raw else quoteString raw)
@@ -809,26 +761,10 @@ escapeInterpolatingText quote = T.concat . go
     isIdentStart c = isAlpha c || c == '_' || c >= '\x80'
 
 prettyVar :: HasLeadingTrivia a => Var a -> Doc ann
-prettyVar variable = prettyLeadingTrivia (varAnnotation variable) $ case variable of
+prettyVar variable = prettyLeadingTrivia (AST.annotation variable) $ case variable of
   SimpleVar _ vn -> prettyVarName vn
   DynamicVar _ (ExprVar _ innerVar) -> "$" <> prettyVar innerVar
   DynamicVar _ e -> "${" <> prettyExpr e <> "}"
-
-literalAnnotation :: Literal a -> a
-literalAnnotation = \case
-  LitInt annotation _ _ -> annotation
-  LitFloat annotation _ _ -> annotation
-  LitString annotation _ _ -> annotation
-  LitInterpolated annotation _ -> annotation
-  LitHeredoc annotation _ _ _ _ -> annotation
-  LitHeredocInterpolated annotation _ _ -> annotation
-  LitBool annotation _ -> annotation
-  LitNull annotation -> annotation
-
-varAnnotation :: Var a -> a
-varAnnotation = \case
-  SimpleVar annotation _ -> annotation
-  DynamicVar annotation _ -> annotation
 
 prettyCastType :: CastType -> Doc ann
 prettyCastType = \case
@@ -866,17 +802,9 @@ prettyQualifiedName (QualifiedName annotation kind parts) = prettyLeadingTrivia 
 
 -- | Pretty document for PHP Types (supports DNF, unions, intersections).
 prettyType :: HasLeadingTrivia a => Type a -> Doc ann
-prettyType typ = prettyLeadingTrivia (typeAnnotation typ) $ case typ of
+prettyType typ = prettyLeadingTrivia (AST.annotation typ) $ case typ of
   SimpleType _ qn -> prettyQualifiedName qn
   NullableType _ t -> "?" <> prettyType t
   UnionType _ ts -> hcat (punctuate "|" (map prettyType ts))
   IntersectionType _ ts -> hcat (punctuate "&" (map prettyType ts))
   DNFType _ ts -> parens (hcat (punctuate "&" (map prettyType ts)))
-
-typeAnnotation :: Type a -> a
-typeAnnotation = \case
-  SimpleType a _ -> a
-  NullableType a _ -> a
-  UnionType a _ -> a
-  IntersectionType a _ -> a
-  DNFType a _ -> a

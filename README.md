@@ -33,6 +33,27 @@ main = do
       putStrLn (prettyPrint ast)
 ```
 
+## Node annotations and source spans
+
+`annotation :: HasAnnotation f => f a -> a` reads the root metadata of any
+annotated node, including statements, class members, types and parameters.
+Wrapper nodes such as `ClassMember` delegate to their contained declaration.
+`CallArgs`, `HookBody` and `StringPart` have no root annotation and deliberately
+have no instance. `getAnnotation :: Expr a -> a` remains a compatibility alias.
+
+For results from the public parser, use
+`nodeSpan :: HasAnnotation f => f (Annotated Span) -> Span`:
+
+```haskell
+case parseStatement "example.php" "echo 1;" of
+  Left err -> print err
+  Right stmt -> print (nodeSpan stmt)
+```
+
+`HasSpan` remains available, with `getSpan = nodeSpan` instances for parsed
+`Expr`, `Stmt`, `ClassMember`, `Type` and `Param` nodes. For all other annotated
+node families, use `nodeSpan` directly.
+
 ## Running Tests
 
 The test suite uses [Tasty](https://hackage.haskell.org/package/tasty) with HUnit and QuickCheck:

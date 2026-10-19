@@ -38,7 +38,6 @@ import Language.PHP.Parser.Internal
   , parseAttributeGroupWith
   , parseAttributeWith
   , parseArgWith
-  , exprSpan
   , parseParamList
   , hasEmptyDestructure
   , isAssignable
@@ -130,7 +129,7 @@ parseShortEchoBody = do
   moreExprs <- M.many (comma *> parseExpr)
   _ <- statementTerminator
   let lastExpr = if null moreExprs then firstExpr else last moreExprs
-      echoSpan = combineSpans (exprSpan firstExpr) (exprSpan lastExpr)
+      echoSpan = combineSpans (annotation firstExpr) (annotation lastExpr)
   pure (StmtEcho echoSpan (firstExpr : moreExprs))
 
 -- | Parse a statement list that can switch between PHP and inline HTML.
