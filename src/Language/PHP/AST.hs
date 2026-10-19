@@ -557,7 +557,8 @@ data DeclareDirective a = DeclareDirective
 data Program a = Program !a ![Stmt a]
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
--- | Nodes with a total root annotation. Child annotations are not inspected.
+-- | Nodes with a total root annotation. Wrappers such as 'ClassMember'
+-- delegate to their contained node; no descendant traversal is needed.
 -- Containers without a root annotation (such as 'CallArgs', 'HookBody' and
 -- 'StringPart') deliberately have no instance.
 class HasAnnotation f where
