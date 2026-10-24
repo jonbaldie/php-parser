@@ -15,6 +15,7 @@ and the limitations of that pass. Reports are named `YYYY-MM-DD-<scope>.md`.
 | [2026-09-30-modern-grammar-differential.md](2026-09-30-modern-grammar-differential.md) | Modern grammar, parenthesisation, nullsafe write contexts, hooks | `0.1.11.0` | [#322](https://github.com/jonbaldie/php-parser/issues/322)–[#328](https://github.com/jonbaldie/php-parser/issues/328) |
 | [2026-10-03-modern-grammar-and-printer.md](2026-10-03-modern-grammar-and-printer.md) | Modern grammar, member modifiers, typed constants, match parenthesisation, lexical boundaries | `0.1.12.0` | [#341](https://github.com/jonbaldie/php-parser/issues/341)–[#349](https://github.com/jonbaldie/php-parser/issues/349) |
 | [2026-10-10-real-world-corpus.md](2026-10-10-real-world-corpus.md) | Real-world corpus round trip (Laravel and vendors), printer fidelity, spans | `0.1.13.0` | [#367](https://github.com/jonbaldie/php-parser/issues/367)–[#373](https://github.com/jonbaldie/php-parser/issues/373) |
+| [2026-10-24-modern-corpus-and-spans.md](2026-10-24-modern-corpus-and-spans.md) | Modern corpus (Tempest, Symfony 8), Laravel re-run, printer fixpoints, node-span slices | `0.1.13.0` | [#389](https://github.com/jonbaldie/php-parser/issues/389)–[#395](https://github.com/jonbaldie/php-parser/issues/395) |
 
 Evidence (drivers, case corpora, replay transcripts) is kept locally under
 `exploratory-evidence/<date>-<scope>/` and is not committed.
