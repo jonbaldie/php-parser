@@ -180,10 +180,7 @@ parseExprWithGrammar grammar = parseExprRec
     parseAssignmentNoTernary = parseAssignmentWith NoTernary
 
     parseAssignmentWith mode =
-      parseYieldWith pAssignment
-      <|> parseThrowWith pAssignment
-      <|> parseIncludeWith pAssignment
-      <|> parsePrintWith pAssignment
+      parseKeywordOperandWith pAssignment
       <|> do
         lhs <- parseTernaryWith mode
         parseAssignmentRest lhs <|> pure lhs
@@ -248,6 +245,14 @@ parseExprWithGrammar grammar = parseExprRec
           <|> (Just OpShiftLeft <$ symbol "<<=")
           <|> (Just OpShiftRight <$ symbol ">>=")
           <|> (Just OpCoalesce <$ symbol "??=")
+
+    -- These low-precedence expressions may also start a tighter operator's
+    -- operand. Their arguments retain the enclosing assignment/ternary mode.
+    parseKeywordOperandWith pAssignment =
+      parseYieldWith pAssignment
+      <|> parseThrowWith pAssignment
+      <|> parseIncludeWith pAssignment
+      <|> parsePrintWith pAssignment
 
     parseYieldWith pAssignment = withSpan $ do
       _ <- keyword "yield"
@@ -330,8 +335,8 @@ parseExprWithGrammar grammar = parseExprRec
       where
         parseCoalesceRest lhs = do
           _ <- lexeme (M.try (C.string "??" <* M.notFollowedBy (C.char '=')))
-          rhs <- parseAssignmentOperand (parseCoalesceWith mode)
-                 <|> parseThrowWith (parseAssignmentWith mode)
+          rhs <- parseKeywordOperandWith (parseAssignmentWith mode)
+                 <|> parseAssignmentOperand (parseCoalesceWith mode)
           let sp = combineSpans (annotation lhs) (annotation rhs)
           pure (ExprNullCoalesce sp lhs rhs)
 
@@ -396,11 +401,10 @@ parseExprWithGrammar grammar = parseExprRec
         let sp = combineSpans (annotation lhs) (annotation rhs)
         pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
 
-    -- A throw may start a tighter operator's operand, but its own operand
-    -- still consumes a complete assignment-level expression (Issue #370).
-    -- Keep this out of parseUnary: instanceof and ++/-- require a restricted
-    -- operand and must not accept a bare throw.
-    parseOperand next = parseThrowWith parseAssignment <|> parseAssignmentOperand next
+    -- Keyword expressions consume a complete assignment-level argument even
+    -- in tighter operands (Issues #370, #389). Keep them out of parseUnary:
+    -- instanceof and ++/-- require restricted operands.
+    parseOperand next = parseKeywordOperandWith parseAssignment <|> parseAssignmentOperand next
 
     -- PHP can shift an assignment after a variable in a tighter operator's
     -- operand: $a && $b = 1 means $a && ($b = 1). The assignment RHS still
@@ -437,10 +441,7 @@ parseExprWithGrammar grammar = parseExprRec
                 <|> (OpUnaryPlus <$ symbol "+")
                 <|> (OpUnaryMinus <$ symbol "-")
                 <|> (OpErrorSuppress <$ symbol "@")
-          -- Include/require may start a prefix operand, but still consume
-          -- their full assignment-level argument: @include $a . '.php'
-          -- suppresses the include of the concatenation (Issue #372).
-          operand <- parseIncludeWith parseAssignment <|> parseOperand parseExponentiation
+          operand <- parseOperand parseExponentiation
           pure (\sp -> ExprUnary sp op operand)
 
         -- Casts likewise bind looser than "**".
