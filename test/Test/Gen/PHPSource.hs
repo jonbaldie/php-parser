@@ -580,6 +580,23 @@ allFeatures =
         , "+include 'x';"
         , "-include 'x';"
         ]
+  , Feature "keyword-operands" PHP82 $ \i -> do
+      let n = sfx i
+      pure $ ls
+        [ "function keywordOperands" <> n <> "(): \\Generator {"
+        , "    $x = (string) include 'f.php';"
+        , "    if (false === include 'f.php') {}"
+        , "    $x = $a ?? include 'f.php';"
+        , "    $x = 1 + require 'f.php';"
+        , "    $x = (int) require_once 'f.php';"
+        , "    $x = !print 1;"
+        , "    $x = (string) print 1;"
+        , "    $x = $a && print 1;"
+        , "    $x = 1 + yield 1;"
+        , "    $x = (int) yield 1;"
+        , "    $x = $a ?? yield 1;"
+        , "}"
+        ]
   , Feature "generators" PHP82 $ \i -> do
       let n = sfx i
       pure $ ls

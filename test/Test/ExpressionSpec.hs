@@ -15,7 +15,55 @@ import qualified Language.PHP.Parser.Expression as ExprParser
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
-  [ testCase "Suppressed includes parse and round-trip (Issue #372)" $ do
+  [ testCase "Low-precedence keyword operands parse (Issue #389)" $ do
+      forM_
+        [ "<?php $x = (string) include \"f.php\";"
+        , "<?php if (false === include \"f.php\") {}"
+        , "<?php $x = $a ?? include \"f.php\";"
+        , "<?php $x = 1 + require \"f.php\";"
+        , "<?php $x = (int) require_once \"f.php\";"
+        , "<?php $x = !print 1;"
+        , "<?php $x = (string) print 1;"
+        , "<?php $x = $a && print 1;"
+        , "<?php function g() { $x = 1 + yield 1; }"
+        , "<?php function g() { $x = (int) yield 1; }"
+        , "<?php function g() { $x = $a ?? yield 1; }"
+        ] $ \src -> case parseProgram "issue389.php" src of
+          Left err -> assertFailure (T.unpack src ++ ": " ++ show (formatParseError err))
+          Right ast -> case parseProgram "issue389.php" (prettyPrint ast) of
+            Left err -> assertFailure (show (formatParseError err))
+            Right reparsed -> assertEqual (T.unpack src ++ ": round trip")
+              (stripAnnotations ast) (stripAnnotations reparsed)
+
+  , testCase "Keyword operand grouping (Issue #389)" $ do
+      let keywords = ["include", "include_once", "require", "require_once", "print",
+                      "yield", "yield from"]
+          operands = [k <> " $a = $b + $c ?? $d ? $e : $f" | k <- keywords]
+                     ++ ["yield", "yield $a => $b + $c"]
+          contexts = [("$x " <> op <> " ", "")
+                     | op <- ["||", "&&", "|", "^", "&", "==", "!=", "===", "!==", "<>",
+                              "<", "<=", ">", ">=", "<=>", ".", "<<", ">>", "+", "-",
+                              "*", "/", "%", "**", "??", "and", "or", "xor"]]
+                     ++ [(op, "") | op <- ["!", "~", "+", "-", "@", "(int)", "(float)",
+                                             "(string)", "(bool)", "(array)", "(object)", "clone "]]
+      forM_ operands $ \operand -> forM_ contexts $ \(prefix, suffix) -> do
+        let src = prefix <> operand <> suffix
+            expected = prefix <> "(" <> operand <> ")" <> suffix
+        case (parseExpression "issue389.php" src, parseExpression "issue389.php" expected) of
+          (Right expr, Right grouped) -> do
+            assertEqual (T.unpack src ++ ": grouping")
+              (stripAnnotations grouped) (stripAnnotations expr)
+            assertRoundTripExpr expr
+          results -> assertFailure (T.unpack src ++ ": " ++ show results)
+
+  , testCase "Restricted operands reject bare keywords (Issue #389)" $ do
+      forM_ ["include $f", "require $f", "print 1", "yield 1", "yield from $f"] $ \operand ->
+        forM_ ["++", "--", "$a instanceof "] $ \prefix ->
+          case parseExpression "issue389.php" (prefix <> operand) of
+            Left _ -> pure ()
+            Right expr -> assertFailure (T.unpack (prefix <> operand) ++ ": accepted " ++ show expr)
+
+  , testCase "Suppressed includes parse and round-trip (Issue #372)" $ do
       forM_ ["include", "include_once", "require", "require_once"] $ \keyword ->
         forM_ ["$f", "\"x\"", "$a . '.php'"] $ \operand -> do
           let src = "<?php @" <> keyword <> " " <> operand <> ";"
