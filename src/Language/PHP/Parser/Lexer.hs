@@ -27,6 +27,7 @@ module Language.PHP.Parser.Lexer
   , phpCodeWhitespace1
   , takeTrivia
   , recordTrivia
+  , moveTrivia
   , lexeme
   , symbol
   , parens
@@ -278,6 +279,14 @@ takeTrivia = do
 -- | Attach trivia to the node with the given span.
 recordTrivia :: Span -> [Trivia] -> Parser ()
 recordTrivia sp triv = modify' (\st -> st { triviaBySpan = Map.insert sp triv (triviaBySpan st) })
+
+-- | Re-key the trivia recorded for one span, for a node whose span widens.
+moveTrivia :: Span -> Span -> Parser ()
+moveTrivia from to = modify' $ \st ->
+  let bySpan = triviaBySpan st
+  in case Map.lookup from bySpan of
+       Nothing -> st
+       Just triv -> st { triviaBySpan = Map.insertWith (flip (++)) to triv (Map.delete from bySpan) }
 
 -- | Record trivia into state.
 addTrivia :: Trivia -> Parser ()
@@ -808,8 +817,7 @@ interpolatedParts parseInterpExpr stop decode = mergeLiterals <$> many part
       varKey <|> negativeKey <|> wordKey
       where
         varKey = do
-          _ <- C.char '$'
-          (sp, name) <- spanned rawIdentifier
+          (sp, name) <- spanned (C.char '$' *> rawIdentifier)
           pure (ExprVar sp (SimpleVar sp (VarName sp name)))
         negativeKey = do
           (minusSp, _) <- spanned (C.char '-')
