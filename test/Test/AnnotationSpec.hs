@@ -1,5 +1,6 @@
 module Test.AnnotationSpec (annotationTests) where
 
+import qualified Data.Text as T
 import Language.PHP
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -86,7 +87,46 @@ annotationTests = testGroup "Public annotations"
               params -> assertFailure ("Unexpected parameters: " ++ show params)
             members -> assertFailure ("Unexpected members: " ++ show members)
         result -> assertFailure ("Unexpected parse result: " ++ show result)
+  , testGroup "call spans include arguments"
+      [ testCase (T.unpack source) $
+          case parseExpression "annotation.php" source of
+            Left err -> assertFailure (show err)
+            Right expr -> do
+              assertSpan expr 0 (T.length source)
+              case parseExpression "annotation.php" (source <> " /* trailing */ ") of
+                Left err -> assertFailure (show err)
+                Right withTrivia -> assertSpan withTrivia 0 (T.length source)
+      | source <- [ "$this->a(1)", "A::b(1)", "$a::b(1)", "$a?->b(1)"
+                  , "$a->b(...)", "A::b(...)"
+                  , "$a->b()", "A::b()", "$a?->b()"
+                  , "A::$b(1)", "$a::$b(...)", "A::{foo()}(1)"
+                  , "$a->$b(1)", "$a->{foo()}(1)", "$a?->$b(1)"
+                  , "$a->b($c->d(1))->e(2)", "$a?->b(1)->c(2)"
+                  , "$x = $a->b(1)", "1 + A::b(2)"
+                  , "$a->b", "$a?->b", "A::$b", "A::B"
+                  , "f(1)", "f(...)", "new A(1)"
+                  ]
+      ]
+  , testCase "multiline call ends at closing parenthesis, not trailing trivia" $
+      case parseExpression "annotation.php" "$a?->b(\n  1,\n  2\n) /* trailing */" of
+        Left err -> assertFailure (show err)
+        Right expr -> nodeSpan expr @?=
+          Span (SourcePos "annotation.php" 1 1 0) (SourcePos "annotation.php" 4 2 18)
+  , testCase "program call spans slice to equivalent expressions" $ do
+      let source = "<?php $this->send($msg, 2); $x = A::b(1); $a?->b(1)->c();"
+      case parseProgram "annotation.php" source of
+        Left err -> assertFailure (show err)
+        Right (Program _ stmts) ->
+          mapM_ (checkSlice source) (concatMap (queryStmt (\e -> [e])) stmts)
   ]
+
+checkSlice :: T.Text -> Expr (Annotated Span) -> Assertion
+checkSlice source expr = do
+  let Span start end = nodeSpan expr
+      slice = T.take (posOffset end - posOffset start) (T.drop (posOffset start) source)
+  case parseExpression "slice.php" slice of
+    Left err -> assertFailure (show err)
+    Right reparsed -> stripAnnotations reparsed @?= stripAnnotations expr
 
 assertSpan :: HasAnnotation f => f (Annotated Span) -> Int -> Int -> Assertion
 assertSpan node start end =
