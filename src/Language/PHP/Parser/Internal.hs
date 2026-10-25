@@ -529,24 +529,24 @@ parseExprWithGrammar grammar = parseExprRec
         parseMethodOrProp = do
           _ <- symbol "->"
           name <- parseMemberName
-          mArgs <- optional (parseCallArgsWith parseExprRec)
-          let sp = combineSpans (annotation base) (annotation name)
+          mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
+          let sp = combineSpans (annotation base) (maybe (annotation name) fst mArgs)
           case mArgs of
             Nothing -> pure (ExprPropertyFetch sp base name)
-            Just FirstClassCallable
+            Just (_, FirstClassCallable)
               | hasNullsafe base -> fail "Cannot combine nullsafe operator with Closure creation"
               | otherwise        -> pure (ExprMethodCall sp base name FirstClassCallable)
-            Just args -> pure (ExprMethodCall sp base name args)
+            Just (_, args) -> pure (ExprMethodCall sp base name args)
 
         parseNullsafeMethodOrProp = do
           _ <- symbol "?->"
           name <- parseMemberName
-          mArgs <- optional (parseCallArgsWith parseExprRec)
-          let sp = combineSpans (annotation base) (annotation name)
+          mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
+          let sp = combineSpans (annotation base) (maybe (annotation name) fst mArgs)
           case mArgs of
             Nothing -> pure (ExprNullsafePropertyFetch sp base name)
-            Just FirstClassCallable -> fail "Cannot combine nullsafe operator with Closure creation"
-            Just args -> pure (ExprNullsafeMethodCall sp base name args)
+            Just (_, FirstClassCallable) -> fail "Cannot combine nullsafe operator with Closure creation"
+            Just (_, args) -> pure (ExprNullsafeMethodCall sp base name args)
 
         parseStaticAccess = do
           _ <- doubleColon
@@ -554,20 +554,20 @@ parseExprWithGrammar grammar = parseExprRec
           let classTarget = toClassTarget base
           case target of
             Left varName -> do
-              let sp = combineSpans (annotation base) (annotation varName)
-              mArgs <- optional (parseCallArgsWith parseExprRec)
+              mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
+              let sp = combineSpans (annotation base) (maybe (annotation varName) fst mArgs)
               case mArgs of
                 Nothing -> pure (ExprStaticPropertyFetch sp classTarget varName)
-                Just args ->
+                Just (_, args) ->
                   let varExpr = ExprVar (annotation varName)
                                   (SimpleVar (annotation varName) varName)
                   in pure (ExprStaticCall sp classTarget (MemberExpr varExpr) args)
             Right constOrMethod -> do
-              mArgs <- optional (parseCallArgsWith parseExprRec)
-              let sp = combineSpans (annotation base) (annotation constOrMethod)
+              mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
+              let sp = combineSpans (annotation base) (maybe (annotation constOrMethod) fst mArgs)
               case mArgs of
                 Nothing -> pure (ExprClassConstFetch sp classTarget constOrMethod)
-                Just args ->
+                Just (_, args) ->
                   let member = case constOrMethod of
                         ConstNameIdent id' -> MemberIdent id'
                         ConstNameDynamic e -> MemberExpr e
