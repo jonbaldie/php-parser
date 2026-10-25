@@ -44,6 +44,30 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           ]
       ]
 
+  , testGroup "Trailing omitted slots retain delimiters and comments (Issue #399)"
+      [ testCase (T.unpack src) $ do
+          let parse input = case parseProgram "issue-399.php" input of
+                Left err -> assertFailure (show (formatParseError err)) >> fail "parse failed"
+                Right prog -> pure prog
+          original <- parse src
+          let first = prettyPrint original
+          reparsed <- parse first
+          assertEqual "slot structure and comment attachment survive printing"
+            (fmap annTrivia original) (fmap annTrivia reparsed)
+          let second = prettyPrint reparsed
+          assertEqual "first print is a fixed point" first second
+          third <- prettyPrint <$> parse second
+          assertEqual "subsequent print is a fixed point" second third
+      | src <-
+          [ "<?php [$a, /* x */, /* y */,] = $p;"
+          , "<?php list($a, /* x */, ) = $p;"
+          , "<?php [$a, ,] = $p;"
+          , "<?php [[$a, ,], $b] = $p;"
+          , "<?php list(list($a, /* x */,), $b) = $p;"
+          , "<?php [, $a, , ,] = $p;"
+          ]
+      ]
+
   , testCase "Round-trip match expression" $ do
       let src = "<?php\n$res = match ($val) {\n    1, 2 => 'low',\n    default => 'high'\n};"
       assertRoundTrips src

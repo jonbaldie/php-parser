@@ -430,9 +430,9 @@ prettyExpr expr = prettyLeadingTrivia (AST.annotation expr) $ case expr of
   ExprClassConstFetch _ target constName ->
     prettyTarget target <> "::" <> prettyConstName constName
   ExprArray _ items ->
-    "[" <> hsep (punctuate "," (map prettyArrayItem items)) <> "]"
+    "[" <> prettyArrayItems items <> "]"
   ExprList _ items ->
-    "list(" <> hsep (punctuate "," (map prettyArrayItem items)) <> ")"
+    "list(" <> prettyArrayItems items <> ")"
   ExprArrayAccess _ arr mIdx ->
     prettyPostfixBase arr <> "[" <> maybe mempty prettyExpr mIdx <> "]"
   ExprMatch _ subject arms ->
@@ -670,6 +670,15 @@ prettyConstName :: HasLeadingTrivia a => ClassConstName a -> Doc ann
 prettyConstName = \case
   ConstNameIdent id' -> prettyIdent id'
   ConstNameDynamic e -> "{" <> prettyExpr e <> "}"
+
+-- An omitted slot needs a following comma even when it is the final item.
+prettyArrayItems :: HasLeadingTrivia a => [ArrayItem a] -> Doc ann
+prettyArrayItems = hsep . go
+  where
+    go [] = []
+    go [item@ArrayItemEmpty {}] = [prettyArrayItem item <> ","]
+    go [item] = [prettyArrayItem item]
+    go (item : rest) = (prettyArrayItem item <> ",") : go rest
 
 prettyArrayItem :: HasLeadingTrivia a => ArrayItem a -> Doc ann
 prettyArrayItem = \case

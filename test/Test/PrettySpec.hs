@@ -19,6 +19,19 @@ prettyTests = testGroup "Pretty Printer Specifications"
           assertBool "Printed contains class Greeter" ("class Greeter" `T.isInfixOf` printed)
           assertBool "Printed contains function greet" ("function greet" `T.isInfixOf` printed)
 
+  , testGroup "Non-trailing omitted-slot controls stay unchanged (Issue #399)"
+      [ testCase (T.unpack src) $ case parseProgram "issue-399.php" src of
+          Left err -> assertFailure (show (formatParseError err))
+          Right ast -> assertEqual "unchanged output" expected (prettyPrint ast)
+      | (src, expected) <-
+          [ ("<?php [$a, $b] = $p;", "<?php\n\n[$a, $b] = $p;")
+          , ("<?php [$a, , $b] = $p;", "<?php\n\n[$a, , $b] = $p;")
+          , ("<?php [1, 2];", "<?php\n\n[1, 2];")
+          , ("<?php list($a, $b) = $p;", "<?php\n\nlist($a, $b) = $p;")
+          , ("<?php [];", "<?php\n\n[];")
+          ]
+      ]
+
   , testCase "prettyPrint keeps parentheses around new before a method call (Issue #308)" $ do
       case parseProgram "issue-308.php" "<?php (new C())->f();" of
         Left err -> assertFailure (show (formatParseError err))
