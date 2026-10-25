@@ -288,6 +288,37 @@ versionProperties oracles v =
                    , "<?php $c ? 1 : $l = $a ? 1 : 2;"
                    ]
           ]
+    , testProperty "instanceof class name references print as valid PHP (Issue #393)" $
+        withOracle oracles v $ \o -> once $ conjoin
+          [ ioProperty $ do
+              verdict <- checkSource o src
+              case parseProgram "issue393.php" src of
+                Left err -> pure $ counterexample (show err) False
+                Right ast -> do
+                  let printed = prettyPrint ast
+                  printedVerdict <- checkSource o printed
+                  pure $ counterexample (T.unpack src ++ "\n" ++ T.unpack printed) $
+                    verdict === Accepted .&&. printedVerdict === Accepted
+          | src <- [ "<?php $x instanceof A;", "<?php $x instanceof $a->b;"
+                   , "<?php $x instanceof $a?->b[0];", "<?php $x instanceof A::$b;"
+                   , "<?php $x instanceof $a::$b->c;", "<?php $x instanceof $a ** 2;"
+                   , "<?php $x instanceof ($a->b());", "<?php $x instanceof (f());"
+                   , "<?php $x instanceof (A::class);", "<?php $x instanceof (A::B);"
+                   , "<?php $x instanceof (A::m());", "<?php $x instanceof (\"A\");"
+                   ]
+          ]
+    , testProperty "instanceof calls, constants and literals are rejected (Issue #393)" $
+        withOracle oracles v $ \o -> once $ conjoin
+          [ ioProperty $ do
+              verdict <- checkSource o src
+              pure $ counterexample (T.unpack src) $
+                not (verdictAccepted verdict)
+                  .&&. either (const True) (const False) (parseProgram "issue393.php" src)
+          | src <- [ "<?php $x instanceof f();", "<?php $x instanceof $a->b();"
+                   , "<?php $x instanceof A::class;", "<?php $x instanceof A::B;"
+                   , "<?php $x instanceof A::m();", "<?php $x instanceof \"A\";"
+                   ]
+          ]
     , testProperty "corpus health: the interpreter accepts every generated program" $
         withOracle oracles v $ \o ->
           forAllProgram v $ \prog src ->

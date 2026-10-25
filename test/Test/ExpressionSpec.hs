@@ -162,6 +162,55 @@ expressionTests = testGroup "Expression Specifications"
           Left _ -> pure ()
           Right expr -> assertFailure (T.unpack src ++ ": accepted " ++ show expr)
 
+  , testCase "instanceof rejects calls, constants and literals (Issue #393)" $ do
+      forM_ [ "$x instanceof f()", "$x instanceof $a->b()", "$x instanceof A::class"
+            , "$x instanceof A::B", "$x instanceof A::m()", "$x instanceof \"A\""
+            , "$x instanceof $a::B", "$x instanceof $a[0]()", "$x instanceof ($a)->b"
+            , "$x instanceof $a++", "$x instanceof 1"
+            ] $ \src -> case parseProgram "issue393.php" ("<?php " <> src <> ";") of
+              Left _ -> pure ()
+              Right ast -> assertFailure (T.unpack src ++ ": accepted " ++ show ast)
+
+  , testCase "instanceof accepts class name references (Issue #393)" $ do
+      let cases =
+            [ ("$x instanceof A", "$x instanceof (A)")
+            , ("$x instanceof static", "$x instanceof (static)")
+            , ("$x instanceof \\A\\B", "$x instanceof (\\A\\B)")
+            , ("$x instanceof $a", "$x instanceof ($a)")
+            , ("$x instanceof $$a", "$x instanceof ($$a)")
+            , ("$x instanceof $a->b", "$x instanceof ($a->b)")
+            , ("$x instanceof $a?->b", "$x instanceof ($a?->b)")
+            , ("$x instanceof $a->$b", "$x instanceof ($a->$b)")
+            , ("$x instanceof $a[0]", "$x instanceof ($a[0])")
+            , ("$x instanceof $a::$b", "$x instanceof ($a::$b)")
+            , ("$x instanceof A::$b[0]->c", "$x instanceof (A::$b[0]->c)")
+            , ("$x instanceof $a->b::$c", "$x instanceof ($a->b::$c)")
+            , ("$x instanceof ($a->b())", "$x instanceof ($a->b())")
+            , ("$x instanceof (f())", "$x instanceof (f())")
+            , ("$x instanceof (A::class)", "$x instanceof (A::class)")
+            , ("$x instanceof (A::B)", "$x instanceof (A::B)")
+            , ("$x instanceof (A::m())", "$x instanceof (A::m())")
+            , ("$x instanceof (\"A\")", "$x instanceof (\"A\")")
+            , ("$x instanceof $a . \"B\"", "($x instanceof $a) . \"B\"")
+            , ("$x instanceof $a ** 2", "($x instanceof $a) ** 2")
+            , ("$x instanceof A ** 2 ** 3", "($x instanceof A) ** (2 ** 3)")
+            , ("$x instanceof A ** $b = 1", "($x instanceof A) ** ($b = 1)")
+            , ("$x instanceof A instanceof B", "($x instanceof A) instanceof B")
+            ]
+      forM_ cases $ \(src, expected) -> do
+        let program expr = "<?php " <> expr <> ";"
+        case (parseProgram "issue393.php" (program src),
+              parseProgram "issue393.php" (program expected)) of
+          (Right ast, Right expectedAst) -> do
+            assertEqual (T.unpack src)
+              (stripAnnotations expectedAst) (stripAnnotations ast)
+            case parseProgram "issue393.php" (prettyPrint ast) of
+              Left err -> assertFailure (show (formatParseError err))
+              Right reparsed -> assertEqual (T.unpack src ++ ": round trip")
+                (stripAnnotations ast) (stripAnnotations reparsed)
+          (actual, expectedResult) -> assertFailure
+            (T.unpack src ++ ": " ++ show (actual, expectedResult))
+
   , testCase "Assignment in tighter-binding operands (Issue #368)" $ do
       let cases =
             [ ("$a && $b = 1", "$a && ($b = 1)")
