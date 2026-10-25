@@ -118,6 +118,49 @@ annotationTests = testGroup "Public annotations"
         Left err -> assertFailure (show err)
         Right (Program _ stmts) ->
           mapM_ (checkSlice source) (concatMap (queryStmt (\e -> [e])) stmts)
+  , testGroup "spans include edge parentheses and braces" $
+      [ testCase (T.unpack source) $
+          case parseExpression "annotation.php" source of
+            Left err -> assertFailure (show err)
+            Right expr -> do
+              assertSpan expr 0 (T.length source)
+              mapM_ (checkSlice source) (queryExpr (\e -> [e]) expr)
+      | source <- [ "1 + ($a)", "($a) + 1", "$x = ($a)", "($f)(1)"
+                  , "($a)[0]", "($a)->b", "(new A)->b", "$b ? 1 : (2)"
+                  , "$a->{$b}", "A::{$b}", "$a->{\"b\"}()"
+                  , "(($a))", "((1 + ($a)) * (($b)))", "-($a)", "!($a)"
+                  , "($a)?->b", "($a)::b()", "($a)++", "$a?->{$b}", "A::{$b}()", "$a instanceof ($b)"
+                  , "1 + $a", "$a + 1", "$a->b", "A::B"
+                  ]
+      ] ++
+      [ testCase "parenthesized expression with inner padding keeps its parentheses" $
+          case parseExpression "annotation.php" "1 + ( $a /* c */ ) /* trailing */" of
+            Left err -> assertFailure (show err)
+            Right expr -> assertSpan expr 0 18
+      , testCase "interpolated array key variable starts at the dollar sign" $ do
+          let source = "<?php \"$a[$k]\";"
+          case parseProgram "annotation.php" source of
+            Left err -> assertFailure (show err)
+            Right (Program _ stmts) ->
+              mapM_ (checkSlice source) (concatMap (queryStmt (\e -> [e])) stmts)
+      , testCase "interpolated array key variable span covers the dollar sign" $
+          case parseProgram "annotation.php" "<?php \"$a[$k]\";" of
+            Right (Program _ [StmtExpr _ (ExprLit _ (LitInterpolated _ [StrExpr (ExprArrayAccess _ _ (Just key))]))]) ->
+              nodeSpan key @?= Span (SourcePos "annotation.php" 1 11 10) (SourcePos "annotation.php" 1 13 12)
+            result -> assertFailure ("Unexpected parse result: " ++ show result)
+      , testCase "comments around parentheses stay with the parenthesized operand" $
+          case parseExpression "annotation.php" "1 + /* c */ ( /* d */ new A)" of
+            Right (ExprBinary _ _ _ rhs) -> do
+              assertSpan rhs 12 28
+              annTrivia (annotation rhs) @?= [CommentBlock " c ", CommentBlock " d "]
+            result -> assertFailure ("Unexpected parse result: " ++ show result)
+      , testCase "program slices of parenthesized operands reparse" $ do
+          let source = "<?php $x = ($a) + (f($b))[0]; echo (new A)->b, $a->{$b};"
+          case parseProgram "annotation.php" source of
+            Left err -> assertFailure (show err)
+            Right (Program _ stmts) ->
+              mapM_ (checkSlice source) (concatMap (queryStmt (\e -> [e])) stmts)
+      ]
   ]
 
 checkSlice :: T.Text -> Expr (Annotated Span) -> Assertion

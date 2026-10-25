@@ -28,6 +28,7 @@ module Language.PHP.Parser.Internal
 import Control.Applicative ((<|>), optional)
 import Control.Monad (guard, join, void, when)
 import Data.Maybe (isJust, isNothing)
+import Data.Traversable (mapAccumL)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Text.Megaparsec as M
@@ -51,6 +52,11 @@ data TernaryMode
   = FullTernary
   | ShortTernary
   | NoTernary
+
+-- | Replace an expression's root annotation. Every constructor holds it as
+-- its first field, so it is the first element the derived traversal visits.
+setAnnotation :: a -> Expr a -> Expr a
+setAnnotation root = snd . mapAccumL (\atRoot a -> (False, if atRoot then root else a)) True
 
 -- | Check whether an expression is an empty destructuring pattern or contains
 -- an empty destructuring pattern at any nested level.
@@ -528,9 +534,9 @@ parseExprWithGrammar grammar = parseExprRec
 
         parseMethodOrProp = do
           _ <- symbol "->"
-          name <- parseMemberName
+          (nameSp, name) <- spanned parseMemberName
           mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
-          let sp = combineSpans (annotation base) (maybe (annotation name) fst mArgs)
+          let sp = combineSpans (annotation base) (maybe nameSp fst mArgs)
           case mArgs of
             Nothing -> pure (ExprPropertyFetch sp base name)
             Just (_, FirstClassCallable)
@@ -540,9 +546,9 @@ parseExprWithGrammar grammar = parseExprRec
 
         parseNullsafeMethodOrProp = do
           _ <- symbol "?->"
-          name <- parseMemberName
+          (nameSp, name) <- spanned parseMemberName
           mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
-          let sp = combineSpans (annotation base) (maybe (annotation name) fst mArgs)
+          let sp = combineSpans (annotation base) (maybe nameSp fst mArgs)
           case mArgs of
             Nothing -> pure (ExprNullsafePropertyFetch sp base name)
             Just (_, FirstClassCallable) -> fail "Cannot combine nullsafe operator with Closure creation"
@@ -550,12 +556,12 @@ parseExprWithGrammar grammar = parseExprRec
 
         parseStaticAccess = do
           _ <- doubleColon
-          target <- parseStaticTarget
+          (targetSp, target) <- spanned parseStaticTarget
           let classTarget = toClassTarget base
           case target of
             Left varName -> do
               mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
-              let sp = combineSpans (annotation base) (maybe (annotation varName) fst mArgs)
+              let sp = combineSpans (annotation base) (maybe targetSp fst mArgs)
               case mArgs of
                 Nothing -> pure (ExprStaticPropertyFetch sp classTarget varName)
                 Just (_, args) ->
@@ -564,7 +570,7 @@ parseExprWithGrammar grammar = parseExprRec
                   in pure (ExprStaticCall sp classTarget (MemberExpr varExpr) args)
             Right constOrMethod -> do
               mArgs <- optional (spanned (parseCallArgsWith parseExprRec))
-              let sp = combineSpans (annotation base) (maybe (annotation constOrMethod) fst mArgs)
+              let sp = combineSpans (annotation base) (maybe targetSp fst mArgs)
               case mArgs of
                 Nothing -> pure (ExprClassConstFetch sp classTarget constOrMethod)
                 Just (_, args) ->
@@ -625,7 +631,15 @@ parseExprWithGrammar grammar = parseExprRec
       <|> parseEval
       <|> parseExit
       <|> parseConstFetch
-      <|> parens parseExprRec
+      <|> parseParenthesized
+
+    -- The AST has no parenthesis node, so the inner expression takes the
+    -- parentheses' span; operators and postfixes around it then cover them
+    -- too (Issue #395). Its leading trivia moves with it.
+    parseParenthesized = do
+      (sp, expr) <- spanned (parens parseExprRec)
+      moveTrivia (annotation expr) sp
+      pure (setAnnotation sp expr)
 
     parseIsset = withSpan $ do
       keyword_ "isset"
@@ -722,14 +736,14 @@ parseExprWithGrammar grammar = parseExprRec
           where
             parseProp = do
               _ <- symbol "->"
-              name <- parseMemberName
-              let sp = combineSpans (annotation base) (annotation name)
+              (nameSp, name) <- spanned parseMemberName
+              let sp = combineSpans (annotation base) nameSp
               pure (ExprPropertyFetch sp base name)
 
             parseNullsafeProp = do
               _ <- symbol "?->"
-              name <- parseMemberName
-              let sp = combineSpans (annotation base) (annotation name)
+              (nameSp, name) <- spanned parseMemberName
+              let sp = combineSpans (annotation base) nameSp
               pure (ExprNullsafePropertyFetch sp base name)
 
             parseStaticProp = do
@@ -749,7 +763,7 @@ parseExprWithGrammar grammar = parseExprRec
     -- class name, a 'parseNewVariable', or any parenthesized expression.
     -- Calls, class constants and literals need parentheses (Issue #393).
     parseClassNameReference =
-      parens parseExprRec <|> parseNewVariable <|> parseConstFetch
+      parseParenthesized <|> parseNewVariable <|> parseConstFetch
 
     parseMatch = withSpan $ do
       _ <- keyword "match"
