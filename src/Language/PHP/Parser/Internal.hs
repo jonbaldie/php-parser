@@ -382,10 +382,18 @@ parseExprWithGrammar grammar = parseExprRec
       ]
 
     -- @instanceof@ binds below unary operators and exponentiation, but above
-    -- multiplicative, additive, shift, pipe, and comparison operators.
-    parseInstanceof = parseBinaryLeft parseExponentiation
-      [ (void (keyword "instanceof"), OpInstanceof)
-      ]
+    -- multiplicative, additive, shift, pipe, and comparison operators. Its
+    -- right operand is a class name reference, which cannot absorb a
+    -- following "**": PHP reads @$x instanceof A ** 2@ as
+    -- @($x instanceof A) ** 2@ (Issue #393).
+    parseInstanceof = parseExponentiation >>= parseInstanceofRest
+      where
+        parseInstanceofRest lhs = (do
+          _ <- keyword "instanceof"
+          rhs <- parseClassNameReference
+          let sp = combineSpans (annotation lhs) (annotation rhs)
+          parsePowRest (ExprBinary sp OpInstanceof lhs rhs) >>= parseInstanceofRest)
+          <|> pure lhs
 
     parseMulDivMod = parseBinaryLeft parseInstanceof
       [ (void (lexeme (M.try (C.char '*' <* M.notFollowedBy (C.char '*' <|> C.char '=')))), OpMul)
@@ -393,13 +401,13 @@ parseExprWithGrammar grammar = parseExprRec
       , (void (lexeme (M.try (C.char '%' <* M.notFollowedBy (C.char '=')))), OpMod)
       ]
 
-    parseExponentiation = do
-      lhs <- parseUnary
-      (do
-        _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
-        rhs <- parseOperand parseExponentiation
-        let sp = combineSpans (annotation lhs) (annotation rhs)
-        pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
+    parseExponentiation = parseUnary >>= parsePowRest
+
+    parsePowRest lhs = (do
+      _ <- lexeme (M.try (C.string "**" <* M.notFollowedBy (C.char '=')))
+      rhs <- parseOperand parseExponentiation
+      let sp = combineSpans (annotation lhs) (annotation rhs)
+      pure (ExprBinary sp OpPow lhs rhs)) <|> pure lhs
 
     -- Keyword expressions consume a complete assignment-level argument even
     -- in tighter operands (Issues #370, #389). Keep them out of parseUnary:
@@ -683,23 +691,30 @@ parseExprWithGrammar grammar = parseExprRec
       where
         parseNewTarget =
           (ClassTargetExpr <$> parens parseExprRec)
-          <|> (parseVariableExpr >>= chainDynamicTarget)
-          <|> M.try (do
-                QualifiedName qnSp kind parts <- parseClassName
-                let qn = QualifiedName qnSp kind parts
-                _ <- doubleColon
-                vn <- variableName
-                let sp = combineSpans qnSp (annotation vn)
-                chainDynamicTarget (ExprStaticPropertyFetch sp (ClassTargetName qn) vn))
+          <|> (toClassTarget <$> parseNewVariable)
           <|> (ClassTargetName <$> parseClassName)
 
-        chainDynamicTarget base = do
-          mNext <- optional (parseDynamicStep base)
-          case mNext of
-            Nothing   -> pure (toClassTarget base)
-            Just next -> chainDynamicTarget next
+    -- PHP's @new_variable@: a variable, or a static property of a named
+    -- class, followed by property, nullsafe property, static property and
+    -- array steps. Unlike the postfix chain it admits no calls or class
+    -- constants, since it names the class operand of @new@ and @instanceof@.
+    parseNewVariable =
+      (parseVariableExpr <|> M.try parseNamedStaticProp) >>= chainNewVariable
+      where
+        parseNamedStaticProp = do
+          qn <- parseClassName
+          _ <- doubleColon
+          vn <- variableName
+          let sp = combineSpans (annotation qn) (annotation vn)
+          pure (ExprStaticPropertyFetch sp (ClassTargetName qn) vn)
 
-        parseDynamicStep base =
+        chainNewVariable base = do
+          mNext <- optional (parseNewVariableStep base)
+          case mNext of
+            Nothing   -> pure base
+            Just next -> chainNewVariable next
+
+        parseNewVariableStep base =
           parseProp
           <|> parseNullsafeProp
           <|> parseStaticProp
@@ -729,6 +744,12 @@ parseExprWithGrammar grammar = parseExprRec
               (spEnd, _) <- spanned (symbol "]")
               let sp = combineSpans (annotation base) spEnd
               pure (ExprArrayAccess sp base mIdx)
+
+    -- PHP's @class_name_reference@, the right operand of @instanceof@: a
+    -- class name, a 'parseNewVariable', or any parenthesized expression.
+    -- Calls, class constants and literals need parentheses (Issue #393).
+    parseClassNameReference =
+      parens parseExprRec <|> parseNewVariable <|> parseConstFetch
 
     parseMatch = withSpan $ do
       _ <- keyword "match"
@@ -808,9 +829,7 @@ parseExprWithGrammar grammar = parseExprRec
           case mOp of
             Nothing -> pure lhs
             Just op -> do
-              -- instanceof takes a class reference, not an unparenthesized
-              -- assignment or throw; other binary operators admit both.
-              rhs <- if op == OpInstanceof then next else parseOperand next
+              rhs <- parseOperand next
               let sp = combineSpans (annotation lhs) (annotation rhs)
               parseRest (ExprBinary sp op lhs rhs)
 

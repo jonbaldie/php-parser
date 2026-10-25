@@ -387,6 +387,8 @@ prettyExpr expr = prettyLeadingTrivia (AST.annotation expr) $ case expr of
   ExprLit _ l -> prettyLiteral l
   ExprBinary _ OpPow lhs rhs ->
     parens (prettyPowLhs lhs <+> prettyBinOp OpPow <+> prettySubExpr rhs)
+  ExprBinary _ OpInstanceof lhs rhs ->
+    parens (prettySubExpr lhs <+> prettyBinOp OpInstanceof <+> prettyClassNameReference rhs)
   ExprBinary _ op lhs rhs ->
     parens (prettySubExpr lhs <+> prettyBinOp op <+> prettySubExpr rhs)
   ExprUnary _ op e -> prettyUnary op e
@@ -471,6 +473,28 @@ prettySubExpr :: HasLeadingTrivia a => Expr a -> Doc ann
 prettySubExpr e
   | needsAssignParens e = parens (prettyExpr e)
   | otherwise           = prettyExpr e
+
+-- | Render the right operand of @instanceof@. PHP admits only a class name or
+-- a call-free variable chain there, so anything else, such as a call, class
+-- constant or literal, must be parenthesized (Issue #393).
+prettyClassNameReference :: HasLeadingTrivia a => Expr a -> Doc ann
+prettyClassNameReference e = case e of
+  ExprConstFetch {} -> prettyExpr e
+  _ | isNewVariable e -> prettyExpr e
+    | otherwise       -> parens (prettyExpr e)
+  where
+    isNewVariable = \case
+      ExprVar {}                         -> True
+      ExprPropertyFetch _ base _         -> isNewVariable base
+      ExprNullsafePropertyFetch _ base _ -> isNewVariable base
+      ExprArrayAccess _ base _           -> isNewVariable base
+      -- 'prettyTarget' parenthesizes any class expression but a variable,
+      -- and @($a->b)::$c@ is not a class name reference.
+      ExprStaticPropertyFetch _ target _ -> case target of
+        ClassTargetName {}         -> True
+        ClassTargetExpr ExprVar {} -> True
+        ClassTargetExpr _          -> False
+      _                                  -> False
 
 needsAssignParens :: Expr a -> Bool
 needsAssignParens = \case
