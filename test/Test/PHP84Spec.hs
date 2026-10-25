@@ -31,6 +31,43 @@ php84Tests = testGroup "PHP 8.4 Specifications"
             _ -> assertFailure "Expected MemberProperty"
           _ -> assertFailure "Expected StmtClass"
 
+  , testGroup "Comments after properties stay unique across prints (Issue #390)"
+      [ testCase (propertyLabel ++ "/" ++ commentLabel ++ "/" ++ memberLabel) $ do
+          let src = "<?php " <> declaration <> " { " <> property <> "\n" <> comment <> "\n" <> memberSource <> " }"
+              check remaining previous input = case parseProgram "test.php" input of
+                Left err -> assertFailure (show (formatParseError err))
+                Right ast@(Program _ stmts) -> do
+                  let members = case stmts of
+                        [StmtInterface _ decl] -> ifaceMembers decl
+                        [StmtClass _ decl] -> classMembers decl
+                        _ -> []
+                  case members of
+                    [_, member] -> annTrivia (annotation member) @?= [trivia]
+                    _ -> assertFailure ("Unexpected members: " ++ show members)
+                  let output = prettyPrint ast
+                  T.count comment output @?= 1
+                  case previous of
+                    Just printed -> output @?= printed
+                    Nothing -> pure ()
+                  if remaining > (0 :: Int)
+                    then check (remaining - 1) (Just output) output
+                    else pure ()
+          check 3 Nothing src
+      | (propertyLabel, declaration, property) <-
+          [ ("abstract hook", "interface I", "public string $a { get; }")
+          , ("concrete hook", "class C", "public string $a { get => 'a'; }")
+          , ("ordinary property control", "class C", "public string $a = '';")
+          ]
+      , (commentLabel, comment, trivia) <-
+          [ ("docblock", "/** doc */", DocBlock " doc ")
+          , ("line comment", "// line", CommentLine " line")
+          ]
+      , (memberLabel, memberSource) <-
+          [ ("method", if declaration == "interface I" then "public function f(): void;" else "public function f(): void {}")
+          , ("property", if declaration == "interface I" then "public string $b { get; }" else "public string $b;")
+          ]
+      ]
+
   , testCase "Reject duplicate property hooks within one declaration (Issue #278)" $ do
       let rejected =
             [ ("set", "<?php class C { public int $value { set {} set {} } }")

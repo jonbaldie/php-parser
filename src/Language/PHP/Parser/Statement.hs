@@ -1188,7 +1188,8 @@ parseProperty implicitlyAbstract enclosingReadonly attrs = withSpan $ do
       pure (var, mVal)
 
     parsePropertyHooks seen =
-      (M.lookAhead (symbol "}") *> pure [])
+      -- Lookahead must not collect trailing trivia: braces consumes it once.
+      (M.lookAhead (C.char '}') *> pure [])
       <|> do
         hook <- parsePropertyHook
         let hookT = hookType hook
