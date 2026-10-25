@@ -16,6 +16,34 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
       let src = "<?php\nclass Account {\n    public private(set) string $id;\n    public function getId(): string {\n        return $this->id;\n    }\n}"
       assertRoundTrips src
 
+  , testGroup "Skipped-slot comments remain unique across prints (Issue #391)"
+      [ testCase (T.unpack src) $ do
+          let checkCycle input = case parseProgram "test.php" input of
+                Left err -> assertFailure (show (formatParseError err)) >> pure input
+                Right prog -> do
+                  let printed = prettyPrint prog
+                      comments = foldMap annTrivia prog
+                  forM_ [("/* x */", CommentBlock " x "), ("/* y */", CommentBlock " y ")] $ \(token, trivia) -> do
+                    let expected = T.count token src
+                    assertEqual "AST comment count" expected (length (filter (== trivia) comments))
+                    assertEqual "printed comment count" expected (T.count token printed)
+                  pure printed
+          first <- checkCycle src
+          second <- checkCycle first
+          third <- checkCycle second
+          assertEqual "print fixed point" first second
+          assertEqual "third print fixed point" second third
+      | src <-
+          [ "<?php [$a, /* x */, /* y */, $b] = $p;"
+          , "<?php [, /* y */ $b] = $p;"
+          , "<?php [$a, /* x */, $b] = $p;"
+          , "<?php list($a, /* x */, /* y */, $b) = $p;"
+          , "<?php foreach ($p as [/* x */, /* y */, $b]) {}"
+          , "<?php [[$a, /* x */, /* y */, $b]] = $p;"
+          , "<?php [$a, /* x */, /* y */, $b,] = $p;"
+          ]
+      ]
+
   , testCase "Round-trip match expression" $ do
       let src = "<?php\n$res = match ($val) {\n    1, 2 => 'low',\n    default => 'high'\n};"
       assertRoundTrips src

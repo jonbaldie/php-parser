@@ -865,7 +865,9 @@ parseArrayItemWith :: Parser (Expr Span) -> Parser (ArrayItem Span)
 parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
   where
     parseOmittedSlot = do
-      _ <- M.lookAhead comma
+      -- Inspect only the delimiter: the lexeme 'comma' consumes trailing
+      -- trivia, and lookAhead rewinds input but not the lexer state.
+      _ <- M.lookAhead (C.char ',')
       withSpan (pure (\sp -> ArrayItemEmpty sp))
 
     parseItem = withSpan $ do
