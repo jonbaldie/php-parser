@@ -74,6 +74,7 @@ import qualified Text.Megaparsec.Char as C
 import qualified Text.Megaparsec.Char.Lexer as L
 
 import Language.PHP.AST
+import Language.PHP.Parser.Name (qualifiedNameBody)
 import Language.PHP.Span (Span, SourcePos (..), combineSpans, mkSpan)
 
 data LexerState = LexerState
@@ -515,21 +516,9 @@ variableName = M.label "variable" $ lexeme $ withSpan $ do
 
 -- | Qualified name (e.g. \Foo\Bar, Foo\Bar, namespace\Bar).
 qualifiedName :: Parser (QualifiedName Span)
-qualifiedName = M.label "qualified name" $ lexeme $ withSpan $ M.try $ do
-  isFullyQualified <- (True <$ C.char '\\') <|> pure False
-  isNamespaceRel <- (True <$ M.try (C.string "namespace" *> C.char '\\')) <|> pure False
-  firstPart <- rawIdentifier
-  restParts <- many (M.try (C.char '\\' *> rawIdentifier))
-  if not isFullyQualified && not isNamespaceRel && null restParts && isKeyword firstPart
-    then M.empty
-    else do
-      let allParts = firstPart : restParts
-      let kind
-            | isFullyQualified = NameFullyQualified
-            | isNamespaceRel = NameRelative
-            | null restParts = NameUnqualified
-            | otherwise = NameQualified
-      pure (\sp -> QualifiedName sp kind allParts)
+qualifiedName = M.label "qualified name" $ lexeme $ withSpan $ M.try $
+  qualifiedNameBody rawIdentifier $ \kind first ->
+    kind /= NameUnqualified || not (isKeyword first)
 
 -- | Numeric literals: supports decimal, hex 0x, octal 0o/0, binary 0b, and underscores.
 literalInt :: Parser (Literal Span)

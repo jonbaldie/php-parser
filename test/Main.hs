@@ -13,6 +13,7 @@ import Test.RoundTripSpec (roundTripTests)
 import Test.RecursionSchemesSpec (recursionSchemesTests)
 import Test.CompatibilitySpec (compatibilityTests)
 import Test.OracleSpec (oracleTests)
+import Test.QualifiedNameSpec (qualifiedNameTests)
 
 main :: IO ()
 main = do
@@ -23,7 +24,8 @@ main = do
 
 tests :: TestTree -> TestTree
 tests oracle = testGroup "PHP Parser Test Suite"
-  [ annotationTests
+  [ qualifiedNameTests
+  , annotationTests
   , php82Tests
   , php83Tests
   , php84Tests
