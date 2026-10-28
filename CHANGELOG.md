@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.14.0
+
+* Expose exact statement expression traversal and shared root annotation and span accessors (#408, #387).
+* Fix expression parsing for call arguments, assignments, ternaries, throw and other keyword operands, suppressed includes, and attributes (#378, #379, #380, #381, #383, #386, #397).
+* Accept `class` as a method name and restrict `instanceof` operands to class name references (#382, #401).
+* Preserve raw strings, inline HTML and comments when pretty-printing, including a leading newline after a close tag (#384, #385).
+* Correct source spans around trivia, calls, parentheses and braces (#377, #402, #403).
+* Avoid duplicated comments in skipped destructuring slots and after property hooks, and retain trailing omitted destructuring slots (#398, #400, #404).
+* Share qualified-name parsing between expression and type readers (#407).
+
 ## 0.1.13.0
 
 * Reject `var` when combined with any other property modifier, in either order, matching PHP's grammar (#341).
