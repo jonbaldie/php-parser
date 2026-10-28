@@ -40,6 +40,7 @@ module Language.PHP
   , stripAnnotations
   , mapAnnotation
   , foldExpr
+  , foldStmtExprs
   , foldStmt
   , queryExpr
   , queryStmt

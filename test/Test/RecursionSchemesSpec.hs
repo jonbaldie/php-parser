@@ -102,13 +102,28 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
             "list($newA, , $b)"
             (prettyPrintExpr transformed)
 
-  , testCase "queryStmt counts total expressions in a block" $ do
+  , testCase "foldStmtExprs counts every expression in a block" $ do
       let src = "if ($cond) { $x = 1; return $x + 2; }"
       case parseStatement "test.php" src of
         Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "Expression count" (Sum (7 :: Int))
+            (foldStmtExprs (const (Sum 1)) stmt)
+
+  , testCase "exact statement fold visits nested calls while queryStmt prunes" $ do
+      case parseStatement "test.php" "echo f(g(h()));" of
+        Left err -> assertFailure (show (formatParseError err))
         Right stmt -> do
-          let Sum exprCount = queryStmt (const (Sum (1 :: Int))) stmt
-          assertBool "Expression count is positive" (exprCount >= 3)
+          let calls = \case ExprCall {} -> Sum (1 :: Int); _ -> Sum 0
+          assertEqual "Exact call count" (Sum 3) (foldStmtExprs calls stmt)
+          assertEqual "Pruned call count" (Sum 1) (queryStmt calls stmt)
+
+  , testCase "exact statement fold visits nested arrays" $ do
+      case parseStatement "test.php" "$x = [$a, [$b]];" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right stmt ->
+          assertEqual "Array count" (Sum (2 :: Int))
+            (foldStmtExprs (\case ExprArray {} -> Sum 1; _ -> Sum 0) stmt)
 
   , testCase "queryStmt allVariables does not double- or triple-count variables in compound expressions (Issue #215)" $ do
       let src = "if ($cond) { $x = 1; return $x + 2; }"
