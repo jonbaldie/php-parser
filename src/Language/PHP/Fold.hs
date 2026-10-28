@@ -6,6 +6,7 @@ module Language.PHP.Fold
   , mapAnnotation
     -- * Folds and Catamorphisms
   , foldExpr
+  , foldStmtExprs
   , foldStmt
     -- * Queries (Monoidal accumulation)
   , queryExpr
@@ -573,9 +574,15 @@ queryClassMemberWith qExpr qStmt = \case
     foldMap (queryAttributeGroupWith qExpr qStmt) (enumCaseAttrs ec) <>
     maybe mempty (queryExprWith qExpr qStmt) (enumCaseVal ec)
 
--- | Catamorphism over expressions using an expression transformation or reduction.
+-- | Accumulate over every expression in preorder, without pruning matching subtrees.
 foldExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
 foldExpr = queryExprUnconditional
+
+-- | Accumulate over every expression in a statement in traversal order, without
+-- pruning matching subtrees. Static declarations, catch bindings and closure
+-- use-clause bindings are represented as synthetic variable expressions.
+foldStmtExprs :: Monoid m => (Expr a -> m) -> Stmt a -> m
+foldStmtExprs = queryStmtUnconditional
 
 -- | Map and accumulate over all statements.
 foldStmt :: Monoid m => (Stmt a -> m) -> Stmt a -> m
@@ -879,8 +886,8 @@ queryExprShortCircuit qExpr qStmt expr =
        then here
        else here <> exprChildren (queryExprShortCircuit qExpr qStmt) qStmt expr
 
--- | Query expressions in statements. See 'queryExpr' for the short-circuiting
--- behavior that avoids double-counting matches from fully recursive queries.
+-- | Query expressions in statements, pruning each expression subtree at its
+-- first non-'mempty' match. See 'foldStmtExprs' for an exact traversal.
 --
 -- Static variable declarations (@static $var = $val;@) are queried for variable
 -- references, surfacing declared static variable names as well as initializer
