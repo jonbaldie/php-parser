@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.15.0
+
+* Collect `allVariables` and `allExprs` results in linear space while preserving traversal order and pruning (#413).
+
 ## 0.1.14.0
 
 * Expose exact statement expression traversal and shared root annotation and span accessors (#408, #387).
