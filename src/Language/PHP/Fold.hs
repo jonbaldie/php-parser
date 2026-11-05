@@ -20,7 +20,7 @@ module Language.PHP.Fold
 
 import Language.PHP.AST
 import Data.Text (Text)
-import Data.Monoid ()
+import Data.Monoid (Endo (..))
 
 -- | Strip annotations from any Functor AST node (replacing them with @()@).
 stripAnnotations :: Functor f => f a -> f ()
@@ -899,10 +899,13 @@ queryStmt q = stmtChildren (queryExprShortCircuit q (queryStmt q)) (queryStmt q)
 
 -- | Collect all expressions within an expression.
 allExprs :: Expr a -> [Expr a]
-allExprs = queryExprUnconditional (: [])
+allExprs expr = appEndo (queryExprUnconditional (Endo . (:)) expr) []
 
 -- | Collect all variable names within an expression.
 allVariables :: Expr a -> [Text]
-allVariables = queryExpr (\case
-  ExprVar _ (SimpleVar _ (VarName _ n)) -> [n]
-  _ -> [])
+allVariables expr = appEndo (visitExpr expr) []
+  where
+    visitExpr e = case e of
+      ExprVar _ (SimpleVar _ (VarName _ n)) -> Endo (n :)
+      _ -> exprChildren visitExpr visitStmt e
+    visitStmt = stmtChildren visitExpr visitStmt

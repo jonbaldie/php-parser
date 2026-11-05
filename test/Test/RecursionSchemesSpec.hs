@@ -28,6 +28,27 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           let vars = allVariables expr
           assertEqual "Extracted variables" ["user", "prefix", "user", "fallback"] vars
 
+  , testCase "list queries preserve order on left-deep and balanced trees (Issue #412)" $ do
+      let var n = ExprVar () (SimpleVar () (VarName () n))
+          a = var "a"
+          b = var "b"
+          dynamic = ExprVar () (DynamicVar () (var "inner"))
+          add = ExprBinary () OpAdd
+          left = add (add (add a b) dynamic) a
+          balanced = add (add a b) (add dynamic a)
+      assertEqual "left-deep variables" ["a", "b", "inner", "a"] (allVariables left)
+      assertEqual "left-deep expressions" [left, add (add a b) dynamic, add a b, a, b, dynamic, var "inner", a] (allExprs left)
+      assertEqual "balanced variables" ["a", "b", "inner", "a"] (allVariables balanced)
+      assertEqual "balanced expressions" [balanced, add a b, a, b, add dynamic a, dynamic, var "inner", a] (allExprs balanced)
+
+  , testCase "list queries traverse closure captures and statements (Issue #412)" $ do
+      case parseExpression "test.php" "function () use ($outer) { return $$inner + $outer; }" of
+        Left err -> assertFailure (show (formatParseError err))
+        Right expr -> do
+          assertEqual "closure variables" ["outer", "inner", "outer"] (allVariables expr)
+          assertEqual "closure expression order" ["function () use ($outer) {\n    return ($$inner + $outer);\n}", "$outer", "($$inner + $outer)", "$$inner", "$inner", "$outer"]
+            (map prettyPrintExpr (allExprs expr))
+
   , testCase "transformExpr rewrites variable names" $ do
       let src = "($a + $b) * $a"
       case parseExpression "test.php" src of
