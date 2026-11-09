@@ -20,7 +20,6 @@ export WIZARD_LIB="$build/library.sh"
 template="$repo/.agents/skills/wizard/template.sh"
 [[ $(grep -c '^# STAGES:' "$template") -eq 1 ]] || { echo 'FAIL: wizard stage marker changed' >&2; exit 1; }
 awk '/^# STAGES:/{exit} {print}' "$template" > "$WIZARD_LIB"
-# Only the library is sourced: the template's browser and GitHub stages never run.
 # shellcheck disable=SC1090
 source "$WIZARD_LIB"
 checks=0

@@ -17,6 +17,6 @@ The check extracts and sources only the real library above the `STAGES` marker i
 
 This is bounded testing, not a proof. It covers the template library, not generated wizard stages, terminal echo behavior, arbitrary `.env` syntax, or real GitHub authentication. The stage index is deliberately not persisted; the saved values, not the completed stage, are what a rerun remembers.
 
-Covered code: `.agents/skills/wizard/template.sh` above its `STAGES` marker and this skill's check and fake `gh`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-wizard-state/SKILL.md`.
+Review changes to `.agents/skills/wizard/template.sh` above its `STAGES` marker and `.agents/skills/verify-wizard-state/`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-wizard-state/SKILL.md`.
 
 After a covered change, inspect the diff and rerun. In a disposable worktree remove the `WRITTEN_ENV+=("$key")` update from `write_env`; the run-summary assertions must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.
