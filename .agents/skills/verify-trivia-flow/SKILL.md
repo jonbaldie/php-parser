@@ -21,7 +21,7 @@ This is bounded testing against the real parser and printer, not a proof. It che
 
 ## Coverage and maintenance
 
-Covered files include `src/Language/PHP/Parser/Lexer.hs` (trivia state, endpoints, and failed `withSpan` restoration), `Parser.hs` (first owner for each span), `Parser/Internal.hs` (parenthesized root annotation), `Parser/Statement.hs` (speculative lookahead), `Pretty.hs`, `AST.hs`, and this skill and `state-check-support`.
+Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`. The cases focus on `Parser/Lexer.hs` (trivia state and endpoints), `Parser.hs` (first owner for each span), `Parser/Internal.hs` (root annotation), `Parser/Statement.hs` (lookahead), and `Pretty.hs`. These five paths are relative to `src/Language/PHP/`.
 
 The sync commit is the last commit changing this file: `git log -1 --format=%H -- .agents/skills/verify-trivia-flow/SKILL.md`. If covered code changes, review its diff and rerun both groups. Do not remove or weaken the comment invariant to make the baseline green. Once the duplication defect is fixed, update the documented baseline after rerunning all cases.
 

@@ -17,6 +17,6 @@ The check enumerates sequences of zero to three selected modifiers for classes, 
 
 This is bounded testing, not a proof of PHP's complete declaration grammar. It does not cover every visibility, promoted-parameter modifier, attribute, hook body, or enclosing class kind. The rules describe the selected parser contract, not PHP runtime semantics.
 
-Covered code: `src/Language/PHP/Parser/Statement.hs`, the parser and lexer it calls, `AST.hs`, and this skill and `state-check-support`. The sync commit is the last commit changing this file: `git log -1 --format=%H -- .agents/skills/verify-declaration-flow/SKILL.md`.
+Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`; cases focus on `src/Language/PHP/Parser/Statement.hs`. The sync commit is the last commit changing this file: `git log -1 --format=%H -- .agents/skills/verify-declaration-flow/SKILL.md`.
 
 When covered code changes, inspect the diff and rerun the check. In a disposable worktree, replace the duplicate-hook guard `when (hookT \`elem\` seen)` with `when False`; duplicate-hook sequences must fail the check. Discard the worktree, rerun the original, and update this file's sync commit only after reviewing any contract changes. Use `/maintain-formal-verification-skill` when stale.

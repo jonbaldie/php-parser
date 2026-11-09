@@ -17,6 +17,6 @@ The check builds the current library and the actual round-trip harness, then run
 
 This is bounded testing of the CLI and reporting behavior, not a proof of every option combination or a substitute for the full round-trip check. The injected failures exercise reporting, not a real parser defect. If an injection site changes, the script fails and asks for review rather than silently skipping it.
 
-Covered code: `.agents/skills/verify-roundtrip/harness/ExhaustiveRoundTrip.hs`, the library it calls, and this skill. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-roundtrip-runner/SKILL.md`.
+Review changes to `.agents/skills/verify-roundtrip/`, `src/Language/PHP/`, `php-parser.cabal`, and this skill. The scenarios invoke the harness directly, not its wrapper script. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-roundtrip-runner/SKILL.md`.
 
 After a covered change, inspect the diff and rerun. In a disposable worktree change the `--show-rejections` option to leave `showRejections` false. The one-rejection scenario must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` when stale.

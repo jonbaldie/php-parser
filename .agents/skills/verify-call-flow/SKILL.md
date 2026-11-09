@@ -17,6 +17,6 @@ The real parser is compared with finite rules for every argument and parameter s
 
 These are bounded tests, not a proof or a PHP runtime check. Argument names and unpacked values are syntax only; no call executes. The check does not enumerate every postfix constructor, expression, parameter context, or attribute.
 
-Covered code: `src/Language/PHP/Parser/Internal.hs` (argument and parameter checks, postfix chain and receiver predicates), `Parser/Statement.hs` (function parameters), `Parser/Expression.hs`, `Parser/Lexer.hs`, `AST.hs`, and this skill and `state-check-support`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-call-flow/SKILL.md`.
+Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`. Cases focus on `src/Language/PHP/Parser/Internal.hs` (argument and parameter checks, postfix chain and receiver predicates), `Parser/Statement.hs`, and `Parser/Expression.hs`; the last two paths are relative to `src/Language/PHP/`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-call-flow/SKILL.md`.
 
 After a covered change, inspect the diff and rerun the check. In a disposable worktree change the result of the `isPositional arg && seenNamed` guard in `hasPositionalAfterNamed` from `True` to `False`. The named-then-positional examples must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` when stale.

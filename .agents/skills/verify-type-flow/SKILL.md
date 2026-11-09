@@ -17,6 +17,6 @@ The check enumerates one to three atoms chosen from two simple names, a nullable
 
 This is bounded testing, not an unbounded proof or a PHP runtime oracle. It does not cover arbitrary names, all nested forms, every type context, or PHP's complete semantic type restrictions.
 
-Covered code: `src/Language/PHP/Parser/Type.hs`, `Parser/Statement.hs`, `Parser/Name.hs`, `Parser/Lexer.hs`, `AST.hs`, and this skill and `state-check-support`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-type-flow/SKILL.md`.
+Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`; cases focus on `src/Language/PHP/Parser/Type.hs` and `src/Language/PHP/Parser/Statement.hs`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-type-flow/SKILL.md`.
 
 After a covered change, review the diff and rerun. In a disposable worktree disable the guard in `failIfNullable`; unions containing `?A` must fail this check. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.

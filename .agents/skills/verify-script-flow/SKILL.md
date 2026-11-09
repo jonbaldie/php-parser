@@ -19,6 +19,6 @@ A rejection is expected for invalid sequences. The check is bounded testing of t
 
 ## Coverage and maintenance
 
-The covered code is `Parser/Lexer.hs` (`withStatement`, declaration and namespace state, and close-tag handshake), `Parser/Statement.hs` (`parseProgram`, script modes, and declaration checks), `Parser.hs`, `AST.hs`, and the case and runner files under this skill and `state-check-support`. Paths under `Parser/` are relative to `src/Language/PHP/`.
+Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`. The cases focus on `src/Language/PHP/Parser/Lexer.hs` (statement and namespace state and the close-tag handshake), `Parser/Statement.hs` (script modes and declaration checks), and `Pretty.hs`; the last two paths are relative to `src/Language/PHP/`.
 
 The sync commit is the last commit that changed this file. Find it with `git log -1 --format=%H -- .agents/skills/verify-script-flow/SKILL.md`. When covered code changes after that commit, inspect the diff and compare the transition table with the new code. Update the cases only for an intended contract change. In a disposable worktree, replace `namespaceDeclarationTooLate` with `pure False` and confirm that the check reports an ordinary statement followed by a namespace. Discard the worktree and rerun the original check. Move the sync commit forward by changing this file only after confirming the cases still describe the code. Use `/maintain-formal-verification-skill` if the check has fallen behind.

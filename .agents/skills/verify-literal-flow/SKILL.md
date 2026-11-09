@@ -17,6 +17,6 @@ The check runs 32 explicit cases against the real lexer, parser, and printer: se
 
 This is bounded testing, not a proof. It does not enumerate all escape sequences, indentation layouts, Unicode, comment positions, labels, or nesting contexts. AST comparisons strip source annotations; the separate comment-boundary checks count trivia directly.
 
-Covered code: `src/Language/PHP/Parser/Lexer.hs`, `Parser/Internal.hs`, `Parser/Statement.hs`, `Pretty.hs`, `AST.hs`, and this skill and `state-check-support`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-literal-flow/SKILL.md`.
+Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`. Cases focus on `Parser/Lexer.hs`, `Parser/Internal.hs`, and `Pretty.hs`, relative to `src/Language/PHP/`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-literal-flow/SKILL.md`.
 
 After a covered change, inspect the diff and rerun. In a disposable worktree replace `True : repeat False` with `False : repeat False` in `prettyHeredocParts`. The decoded label-at-line-start cases must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.
