@@ -451,7 +451,7 @@ prettyExpr expr = prettyLeadingTrivia (AST.annotation expr) $ case expr of
     "(" <> hsep (punctuate "," (map prettyParam params)) <> ")" <>
     maybe mempty (\r -> ": " <> prettyType r) retType <+> "=> " <> prettyExpr bodyExpr
   ExprYield _ mK mV ->
-    "yield" <> maybe mempty (\k -> " " <> prettyExpr k <+> "=>") mK <>
+    "yield" <> maybe mempty (\k -> " " <> prettySubExpr k <+> "=>") mK <>
     maybe mempty (\v -> " " <> prettyExpr v) mV
   ExprYieldFrom _ e -> "yield from " <> prettyExpr e
   ExprCast _ ct e -> "(" <> prettyCastType ct <> ")" <> prettySubExpr e
