@@ -25,7 +25,7 @@ For all counterexamples, add `--all-failures`. For one rejected input and the re
 
 The input in a failure is PHP source generated without `prettyPrintExpr`. The checker first parses that entire input, strips annotations, prints the AST, and reparses the printed source. A failure reports the input and printed text, plus either the parse error or both ASTs. Reproduce the source with `parseExpression` before changing the generator. If the source is accepted and the AST changes, treat it as a product finding. Do not filter it out merely to make the check pass.
 
-At sync commit `51db30ad31f3a15081c92ec7d069d80e00c55524`, GHC 9.12.1 produced 13,859 cases. The parser accepted 13,566 and rejected 293. One accepted case failed. `yield (yield 42) => $y` prints as `yield yield 42 => $y`. The original AST yields `$y` with a nested yield as its key. The printed source instead nests the keyed yield in the outer yield's value. The check exits 1 until that finding is fixed.
+At the sync commit, GHC 9.12.1 produced 13,859 cases. The parser accepted 13,566 and rejected 293; all accepted cases passed. Before the yield-key fix, `yield (yield 42) => $y` printed as `yield yield 42 => $y`, moving the keyed yield into the outer yield's value. The printer now preserves the nested key, and `test/Test/RoundTripSpec.hs` has a regression test.
 
 ## Scope and maintenance
 
@@ -33,11 +33,11 @@ At sync commit `51db30ad31f3a15081c92ec7d069d80e00c55524`, GHC 9.12.1 produced 1
 
 The comparison removes annotations, so spans and comments are outside the property. It does not check PHP runtime semantics, PHP's acceptance of input, statement or program round-trips, or whether the parser rejects invalid source. This is bounded testing of real Haskell code, not a proof for unbounded inputs.
 
-The coverage record at sync commit `51db30ad31f3a15081c92ec7d069d80e00c55524` is:
+The sync commit is the last commit that changed this file. Find it with `git log -1 --format=%H -- .agents/skills/verify-roundtrip/SKILL.md`. At that commit, this coverage record was confirmed:
 
 - `src/Language/PHP/Parser.hs`, `Parser/Statement.hs`, `Parser/Expression.hs`, `Parser/Internal.hs`, `Parser/Type.hs`, `Parser/Name.hs`, and `Parser/Lexer.hs` provide `parseExpression` and its grammar.
 - `src/Language/PHP/Pretty.hs` provides `prettyPrintExpr` and the expression, literal, and type renderers it calls.
 - `src/Language/PHP/AST.hs`, `Fold.hs`, and `Span.hs` define the compared AST and annotation removal.
 - `php-parser.cabal` defines the library dependencies and exposed modules.
 
-When any covered code changes after the sync commit, inspect the diff and update the generator, expected coverage, or property as appropriate. Run the check and inspect every new failure and acceptance change. In a disposable worktree, run the check with `--group 'binary/+'` and confirm it passes. Change `prettyBinOp` for `OpAdd` from `"+"` to `"-"`, rerun that group, and confirm that an addition source produces an AST mismatch. Remove the mutation, rerun the group, and run the full check. Move the sync commit forward only after confirming that the check describes the covered code at that commit. Use `/maintain-formal-verification-skill` when the verification has fallen behind.
+When any covered code changes after the sync commit, inspect the diff and update the generator, expected coverage, or property as appropriate. Run the check and inspect every new failure and acceptance change. In a disposable worktree, run the check with `--group 'binary/+'` and confirm it passes. Change `prettyBinOp` for `OpAdd` from `"+"` to `"-"`, rerun that group, and confirm that an addition source produces an AST mismatch. Remove the mutation, rerun the group, and run the full check. Change this skill file, and thus move the sync commit forward, only after confirming that the check describes the covered code at that commit. Use `/maintain-formal-verification-skill` when the verification has fallen behind.
