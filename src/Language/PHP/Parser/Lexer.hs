@@ -885,8 +885,11 @@ unicodeCodepoint digits
 mergeLiterals :: [StringPart a] -> [StringPart a]
 mergeLiterals = \case
   [] -> []
-  StrLit a : StrLit b : rest -> mergeLiterals (StrLit (a <> b) : rest)
+  StrLit t : rest -> collect [t] rest
   p : rest -> p : mergeLiterals rest
+  where
+    collect chunks (StrLit t : rest) = collect (t : chunks) rest
+    collect chunks rest = StrLit (T.concat (reverse chunks)) : mergeLiterals rest
 
 -- | Heredoc and Nowdoc (including flexible indented syntax).
 --
