@@ -14,6 +14,7 @@ export PHP84_BIN="$skill/fake-php.sh"
 export FAKE_ORACLE_PATH="$build/empty-path"
 export FAKE_ORACLE_LOG="$build/lint.log"
 cd "$repo"
+cabal build -j1 --only-dependencies test:php-parser-test
 cabal exec -- ghc -v0 -O0 -threaded -Wall -Werror -XGHC2021 -XLambdaCase \
   -i"$repo/test" -i"$repo/.agents/skills/state-check-support" \
   -outputdir "$build" -o "$build/check" "$skill/CacheFlow.hs"

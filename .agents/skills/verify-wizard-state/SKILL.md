@@ -13,7 +13,7 @@ From the repository root run:
 bash .agents/skills/verify-wizard-state/check.sh
 ```
 
-The check extracts and sources only the real library above the `STAGES` marker in `.agents/skills/wizard/template.sh`. It never runs the template's browser or GitHub stages. A temporary `.env` and fake `gh` executable exercise writes, defaults, secret and variable success and failure, stage increments, summary output, and a fresh process. Baseline: 20 assertions, zero failures. No real browser, GitHub operation, or user `.env` is touched. Temporary files are removed on exit. Extra arguments exit 2; failures return nonzero.
+The check extracts and sources only the real library above the `STAGES` marker in `.agents/skills/wizard/template.sh`. It never runs the template's browser or GitHub stages. A temporary `.env` and fake `gh` executable exercise writes, defaults, secret and variable success and failure, stage increments, summary output, and a fresh process. Baseline: 20 assertions, zero failures. Empty write summaries are checked explicitly, including on Bash 3.2. No real browser, GitHub operation, or user `.env` is touched. Temporary files are removed on exit. Extra arguments exit 2; failures return nonzero.
 
 This is bounded testing, not a proof. It covers the template library, not generated wizard stages, terminal echo behavior, arbitrary `.env` syntax, or real GitHub authentication. The stage index is deliberately not persisted; the saved values, not the completed stage, are what a rerun remembers.
 

@@ -7,5 +7,6 @@ if [[ $# -ne 0 ]]; then
   exit 2
 fi
 cd "$repo"
+cabal build -j1 --only-dependencies test:php-parser-test
 cabal exec -- ghc -v0 -XGHC2021 -XLambdaCase -XOverloadedStrings \
   -e "$(<"$skill/Imports.expr")" test/Test/Gen/PHPSource.hs
