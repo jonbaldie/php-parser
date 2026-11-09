@@ -1,3 +1,30 @@
+# Heredoc allocation check
+
+`HeredocAllocation.hs` parses a heredoc or nowdoc and checks its decoded text.
+The RTS allocation includes input construction, parsing, and the content check.
+The nowdoc is a control, not an isolated measurement of the literal merge.
+
+```sh
+cabal build lib:php-parser
+mkdir -p /tmp/php-parser-heredoc-objects
+cabal exec -- ghc -O1 -rtsopts -outputdir /tmp/php-parser-heredoc-objects -o /tmp/heredoc-allocation bench/HeredocAllocation.hs
+/tmp/heredoc-allocation heredoc 4000 +RTS -s
+/tmp/heredoc-allocation nowdoc 4000 +RTS -s
+```
+
+Compile the same script against each revision with the same compiler and flags.
+With GHC 9.12.2 and `-O1`, five alternating runs per revision produced the
+same allocation on every run. The baseline was `8e08770`.
+
+| Heredoc lines | Baseline bytes | Updated bytes |
+| ---: | ---: | ---: |
+| 1,000 | 20,839,536 | 15,718,888 |
+| 2,000 | 51,502,552 | 31,260,904 |
+| 4,000 | 142,828,592 | 62,344,944 |
+
+The 4,000-line nowdoc control allocated 20,724,416 bytes on both revisions.
+These figures include work outside the merge.
+
 # Query allocation check
 
 `QueryAllocation.hs` measures cumulative allocation while each query builds its

@@ -15,7 +15,33 @@ import qualified Language.PHP.Parser.Expression as ExprParser
 
 expressionTests :: TestTree
 expressionTests = testGroup "Expression Specifications"
-  [ testCase "Low-precedence keyword operands parse (Issue #389)" $ do
+  [ testCase "Heredoc and string literal runs keep their content (Issue #411)" $ do
+      let linesOfText = T.intercalate "\n" (replicate 1000 "line")
+          heredoc = "<<<END\n" <> linesOfText <> "\nEND"
+          nowdoc = "<<<'END'\n" <> linesOfText <> "\nEND"
+      forM_ [(False, heredoc), (True, nowdoc)] $ \(isNowdoc, src) ->
+        case parseExpression "issue411.php" src of
+          Right expr@(ExprLit _ (LitHeredoc _ "END" value actualNowdoc raw)) -> do
+            assertEqual "decoded content" linesOfText value
+            assertEqual "raw content" linesOfText raw
+            assertEqual "nowdoc flag" isNowdoc actualNowdoc
+            assertRoundTripExpr expr
+          result -> assertFailure (show result)
+      case parseExpression "issue411.php" "<<<END\nleft{\\n\nmore $x after{\\t\nend\nEND" of
+        Right expr@(ExprLit _ (LitHeredocInterpolated _ "END"
+          [StrLit "left{\n\nmore ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "x"))), StrLit " after{\t\nend"])) ->
+            assertRoundTripExpr expr
+        result -> assertFailure (show result)
+      case parseExpression "issue411.php" "\"a{{b $x c{{d\"" of
+        Right expr@(ExprLit _ (LitInterpolated _
+          [StrLit "a{{b ", StrExpr (ExprVar _ (SimpleVar _ (VarName _ "x"))), StrLit " c{{d"])) ->
+            assertRoundTripExpr expr
+        result -> assertFailure (show result)
+      case parseExpression "issue411.php" "\"{{{{\"" of
+        Right (ExprLit _ (LitString _ "{{{{" "\"{{{{\"")) -> pure ()
+        result -> assertFailure (show result)
+
+  , testCase "Low-precedence keyword operands parse (Issue #389)" $ do
       forM_
         [ "<?php $x = (string) include \"f.php\";"
         , "<?php if (false === include \"f.php\") {}"
