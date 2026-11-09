@@ -1,0 +1,13 @@
+let candidates = [(["A"], "first A"), (["B"], "first B"), (["A", "B"], "group A B"), (["function:A"], "function A"), (["const:A"], "constant A")]
+    sequences 0 = [[]]
+    sequences n = [x : xs | x <- candidates, xs <- sequences (n - 1)]
+    inputs = concatMap sequences [0..4 :: Int]
+    expected xs = snd (foldl' step ([], []) xs)
+      where step (seen, kept) (names, stmt)
+              | any (`elem` seen) names = (seen, kept)
+              | otherwise = (seen ++ names, kept ++ [stmt])
+    failures = [(xs, expected xs, dedupeImports xs) | xs <- inputs, expected xs /= dedupeImports xs]
+in do
+  mapM_ (\(xs, want, got) -> putStrLn ("FAIL " ++ show xs ++ "\n  expected " ++ show want ++ "\n  got " ++ show got)) failures
+  putStrLn ("Checked " ++ show (length inputs) ++ " cases; failures " ++ show (length failures) ++ ".")
+  if null failures then pure () else error "import deduplication mismatch"
