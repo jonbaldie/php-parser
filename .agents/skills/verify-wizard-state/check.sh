@@ -46,7 +46,7 @@ write_env API second
 assert_eq 'upsert keeps one key' "$(grep -c '^API=' "$ENV_FILE")" 1
 assert_eq 'upsert keeps unrelated key' "$(_existing OTHER)" preserved
 assert_eq 'upsert keeps latest value' "$(_existing API)" second
-assert_eq 'writes recorded this run' "${WRITTEN_ENV[*]}" 'OTHER API API'
+assert_eq 'writes recorded this run' "${WRITTEN_ENV[*]-}" 'OTHER API API'
 ask API 'API value' <<< ''
 assert_eq 'ask keeps existing default' "$API" second
 ask NEW_VALUE 'new value' <<< 'provided'
