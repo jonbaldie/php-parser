@@ -241,6 +241,24 @@ roundTripTests = testGroup "Round-Trip & Property Verification"
           Right reparsed ->
             assertEqual (name ++ ": AST preserved") (stripAnnotations ctx) (stripAnnotations reparsed)
 
+  , testGroup "Round-trip yields used as yield keys"
+      [ testCase (T.unpack src) $
+          case parseExpression "yield.php" src of
+            Left err -> assertFailure (show (formatParseError err))
+            Right original -> do
+              let printed = prettyPrintExpr (stripAnnotations original)
+              case parseExpression "yield.php" printed of
+                Left err -> assertFailure ("Printed expression failed to parse: " ++ show (formatParseError err))
+                Right reparsed ->
+                  assertEqual ("AST preserved after printing " ++ T.unpack printed)
+                    (stripAnnotations original) (stripAnnotations reparsed)
+      | src <-
+          [ "yield (yield 42) => $y"
+          , "yield (yield 42 => $x) => $y"
+          , "yield (yield from $x) => $y"
+          ]
+      ]
+
   , testCase "Round-trip ExprAssign nested in composite expressions (Issue #12)" $ do
       let assign = ExprAssign () Nothing (ExprVar () (SimpleVar () (VarName () "y")))
                      (ExprLit () (LitInt () 1 "1"))
