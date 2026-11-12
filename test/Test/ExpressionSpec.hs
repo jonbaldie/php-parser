@@ -780,6 +780,74 @@ expressionTests = testGroup "Expression Specifications"
             pure ()
           other -> assertFailure ("Expected clone-with ExprClone, got: " ++ show other)
 
+  , testCase "Nested parenthesized clone operands parse in linear time (Issue #410)" $ do
+      -- Each clone( layer used to parse its operand once as a clone-with
+      -- argument, fail at the missing comma, then parse it again as a
+      -- parenthesized operand: 2^n work. At 40 layers that never finishes,
+      -- so the timeout turns a regression into a failure, not a hang.
+      let depth = 40 :: Int
+          nested = T.replicate depth "clone(" <> "$x" <> T.replicate depth ")"
+          cloneDepth :: Expr a -> Int
+          cloneDepth = \case
+            ExprClone _ inner Nothing -> 1 + cloneDepth inner
+            ExprVar _ (SimpleVar _ (VarName _ "x")) -> 0
+            _ -> -1000
+          bounded :: String -> Either ParseError a -> IO a
+          bounded name parsed =
+            timeout 2000000 (evaluate parsed) >>= \case
+              Nothing -> assertFailure (name ++ ": did not finish within 2s (Issue #410)")
+              Just (Left err) -> assertFailure (name ++ ": " ++ show (formatParseError err))
+              Just (Right a) -> pure a
+      expr <- bounded "parseExpression" (parseExpression "issue410.php" nested)
+      assertEqual "parseExpression clone depth" depth (cloneDepth expr)
+      prog <- bounded "parseProgram"
+        (parseProgram "issue410.php" ("<?php\n// lead\n$y = " <> nested <> "; // tail\n"))
+      case prog of
+        Program _ [StmtExpr _ (ExprAssign _ _ _ rhs)] ->
+          assertEqual "parseProgram clone depth" depth (cloneDepth rhs)
+        other -> assertFailure ("Expected one assignment statement, got: " ++ show other)
+
+  , testCase "Parenthesized clone operands and clone-with share one parse (Issue #410)" $ do
+      let varNamed name = \case
+            ExprVar _ (SimpleVar _ (VarName _ n)) -> n == name
+            _ -> False
+      case parseExpression "issue410.php" "clone(clone($x), $m)" of
+        Right (ExprClone _ (ExprClone _ x Nothing) (Just m))
+          | varNamed "x" x && varNamed "m" m -> pure ()
+        other -> assertFailure ("Expected clone-with of a nested clone, got: " ++ show other)
+      case parseExpression "issue410.php" "clone(clone($x, $m))" of
+        Right (ExprClone _ (ExprClone _ x (Just m)) Nothing)
+          | varNamed "x" x && varNamed "m" m -> pure ()
+        other -> assertFailure ("Expected clone of a clone-with, got: " ++ show other)
+      case parseExpression "issue410.php" "clone($obj,)" of
+        Right (ExprClone _ obj Nothing) | varNamed "obj" obj -> pure ()
+        other -> assertFailure ("Expected clone-with without payload, got: " ++ show other)
+      -- A parenthesized operand keeps the parentheses' span, and postfix
+      -- operators still bind inside the clone (Issues #28, #395).
+      case parseExpression "issue410.php" "clone ( $x )[0]->p" of
+        Right (ExprClone sp (ExprPropertyFetch fetchSp (ExprArrayAccess _ x _) _) Nothing)
+          | varNamed "x" x -> do
+              assertEqual "clone span start" 0 (posOffset (spanStart (annValue sp)))
+              assertEqual "operand starts at the opening parenthesis" 6 (posOffset (spanStart (annValue fetchSp)))
+        other -> assertFailure ("Expected clone of a postfix chain, got: " ++ show other)
+      case parseExpression "issue410.php" "clone (int) $x" of
+        Right (ExprClone _ (ExprCast _ CastInt x) Nothing) | varNamed "x" x -> pure ()
+        other -> assertFailure ("Expected clone of a cast, got: " ++ show other)
+      -- Each comment is attached exactly once. The abandoned clone-with
+      -- attempt used to drop a comment before the parenthesis and to
+      -- record one before the closing parenthesis twice.
+      forM_ [ "<?php $y = clone(/* c */ $x);", "<?php $y = clone(/* c */ $x, $m);"
+            , "<?php $y = clone /* c */ ($x);", "<?php $y = clone ( $x /* c */ )->p;" ] $ \src ->
+        case parseProgram "issue410.php" src of
+          Right prog ->
+            assertEqual (T.unpack src ++ ": comment attachments") 1
+              (T.count "CommentBlock \" c \"" (T.pack (show prog)))
+          Left err -> assertFailure (show (formatParseError err))
+      forM_ ["clone($x, $m", "clone($x, /* c */", "clone($a, $b, $c)", "clone(", "clone($obj, with: [])"] $ \src ->
+        case parseExpression "issue410.php" src of
+          Left _ -> pure ()
+          Right expr -> assertFailure (T.unpack src ++ ": expected a parse error, got: " ++ show expr)
+
   , testCase "Throw expression in coalescing and ternary" $ do
       let src1 = "$value ?? throw new InvalidArgumentException('Missing value')"
           src2 = "$ready ? $go : throw new RuntimeException('Not ready')"
