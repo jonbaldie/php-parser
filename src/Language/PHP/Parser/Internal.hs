@@ -458,14 +458,14 @@ parseExprWithGrammar grammar = parseExprRec
           operand <- parseOperand parseExponentiation
           pure (\sp -> ExprUnary sp op operand)
 
-        -- Casts likewise bind looser than "**".
-        parseCast = withSpan $ M.try $ do
-          _ <- symbol "("
-          castType <- parseCastType
-          _ <- symbol ")"
-          operand <- parseOperand parseExponentiation
-          pure (\sp -> ExprCast sp castType operand)
-
+    -- Casts likewise bind looser than "**".
+    parseCast = withSpan $ M.try $ do
+      _ <- symbol "("
+      castType <- parseCastType
+      _ <- symbol ")"
+      operand <- parseOperand parseExponentiation
+      pure (\sp -> ExprCast sp castType operand)
+      where
         parseCastType =
           (CastInt <$ (keyword "int" <|> keyword "integer"))
           <|> (CastFloat <$ (keyword "float" <|> keyword "double"))
@@ -474,16 +474,33 @@ parseExprWithGrammar grammar = parseExprRec
           <|> (CastArray <$ keyword "array")
           <|> (CastObject <$ keyword "object")
 
+    -- @clone(@ opens either a PHP 8.5 clone-with argument list or a
+    -- parenthesized operand. Parse the first expression once and let the
+    -- following comma or closing parenthesis decide; trying clone-with and
+    -- then reparsing as an operand doubles the work per nested @clone(@
+    -- layer (Issue #410). A cast is the one other operand that starts with
+    -- @(@, so it is tried first.
     parseClone = withSpan $ do
       _ <- keyword "clone"
-      cloneWith <|> cloneOperand
+      cloneCast <|> cloneParenthesized <|> cloneOperand
       where
-        cloneWith = M.try $ parens $ do
-          obj <- parseExprRec
-          _ <- comma
-          mPayload <- optional parseCloneWithPayload
-          _ <- optional comma
-          pure (\sp -> ExprClone sp obj mPayload)
+        cloneCast = do
+          obj <- parseCast
+          pure (\sp -> ExprClone sp obj Nothing)
+
+        cloneParenthesized = do
+          (parenSp, inner) <- spanned $ parens $ do
+            obj <- parseExprRec
+            (Left . (,) obj <$> (comma *> optional parseCloneWithPayload <* optional comma))
+              <|> pure (Right obj)
+          case inner of
+            Left (obj, mPayload) -> pure (\sp -> ExprClone sp obj mPayload)
+            -- Same as 'parseParenthesized', then the operand's postfix
+            -- chain and assignment, as 'cloneOperand' would parse them.
+            Right expr -> do
+              moveTrivia (annotation expr) parenSp
+              obj <- parseAssignmentOperand (chainPostfix (setAnnotation parenSp expr))
+              pure (\sp -> ExprClone sp obj Nothing)
 
         cloneOperand = do
           obj <- parseOperand parseUnary
