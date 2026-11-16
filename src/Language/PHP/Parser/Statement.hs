@@ -655,10 +655,10 @@ parseNamespace = withSpan $ do
     mName <- optional parseNamespaceName
     case mName of
       Nothing -> do
-        _ <- M.lookAhead (symbol "{")
+        _ <- lookAhead (symbol "{")
         pure (Nothing, BracketedNamespace)
       Just _ -> do
-        form <- (BracketedNamespace <$ M.lookAhead (symbol "{")) <|> (UnbracketedNamespace <$ semi)
+        form <- (BracketedNamespace <$ lookAhead (symbol "{")) <|> (UnbracketedNamespace <$ semi)
         pure (mName, form)
   enterNamespace form
   case form of
@@ -967,7 +967,7 @@ parseConstDecl = withSpan $ do
     (vis, isFinal) <- parseConstModifier
     keyword_ "const"
     pure (attrs, vis, isFinal)
-  mType <- optional (M.try (parseType <* M.lookAhead classConstantIdentifier))
+  mType <- optional (M.try (parseType <* lookAhead classConstantIdentifier))
   case mType of
     Just typ | Just bad <- disallowedConstantType typ ->
       modifierError ("Class constant cannot have type " <> T.unpack bad)
@@ -1201,7 +1201,7 @@ checkMember ctx member = do
 parseMethodOrProperty :: ClassContext -> Bool -> Parser (ClassMember Span)
 parseMethodOrProperty ctx enclosingReadonly = do
   attrs <- parseAttributes
-  isMethod <- (True <$ M.lookAhead (M.try parseMethodLookAhead)) <|> pure False
+  isMethod <- (True <$ lookAhead (M.try parseMethodLookAhead)) <|> pure False
   if isMethod
     then MemberMethod <$> parseMethod ctx attrs
     else MemberProperty <$> parseProperty isIface enclosingReadonly attrs
@@ -1249,7 +1249,7 @@ parseProperty implicitlyAbstract enclosingReadonly attrs = withSpan $ do
     _ -> pure ()
   firstVar <- variableName
   mFirstVal <- optional (symbol "=" *> parseExpr)
-  hasHooks <- (True <$ M.lookAhead (symbol "{")) <|> pure False
+  hasHooks <- (True <$ lookAhead (symbol "{")) <|> pure False
   if hasHooks
     then if enclosingReadonly || propReadonly modif
       then M.empty
@@ -1337,7 +1337,7 @@ parseTraitUse :: Parser (TraitUse Span)
 parseTraitUse = withSpan $ do
   keyword_ "use"
   names <- qualifiedName `M.sepBy1` comma
-  hasAdaptations <- (True <$ M.lookAhead (symbol "{")) <|> pure False
+  hasAdaptations <- (True <$ lookAhead (symbol "{")) <|> pure False
   if hasAdaptations
     then do
       adaptations <- braces (M.many parseTraitAdaptation)

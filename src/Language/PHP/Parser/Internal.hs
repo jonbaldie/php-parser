@@ -684,7 +684,7 @@ parseExprWithGrammar grammar = parseExprRec
     -- form first-class callables via @exit(...)@ and @die(...)@ (Issue #322).
     parseExit = withSpan $ do
       (spKind, kind) <- spanned ((ExitExit <$ keyword "exit") <|> (ExitDie <$ keyword "die"))
-      let parseCallable = parens (symbol "..." <* M.lookAhead (symbol ")"))
+      let parseCallable = parens (symbol "..." <* lookAhead (symbol ")"))
       mCallable <- optional (M.try parseCallable)
       case mCallable of
         Just _ -> pure (\sp -> ExprCall sp (ExprExit spKind kind Nothing) FirstClassCallable)
@@ -722,7 +722,7 @@ parseExprWithGrammar grammar = parseExprRec
               -- classes @new class { ... }@ are terminated by their braces
               -- and may be dereferenced without call parentheses.
               _ <- M.notFollowedBy
-                (M.lookAhead (symbol "->" <|> symbol "?->" <|> doubleColon <|> symbol "["))
+                (lookAhead (symbol "->" <|> symbol "?->" <|> doubleColon <|> symbol "["))
               pure (\sp -> ExprNew sp target [])
             Just args -> pure (\sp -> ExprNew sp target args)
       where
@@ -900,7 +900,7 @@ parseArgWith pExpr = withSpan $ do
 
 parseCallArgsWith :: Parser (Expr Span) -> Parser (CallArgs Span)
 parseCallArgsWith pExpr = parens $
-  (FirstClassCallable <$ M.try (symbol "..." <* M.lookAhead (symbol ")")))
+  (FirstClassCallable <$ M.try (symbol "..." <* lookAhead (symbol ")")))
   <|> (ArgsList <$> parseArgList (parseArgWith pExpr))
 
 parseMatchArmWith :: Parser (Expr Span) -> Parser (MatchArm Span)
