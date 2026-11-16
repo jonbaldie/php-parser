@@ -20,3 +20,9 @@ checks, and the known-divergence table are in `docs/testing/php-oracle.md`.
 ### Exploratory testing
 
 Past exploratory passes and their findings are indexed in `docs/exploratory-testing/README.md`.
+
+### Enforced rules
+
+| Rule | Enforcement |
+| --- | --- |
+| Parser lookahead must restore lexer state. | `Language.PHP.Parser.Megaparsec` provides the safe operation; `bash scripts/check-parser-lookahead.sh` checks imports and historical failures in CI. |

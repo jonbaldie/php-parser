@@ -11,7 +11,7 @@ module Language.PHP.Parser.Type
 import Control.Applicative ((<|>))
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Text.Megaparsec as M
+import qualified Language.PHP.Parser.Megaparsec as M
 
 import Language.PHP.AST
 import Language.PHP.Span (Span (..), combineSpans)

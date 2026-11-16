@@ -25,7 +25,7 @@ module Language.PHP.Parser.Expression
   , isWritable
   ) where
 
-import qualified Text.Megaparsec as M
+import qualified Language.PHP.Parser.Megaparsec as M
 import Language.PHP.AST
 import Language.PHP.Span (Span)
 import Language.PHP.Parser.Lexer (Parser)

@@ -91,7 +91,12 @@ jobs:
         run: cabal update
 
       - name: Check state protocols
+        shell: bash
         run: bash scripts/check-state-machines.sh state-check-results | tee state-check-results-summary.log
+
+      - name: Check parser lookahead boundary
+        shell: bash
+        run: bash scripts/check-parser-lookahead.sh | tee parser-lookahead.log
 
       - name: Compare parser behavior with the baseline
         if: ${{ !cancelled() }}
@@ -106,6 +111,7 @@ jobs:
             state-check-results/
             state-check-results-summary.log
             state-equivalence.log
+            parser-lookahead.log
 
   php-oracle:
     name: Differential oracle against PHP 8.2-8.5
