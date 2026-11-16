@@ -63,6 +63,50 @@ jobs:
       - name: Generate documentation
         run: cabal haddock all
 
+  state-machines:
+    name: State transitions and behavior equivalence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        id: setup-haskell
+        with:
+          ghc-version: '9.12.1'
+          cabal-version: 'latest'
+
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.12.1-cabal-${{ hashFiles('**/*.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.12.1-cabal-
+
+      - name: Update Cabal package index
+        run: cabal update
+
+      - name: Check state protocols
+        run: bash scripts/check-state-machines.sh state-check-results | tee state-check-results-summary.log
+
+      - name: Compare parser behavior with the baseline
+        if: ${{ !cancelled() }}
+        run: bash scripts/check-state-equivalence.sh > state-equivalence.log 2>&1
+
+      - name: Attach verification evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-machine-verification
+          path: |
+            state-check-results/
+            state-check-results-summary.log
+            state-equivalence.log
+
   php-oracle:
     name: Differential oracle against PHP 8.2-8.5
     runs-on: ubuntu-latest
