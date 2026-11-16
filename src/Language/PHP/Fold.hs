@@ -340,43 +340,6 @@ transformStmt f = \case
   StmtHaltCompiler a t -> StmtHaltCompiler a t
   StmtEmpty a -> StmtEmpty a
 
--- | Query attribute group (unconditional traversal; used internally by
--- 'allExprs' and 'foldExpr', which need every node visited exactly once
--- regardless of whether the callback matched an ancestor).
-queryAttributeGroupUnconditional :: Monoid m => (Expr a -> m) -> AttributeGroup a -> m
-queryAttributeGroupUnconditional q = queryAttributeGroupWith q (queryStmtUnconditional q)
-
-queryAttributeGroupWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> AttributeGroup a -> m
-queryAttributeGroupWith qExpr qStmt (AttributeGroup _ attrs) =
-  foldMap (queryAttributeWith qExpr qStmt) attrs
-
-queryAttributeWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Attribute a -> m
-queryAttributeWith qExpr qStmt (Attribute _ _ args) =
-  foldMap (queryArgWith qExpr qStmt) args
-
-queryArgWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Arg a -> m
-queryArgWith qExpr qStmt = queryExprWith qExpr qStmt . argExpr
-
--- | Query parameter (unconditional traversal; see 'queryAttributeGroupUnconditional').
-queryParamUnconditional :: Monoid m => (Expr a -> m) -> Param a -> m
-queryParamUnconditional q = queryParamWith q (queryStmtUnconditional q)
-
-queryParamWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Param a -> m
-queryParamWith qExpr qStmt p =
-  foldMap (queryAttributeGroupWith qExpr qStmt) (paramAttrs p) <>
-  maybe mempty (queryExprWith qExpr qStmt) (paramDefault p)
-
-queryStringPartWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> StringPart a -> m
-queryStringPartWith qExpr qStmt = \case
-  StrLit _ -> mempty
-  StrExpr e -> queryExprWith qExpr qStmt e
-
-queryArrayItemWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> ArrayItem a -> m
-queryArrayItemWith qExpr qStmt = \case
-  ArrayItem _ mKey val _ _ ->
-    maybe mempty (queryExprWith qExpr qStmt) mKey <> queryExprWith qExpr qStmt val
-  ArrayItemEmpty _ -> mempty
-
 -- | Unconditional monoidal query over expressions: applies @q@ to every node,
 -- regardless of whether an ancestor already matched. Used internally by
 -- 'allExprs' and 'foldExpr', which require an exact per-node visit count.
@@ -393,186 +356,14 @@ queryExprUnconditional q = queryExprWith q (queryStmtUnconditional q)
 -- separate visitor lets 'foldStmt' reuse the expression traversal without
 -- changing the public query API.
 queryExprWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Expr a -> m
-queryExprWith qExpr qStmt expr = qExpr expr <> case expr of
-  ExprVar _ v -> case v of
-    DynamicVar _ e -> queryExprWith qExpr qStmt e
-    SimpleVar {} -> mempty
-  ExprLit _ l -> case l of
-    LitInterpolated _ parts -> foldMap (queryStringPartWith qExpr qStmt) parts
-    LitHeredocInterpolated _ _ parts -> foldMap (queryStringPartWith qExpr qStmt) parts
-    _ -> mempty
-  ExprBinary _ _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
-  ExprUnary _ _ e -> queryExprWith qExpr qStmt e
-  ExprAssign _ _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
-  ExprAssignRef _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
-  ExprTernary _ cond tExpr fExpr ->
-    queryExprWith qExpr qStmt cond <>
-    maybe mempty (queryExprWith qExpr qStmt) tExpr <>
-    queryExprWith qExpr qStmt fExpr
-  ExprNullCoalesce _ e1 e2 -> queryExprWith qExpr qStmt e1 <> queryExprWith qExpr qStmt e2
-  ExprClone _ e mWith ->
-    queryExprWith qExpr qStmt e <> maybe mempty (queryExprWith qExpr qStmt) mWith
-  ExprNew _ target args ->
-    (case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
-    foldMap (queryArgWith qExpr qStmt) args
-  ExprNewAnonClass _ attrs _ args _ _ members ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) attrs <>
-    foldMap (queryArgWith qExpr qStmt) args <>
-    foldMap (queryClassMemberWith qExpr qStmt) members
-  ExprCall _ fn args ->
-    queryExprWith qExpr qStmt fn <> case args of
-      ArgsList as -> foldMap (queryArgWith qExpr qStmt) as
-      FirstClassCallable -> mempty
-  ExprMethodCall _ obj member args ->
-    queryExprWith qExpr qStmt obj <>
-    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryArgWith qExpr qStmt) as; FirstClassCallable -> mempty)
-  ExprNullsafeMethodCall _ obj member args ->
-    queryExprWith qExpr qStmt obj <>
-    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryArgWith qExpr qStmt) as; FirstClassCallable -> mempty)
-  ExprPropertyFetch _ obj member ->
-    queryExprWith qExpr qStmt obj <>
-    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty)
-  ExprNullsafePropertyFetch _ obj member ->
-    queryExprWith qExpr qStmt obj <>
-    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty)
-  ExprStaticCall _ target member args ->
-    (case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
-    (case member of MemberExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
-    (case args of ArgsList as -> foldMap (queryArgWith qExpr qStmt) as; FirstClassCallable -> mempty)
-  ExprStaticPropertyFetch _ target _ ->
-    case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty
-  ExprClassConstFetch _ target constName ->
-    (case target of ClassTargetExpr e -> queryExprWith qExpr qStmt e; _ -> mempty) <>
-    (case constName of ConstNameDynamic e -> queryExprWith qExpr qStmt e; _ -> mempty)
-  ExprArray _ items ->
-    foldMap (queryArrayItemWith qExpr qStmt) items
-  ExprList _ items ->
-    foldMap (queryArrayItemWith qExpr qStmt) items
-  ExprArrayAccess _ arr mIdx ->
-    queryExprWith qExpr qStmt arr <> maybe mempty (queryExprWith qExpr qStmt) mIdx
-  ExprMatch _ subject arms ->
-    queryExprWith qExpr qStmt subject <> foldMap (\case
-      MatchArm _ conds res -> foldMap (queryExprWith qExpr qStmt) conds <> queryExprWith qExpr qStmt res
-      MatchDefault _ res -> queryExprWith qExpr qStmt res) arms
-  ExprClosure _ attrs _ _ params uses _ stmts ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) attrs <>
-    foldMap (queryParamWith qExpr qStmt) params <>
-    foldMap (\(vn@(VarName va _), _) -> queryExprWith qExpr qStmt (ExprVar va (SimpleVar va vn))) uses <>
-    foldMap qStmt stmts
-  ExprArrowFunction _ attrs _ _ params _ body ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) attrs <>
-    foldMap (queryParamWith qExpr qStmt) params <>
-    queryExprWith qExpr qStmt body
-  ExprYield _ mK mV ->
-    maybe mempty (queryExprWith qExpr qStmt) mK <> maybe mempty (queryExprWith qExpr qStmt) mV
-  ExprYieldFrom _ e -> queryExprWith qExpr qStmt e
-  ExprCast _ _ e -> queryExprWith qExpr qStmt e
-  ExprIsset _ es -> foldMap (queryExprWith qExpr qStmt) es
-  ExprEmpty _ e -> queryExprWith qExpr qStmt e
-  ExprEval _ e -> queryExprWith qExpr qStmt e
-  ExprInclude _ _ e -> queryExprWith qExpr qStmt e
-  ExprPrint _ e -> queryExprWith qExpr qStmt e
-  ExprShellExec _ parts -> foldMap (queryStringPartWith qExpr qStmt) parts
-  ExprExit _ _ mStatus -> foldMap (queryExprWith qExpr qStmt) mStatus
-  ExprThrow _ e -> queryExprWith qExpr qStmt e
-  ExprConstFetch _ _ -> mempty
+queryExprWith qExpr qStmt expr =
+  qExpr expr <> exprChildren (queryExprWith qExpr qStmt) qStmt expr
 
 -- | Unconditional query over expressions embedded in statements. See
 -- 'queryExprUnconditional' for why this exists alongside 'queryStmt'.
 queryStmtUnconditional :: Monoid m => (Expr a -> m) -> Stmt a -> m
-queryStmtUnconditional q = \case
-  StmtExpr _ e -> queryExprUnconditional q e
-  StmtBlock _ ss -> foldMap (queryStmtUnconditional q) ss
-  StmtIf _ c thens elifs mElse ->
-    queryExprUnconditional q c <> foldMap (queryStmtUnconditional q) thens <>
-    foldMap (\(cond, stmts) -> queryExprUnconditional q cond <> foldMap (queryStmtUnconditional q) stmts) elifs <>
-    maybe mempty (foldMap (queryStmtUnconditional q)) mElse
-  StmtWhile _ c ss -> queryExprUnconditional q c <> foldMap (queryStmtUnconditional q) ss
-  StmtDoWhile _ ss c -> foldMap (queryStmtUnconditional q) ss <> queryExprUnconditional q c
-  StmtFor _ inits conds incrs ss ->
-    foldMap (queryExprUnconditional q) inits <> foldMap (queryExprUnconditional q) conds <>
-    foldMap (queryExprUnconditional q) incrs <> foldMap (queryStmtUnconditional q) ss
-  StmtForeach _ arr mKey val _ ss ->
-    queryExprUnconditional q arr <> maybe mempty (queryExprUnconditional q) mKey <> queryExprUnconditional q val <> foldMap (queryStmtUnconditional q) ss
-  StmtSwitch _ c cases ->
-    queryExprUnconditional q c <> foldMap (\case
-      SwitchCase _ ce ss -> queryExprUnconditional q ce <> foldMap (queryStmtUnconditional q) ss
-      SwitchDefault _ ss -> foldMap (queryStmtUnconditional q) ss) cases
-  StmtBreak _ me -> maybe mempty (queryExprUnconditional q) me
-  StmtContinue _ me -> maybe mempty (queryExprUnconditional q) me
-  StmtReturn _ me -> maybe mempty (queryExprUnconditional q) me
-  StmtThrowStmt _ e -> queryExprUnconditional q e
-  StmtTry _ tryStmts catches mFinally ->
-    foldMap (queryStmtUnconditional q) tryStmts <>
-    foldMap (\c ->
-      maybe mempty (\(vn@(VarName va _)) -> queryExprUnconditional q (ExprVar va (SimpleVar va vn))) (catchVar c) <>
-      foldMap (queryStmtUnconditional q) (catchBody c)) catches <>
-    maybe mempty (foldMap (queryStmtUnconditional q)) mFinally
-  StmtNamespace _ _ mStmts -> maybe mempty (foldMap (queryStmtUnconditional q)) mStmts
-  StmtUse _ _ _ -> mempty
-  StmtGroupUse _ _ _ _ -> mempty
-  StmtConst _ c ->
-    foldMap (queryAttributeGroupUnconditional q) (constAttrs c) <>
-    foldMap (queryExprUnconditional q . snd) (constItems c)
-  StmtFunction _ fn ->
-    foldMap (queryAttributeGroupUnconditional q) (funcAttrs fn) <>
-    foldMap (queryParamUnconditional q) (funcParams fn) <>
-    foldMap (queryStmtUnconditional q) (funcBody fn)
-  StmtClass _ cd ->
-    foldMap (queryAttributeGroupUnconditional q) (classAttrs cd) <>
-    foldMap (queryClassMemberUnconditional q) (classMembers cd)
-  StmtInterface _ id' ->
-    foldMap (queryAttributeGroupUnconditional q) (ifaceAttrs id') <>
-    foldMap (queryClassMemberUnconditional q) (ifaceMembers id')
-  StmtTrait _ td ->
-    foldMap (queryAttributeGroupUnconditional q) (traitAttrs td) <>
-    foldMap (queryClassMemberUnconditional q) (traitMembers td)
-  StmtEnum _ ed ->
-    foldMap (queryAttributeGroupUnconditional q) (enumAttrs ed) <>
-    foldMap (queryClassMemberUnconditional q) (enumMembers ed)
-  StmtEcho _ es -> foldMap (queryExprUnconditional q) es
-  StmtGlobal _ es -> foldMap (queryExprUnconditional q) es
-  StmtStatic _ items ->
-    foldMap (\(vn@(VarName va _), me) -> queryExprUnconditional q (ExprVar va (SimpleVar va vn)) <> maybe mempty (queryExprUnconditional q) me) items
-  StmtDeclare _ dirs mBody ->
-    foldMap (queryExprUnconditional q . declareDirectiveValue) dirs <>
-    maybe mempty (foldMap (queryStmtUnconditional q)) mBody
-  StmtGoto _ _ -> mempty
-  StmtLabel _ _ -> mempty
-  StmtUnset _ es -> foldMap (queryExprUnconditional q) es
-  StmtInlineHtml _ _ -> mempty
-  StmtHaltCompiler _ _ -> mempty
-  StmtEmpty _ -> mempty
-
--- | Unconditional query over expressions embedded in class members. See
--- 'queryExprUnconditional' for why this exists alongside 'queryStmt'.
-queryClassMemberUnconditional :: Monoid m => (Expr a -> m) -> ClassMember a -> m
-queryClassMemberUnconditional q = queryClassMemberWith q (queryStmtUnconditional q)
-
-queryClassMemberWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> ClassMember a -> m
-queryClassMemberWith qExpr qStmt = \case
-  MemberProperty p ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) (propAttrs p) <>
-    foldMap (maybe mempty (queryExprWith qExpr qStmt) . snd) (propItems p) <>
-    foldMap (\h ->
-      foldMap (queryAttributeGroupWith qExpr qStmt) (hookAttrs h) <>
-      case hookBody h of
-        HookExpr e -> queryExprWith qExpr qStmt e
-        HookBlock ss -> foldMap qStmt ss
-        HookAbstract -> mempty) (propHooks p)
-  MemberMethod m ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) (methodAttrs m) <>
-    foldMap (queryParamWith qExpr qStmt) (methodParams m) <>
-    maybe mempty (foldMap qStmt) (methodBody m)
-  MemberConst c ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) (constAttrs c) <>
-    foldMap (queryExprWith qExpr qStmt . snd) (constItems c)
-  MemberTraitUse _ -> mempty
-  MemberEnumCase ec ->
-    foldMap (queryAttributeGroupWith qExpr qStmt) (enumCaseAttrs ec) <>
-    maybe mempty (queryExprWith qExpr qStmt) (enumCaseVal ec)
+queryStmtUnconditional q =
+  stmtChildren (queryExprUnconditional q) (queryStmtUnconditional q)
 
 -- | Accumulate over every expression in preorder, without pruning matching subtrees.
 foldExpr :: Monoid m => (Expr a -> m) -> Expr a -> m
@@ -583,6 +374,12 @@ foldExpr = queryExprUnconditional
 -- use-clause bindings are represented as synthetic variable expressions.
 foldStmtExprs :: Monoid m => (Expr a -> m) -> Stmt a -> m
 foldStmtExprs = queryStmtUnconditional
+
+queryAttributeGroupWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> AttributeGroup a -> m
+queryAttributeGroupWith qExpr qStmt = queryAttributeGroupChildren (queryExprWith qExpr qStmt)
+
+queryParamWith :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Param a -> m
+queryParamWith qExpr qStmt = queryParamChildren (queryExprWith qExpr qStmt)
 
 -- | Map and accumulate over all statements.
 foldStmt :: Monoid m => (Stmt a -> m) -> Stmt a -> m
@@ -659,14 +456,12 @@ foldExprStmts q = queryExprWith (const mempty) (foldStmt q)
 
 -- | Fold statements contained in class members.
 foldClassMember :: Monoid m => (Stmt a -> m) -> ClassMember a -> m
-foldClassMember q = queryClassMemberWith (foldExprStmts q) (foldStmt q)
+foldClassMember q = queryClassMemberChildren (queryExprWith (foldExprStmts q) (foldStmt q)) (foldStmt q)
 
 
 -- | Structural children of an expression, queried via the given recursive
--- callbacks. Shared by 'queryExpr' (short-circuiting) so its traversal logic
--- doesn't have to be duplicated by hand; the unconditional engine used by
--- 'allExprs' and 'foldExpr' ('queryExprWith') is kept separate and untouched,
--- since it must visit every node exactly once regardless of matches.
+-- callbacks. Exact and pruning queries share this child structure; their
+-- recursive callbacks determine whether traversal continues after a match.
 exprChildren :: Monoid m => (Expr a -> m) -> (Stmt a -> m) -> Expr a -> m
 exprChildren recE recS expr = case expr of
   ExprVar _ v -> case v of

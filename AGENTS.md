@@ -26,3 +26,4 @@ Past exploratory passes and their findings are indexed in `docs/exploratory-test
 | Rule | Enforcement |
 | --- | --- |
 | Parser lookahead must restore lexer state. | `Language.PHP.Parser.Megaparsec` provides the safe operation; `bash scripts/check-parser-lookahead.sh` checks imports and historical failures in CI. |
+| Query APIs share child structure; exact traversal and pruning differ only in their recursive callbacks. | `Fold.hs` routes both query engines through `exprChildren` and `stmtChildren`; the shared-query cases in `RecursionSchemesSpec` check historical binding and interpolation omissions. |

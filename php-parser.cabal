@@ -81,6 +81,7 @@ test-suite php-parser-test
                     , Test.QualifiedNameSpec
                     , Test.PrettySpec
                     , Test.RoundTripSpec
+                    , Test.FoldQueryCases
                     , Test.RecursionSchemesSpec
                     , Test.CompatibilitySpec
                     , Test.OracleSpec

@@ -1,5 +1,6 @@
 dist-newstyle/
 state-check-results/
+fold-query-history-results/
 .ghc.environment.*
 *.o
 *.hi
