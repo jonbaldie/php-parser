@@ -13,7 +13,7 @@ From the repository root run:
 bash .agents/skills/state-check-support/run-haskell.sh .agents/skills/verify-trivia-flow/TriviaFlow.hs
 ```
 
-**Known failing baseline:** 51 checks, 32 failures. Four comment styles are each exercised in ten concrete positions. Bracketed and anonymous namespaces, property hooks, trait adaptations, first-class and exit callables, methods, and typed constants duplicate the comment in the initial parse. The two controls pass. The output prints both trivia lists and the generated PHP. The program returns 1 if any case fails; it does not treat these failures as success.
+**Current baseline:** 51 checks, zero failures. Before the state-neutral lookahead fix, 32 checks failed. Four comment styles are each exercised in ten concrete positions. Bracketed and anonymous namespaces, property hooks, trait adaptations, first-class and exit callables, methods, and typed constants previously duplicated the comment in the initial parse. All ten positions and both controls now preserve one copy. The output prints both trivia lists and the generated PHP. The program returns 1 if any case fails; it does not treat these failures as success.
 
 For the separate ownership and widened-root checks, add `--ownership`; all 11 pass on the baseline. Add `--comments` to run only the 40 comment examples. Other options exit 2.
 
@@ -25,4 +25,4 @@ Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.
 
 The sync commit is the last commit changing this file: `git log -1 --format=%H -- .agents/skills/verify-trivia-flow/SKILL.md`. If covered code changes, review its diff and rerun both groups. Do not remove or weaken the comment invariant to make the baseline green. Once the duplication defect is fixed, update the documented baseline after rerunning all cases.
 
-To check sensitivity, use a disposable worktree and change the first `False` in `setAnnotation`'s `mapAccumL` step to `True`. Run `--ownership`: the widened-root case must report altered child spans. Restore that mutation, then remove the `Set.member sp seen` guard in `annotateWithTrivia`; the typed-constant ownership case must fail. Discard the worktree and rerun the unmodified group. Update the sync commit only after review; use `/maintain-formal-verification-skill` if the check is stale.
+To check sensitivity, use a disposable worktree and make `setAnnotation`'s `RootVisited` branch replace the child annotation with the root. Run `--ownership`: the widened-root case must report altered child spans. Restore that mutation, then remove the `Set.member sp seen` guard in `annotateWithTrivia`; the typed-constant ownership case must fail. Discard the worktree and rerun the unmodified group. Update the sync commit only after review; use `/maintain-formal-verification-skill` if the check is stale.

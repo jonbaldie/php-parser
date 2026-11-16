@@ -15,6 +15,7 @@ build-type:         Simple
 extra-doc-files:    README.md
                     CHANGELOG.md
                     LICENSE
+                    docs/design/parser-state-machines.md
 tested-with:        GHC == 9.8.4
                   , GHC == 9.10.1
                   , GHC == 9.12.1
@@ -39,7 +40,8 @@ library
                     , Language.PHP.Parser.Expression
                     , Language.PHP.Parser.Statement
                     , Language.PHP.Pretty
-    other-modules:    Language.PHP.Parser.Internal
+    other-modules:    Language.PHP.Parser.State
+                    , Language.PHP.Parser.Internal
                     , Language.PHP.Parser.Name
     build-depends:    base >= 4.18 && < 5
                     , text >= 2.0 && < 2.2

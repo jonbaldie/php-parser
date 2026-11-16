@@ -82,19 +82,51 @@ parseProgram = do
 -- tag returns the parser to it -- so an open tag met in code mode is an
 -- ordinary @<@ and a parse error, never a silent transition (Issue #271).
 parseProgramBody :: Parser [Stmt Span]
-parseProgramBody = parseHtmlRegion parseCodeChunks
+parseProgramBody = parseRegion (HtmlRegion parseCodeChunks)
+
+data CodeRegion
+  = HtmlRegion (Parser [Stmt Span])
+  | PhpRegion
 
 -- | Statements in code mode, until a close tag or end of input. A close tag
 -- returns the parser to HTML mode, where the next open tag -- an ordinary
 -- @<@ everywhere else -- may open a new region.
 parseCodeChunks :: Parser [Stmt Span]
-parseCodeChunks =
-  (parseCloseTag *> parseHtmlRegion parseCodeChunks >>= \html -> (html ++) <$> parseCodeChunks)
+parseCodeChunks = parseRegion PhpRegion
+
+parseRegion :: CodeRegion -> Parser [Stmt Span]
+parseRegion PhpRegion =
+  (parseCloseTag *> parseRegion (HtmlRegion parseCodeChunks) >>= \html -> (html ++) <$> parseCodeChunks)
   <|> (do
     isEof <- (True <$ M.lookAhead M.eof) <|> pure False
     if isEof
       then pure []
       else (:) <$> parseStmt <*> parseCodeChunks)
+parseRegion (HtmlRegion k) = do
+  (sp, html) <- spanned takeUntilPhpTag
+  let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
+  when (not (null html) && not (isLeadingShebang sp html)) $ do
+    markScriptStatement
+    markNonDeclareContent
+    markNamespaceBlockingContent
+  isEof <- (True <$ M.lookAhead M.eof) <|> pure False
+  if isEof
+    then pure htmlStmts
+    else do
+      isShortEcho <- (True <$ M.try (C.string "<?=")) <|> pure False
+      if isShortEcho
+        then do
+          echoStmt <- parseShortEchoBody
+          markScriptStatement
+          markNonDeclareContent
+          markNamespaceBlockingContent
+          rest <- k
+          pure (htmlStmts ++ echoStmt : rest)
+        else do
+          _ <- parseOpenTag
+          sc
+          rest <- k
+          pure (htmlStmts ++ rest)
 
 -- | Parse an opening tag, excluding the whitespace and comments after it,
 -- so callers can backtrack over the tag without hiding errors in that trivia.
@@ -106,9 +138,7 @@ parseOpenTag =
 parseCloseTag :: Parser ()
 parseCloseTag = do
   _ <- C.string "?>"
-  markScriptStatement
-  terminatesStatement <- takeCloseTagTerminator
-  unless terminatesStatement markNonDeclareContent
+  consumeCloseTag
   -- PHP suppresses the newline immediately following a close tag,
   -- matching its lexer's NEWLINE rule: "\r\n" as a pair, "\n", or "\r".
   _ <- optional (C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n'))
@@ -146,38 +176,7 @@ parseMixedBodyElement =
   where
     -- A close tag returns the parser to HTML mode: the inline HTML that
     -- follows ends at the next tag, which alone may open the next region.
-    parseHtmlChunk = M.try parseCloseTag *> parseHtmlRegion (pure [])
-
--- | In HTML mode: the inline HTML up to the next tag, then the tag that ends
--- it. An open tag is legal here and only here, so the tag never appears mid-code;
--- a bare second <?php inside code is an unexpected @<@ (Issue #271). A
--- @<?=@ tag opens its region as an echo. Empty HTML yields no node.
-parseHtmlRegion :: Parser [Stmt Span] -> Parser [Stmt Span]
-parseHtmlRegion k = do
-  (sp, html) <- spanned takeUntilPhpTag
-  let htmlStmts = if null html then [] else [StmtInlineHtml sp (T.pack html)]
-  when (not (null html) && not (isLeadingShebang sp html)) $ do
-    markScriptStatement
-    markNonDeclareContent
-    markNamespaceBlockingContent
-  isEof <- (True <$ M.lookAhead M.eof) <|> pure False
-  if isEof
-    then pure htmlStmts
-    else do
-      isShortEcho <- (True <$ M.try (C.string "<?=")) <|> pure False
-      if isShortEcho
-        then do
-          echoStmt <- parseShortEchoBody
-          markScriptStatement
-          markNonDeclareContent
-          markNamespaceBlockingContent
-          rest <- k
-          pure (htmlStmts ++ echoStmt : rest)
-        else do
-          _ <- parseOpenTag
-          sc
-          rest <- k
-          pure (htmlStmts ++ rest)
+    parseHtmlChunk = M.try parseCloseTag *> parseRegion (HtmlRegion (pure []))
 
 -- | A shebang is not a statement. PHP skips a leading @#!@ line before the
 -- file statement list, so it does not push a following namespace out of place.
@@ -651,29 +650,22 @@ parseTry = withSpan $ do
 -- | Namespace declaration (bracketed or unbracketed).
 parseNamespace :: Parser (Stmt Span)
 parseNamespace = withSpan $ do
-  (mName, isBracketed) <- M.try $ do
+  (mName, form) <- M.try $ do
     keyword_ "namespace"
     mName <- optional parseNamespaceName
     case mName of
       Nothing -> do
-        _ <- M.lookAhead (symbol "{")
-        pure (Nothing, True)
+        _ <- lookAhead (symbol "{")
+        pure (Nothing, BracketedNamespace)
       Just _ -> do
-        isBr <- (True <$ M.lookAhead (symbol "{")) <|> (False <$ semi)
-        pure (mName, isBr)
-  tooLate <- namespaceDeclarationTooLate
-  when tooLate $
-    fail "Namespace declaration statement has to be the very first statement or after any declare call in the script"
-  mixed <- namespaceFormsMixed isBracketed
-  when mixed $
-    fail "Cannot mix bracketed namespace declarations with unbracketed namespace declarations"
-  noteNamespaceDeclaration
-  noteNamespaceForm isBracketed
-  if isBracketed
-    then do
+        form <- (BracketedNamespace <$ lookAhead (symbol "{")) <|> (UnbracketedNamespace <$ semi)
+        pure (mName, form)
+  enterNamespace form
+  case form of
+    BracketedNamespace -> do
       stmts <- braces parseMixedBody
       pure (\sp -> StmtNamespace sp mName (Just stmts))
-    else pure (\sp -> StmtNamespace sp mName Nothing)
+    UnbracketedNamespace -> pure (\sp -> StmtNamespace sp mName Nothing)
   where
     parseNamespaceName = M.try $ do
       qn@(QualifiedName _ kind _) <- qualifiedName
@@ -738,20 +730,45 @@ parseAsymmetricWriteVis = M.try $ do
   _ <- symbol "(set)"
   pure vis
 
--- | Register a custom parse error for a repeated declaration modifier.
--- Registration (rather than failure) keeps the surrounding modifier loop
--- composable across backtracking alternatives while still rejecting the
--- program, mirroring PHP's own diagnostics.
-duplicateModifier :: String -> Parser ()
-duplicateModifier what = modifierError ("Multiple " <> what <> " modifiers are not allowed")
+data ModifierPresence = ModifierAbsent | ModifierSeen
 
--- | Register a custom parse error for a pair of modifiers PHP forbids together,
--- such as @final abstract@ on a class or method and @static readonly@ on a
--- property. Naming the pair (rather than the modifier just read) keeps the
--- diagnostic identical whichever order the two were written in.
-conflictingModifiers :: String -> String -> Parser ()
-conflictingModifiers this that =
+data ModifierProblem
+  = DuplicateModifier String
+  | ConflictingModifiers String String
+
+registerModifierProblem :: ModifierProblem -> Parser ()
+registerModifierProblem (DuplicateModifier what) =
+  modifierError ("Multiple " <> what <> " modifiers are not allowed")
+registerModifierProblem (ConflictingModifiers this that) =
   modifierError ("Cannot combine the " <> this <> " and " <> that <> " modifiers")
+
+modifierSeen :: ModifierPresence -> Bool
+modifierSeen ModifierAbsent = False
+modifierSeen ModifierSeen = True
+
+repeatedModifier :: String -> ModifierPresence -> [ModifierProblem]
+repeatedModifier what presence = [DuplicateModifier what | modifierSeen presence]
+
+repeatedVisibility :: Maybe Visibility -> [ModifierProblem]
+repeatedVisibility vis = [DuplicateModifier "access type" | isJust vis]
+
+modifierConflict :: String -> String -> ModifierPresence -> [ModifierProblem]
+modifierConflict this that presence = [ConflictingModifiers this that | modifierSeen presence]
+
+collectModifiers
+  :: Parser token
+  -> (token -> history -> (history, [ModifierProblem]))
+  -> history
+  -> Parser history
+collectModifiers tokenParser step = loop
+  where
+    loop history =
+      (do
+        token <- tokenParser
+        let (next, problems) = step token history
+        mapM_ registerModifierProblem problems
+        loop next)
+      <|> pure history
 
 modifierError :: String -> Parser ()
 modifierError = M.registerFancyFailure . S.singleton . M.ErrorFail
@@ -771,6 +788,40 @@ checkVisibilityOrdering (Just v) (Just wv)
       modifierError "Visibility of property must not be weaker than set visibility"
 checkVisibilityOrdering _ _ = pure ()
 
+data PropertyModifierToken
+  = PropertyWriteVisibility Visibility
+  | PropertyReadVisibility Visibility
+  | PropertyStatic
+  | PropertyReadonly
+  | PropertyFinal
+  | PropertyAbstract
+
+data PropertyModifierHistory = PropertyModifierHistory
+  (Maybe Visibility) (Maybe Visibility) ModifierPresence ModifierPresence ModifierPresence ModifierPresence
+
+stepPropertyModifier
+  :: PropertyModifierToken -> PropertyModifierHistory
+  -> (PropertyModifierHistory, [ModifierProblem])
+stepPropertyModifier token (PropertyModifierHistory vis wVis stat ro fin absMod) = case token of
+  PropertyWriteVisibility v ->
+    (PropertyModifierHistory vis (Just v) stat ro fin absMod,
+     repeatedVisibility wVis)
+  PropertyReadVisibility v ->
+    (PropertyModifierHistory (Just v) wVis stat ro fin absMod,
+     repeatedVisibility vis)
+  PropertyStatic ->
+    (PropertyModifierHistory vis wVis ModifierSeen ro fin absMod,
+     repeatedModifier "static" stat ++ modifierConflict "static" "readonly" ro)
+  PropertyReadonly ->
+    (PropertyModifierHistory vis wVis stat ModifierSeen fin absMod,
+     repeatedModifier "readonly" ro ++ modifierConflict "static" "readonly" stat)
+  PropertyFinal ->
+    (PropertyModifierHistory vis wVis stat ro ModifierSeen absMod,
+     repeatedModifier "final" fin)
+  PropertyAbstract ->
+    (PropertyModifierHistory vis wVis stat ro fin ModifierSeen,
+     repeatedModifier "abstract" absMod)
+
 -- | Property modifiers (can be in any order: public, private(set), readonly, static, final, abstract),
 -- or the legacy @var@ on its own.
 -- Note: @var@ is an alias for @public@ visibility, but PHP's grammar takes it
@@ -784,99 +835,121 @@ parsePropertyModifier =
   <|> modifierList
   where
     modifierList = do
-      modif@(PropertyModifier vis wVis _ _ _ _) <- loop Nothing Nothing False False False False
+      PropertyModifierHistory vis wVis stat ro fin absMod <- collectModifiers token stepPropertyModifier
+        (PropertyModifierHistory Nothing Nothing ModifierAbsent ModifierAbsent ModifierAbsent ModifierAbsent)
+      let modif = PropertyModifier vis wVis (modifierSeen stat) (modifierSeen ro) (modifierSeen fin) (modifierSeen absMod)
       when (modif == PropertyModifier Nothing Nothing False False False False) M.empty
       checkVisibilityOrdering vis wVis
       pure modif
-    loop vis wVis isStat isRo isFin isAbs =
-      (do
-        wv <- parseAsymmetricWriteVis
-        when (isJust wVis) $ duplicateModifier "access type"
-        loop vis (Just wv) isStat isRo isFin isAbs)
-      <|> (do
-        v <- parseVisibility
-        when (isJust vis) $ duplicateModifier "access type"
-        loop (Just v) wVis isStat isRo isFin isAbs)
-      <|> (do
-        keyword_ "static"
-        when isStat $ duplicateModifier "static"
-        when isRo $ conflictingModifiers "static" "readonly"
-        loop vis wVis True isRo isFin isAbs)
-      <|> (do
-        keyword_ "readonly"
-        when isRo $ duplicateModifier "readonly"
-        when isStat $ conflictingModifiers "static" "readonly"
-        loop vis wVis isStat True isFin isAbs)
-      <|> (do
-        keyword_ "final"
-        when isFin $ duplicateModifier "final"
-        loop vis wVis isStat isRo True isAbs)
-      <|> (do
-        keyword_ "abstract"
-        when isAbs $ duplicateModifier "abstract"
-        loop vis wVis isStat isRo isFin True)
-      <|> pure (PropertyModifier vis wVis isStat isRo isFin isAbs)
+    token =
+      (PropertyWriteVisibility <$> parseAsymmetricWriteVis)
+      <|> (PropertyReadVisibility <$> parseVisibility)
+      <|> (PropertyStatic <$ keyword_ "static")
+      <|> (PropertyReadonly <$ keyword_ "readonly")
+      <|> (PropertyFinal <$ keyword_ "final")
+      <|> (PropertyAbstract <$ keyword_ "abstract")
+
+data MethodModifierToken
+  = MethodReadVisibility Visibility
+  | MethodStatic
+  | MethodFinal
+  | MethodAbstract
+
+data MethodModifierHistory = MethodModifierHistory
+  (Maybe Visibility) ModifierPresence ModifierPresence ModifierPresence
+
+stepMethodModifier
+  :: MethodModifierToken -> MethodModifierHistory
+  -> (MethodModifierHistory, [ModifierProblem])
+stepMethodModifier token (MethodModifierHistory vis stat fin absMod) = case token of
+  MethodReadVisibility v ->
+    (MethodModifierHistory (Just v) stat fin absMod,
+     repeatedVisibility vis)
+  MethodStatic ->
+    (MethodModifierHistory vis ModifierSeen fin absMod,
+     repeatedModifier "static" stat)
+  MethodFinal ->
+    (MethodModifierHistory vis stat ModifierSeen absMod,
+     repeatedModifier "final" fin ++ modifierConflict "final" "abstract" absMod)
+  MethodAbstract ->
+    (MethodModifierHistory vis stat fin ModifierSeen,
+     repeatedModifier "abstract" absMod ++ modifierConflict "final" "abstract" fin)
 
 -- | Method modifiers.
 parseMethodModifier :: Parser MethodModifier
-parseMethodModifier = loop Nothing False False False
+parseMethodModifier = do
+  MethodModifierHistory vis stat fin absMod <- collectModifiers token stepMethodModifier
+    (MethodModifierHistory Nothing ModifierAbsent ModifierAbsent ModifierAbsent)
+  pure (MethodModifier vis (modifierSeen stat) (modifierSeen fin) (modifierSeen absMod))
   where
-    loop vis isStat isFin isAbs =
-      (do
-        v <- parseVisibility
-        when (isJust vis) $ duplicateModifier "access type"
-        loop (Just v) isStat isFin isAbs)
-      <|> (do
-        keyword_ "static"
-        when isStat $ duplicateModifier "static"
-        loop vis True isFin isAbs)
-      <|> (do
-        keyword_ "final"
-        when isFin $ duplicateModifier "final"
-        when isAbs $ conflictingModifiers "final" "abstract"
-        loop vis isStat True isAbs)
-      <|> (do
-        keyword_ "abstract"
-        when isAbs $ duplicateModifier "abstract"
-        when isFin $ conflictingModifiers "final" "abstract"
-        loop vis isStat isFin True)
-      <|> pure (MethodModifier vis isStat isFin isAbs)
+    token =
+      (MethodReadVisibility <$> parseVisibility)
+      <|> (MethodStatic <$ keyword_ "static")
+      <|> (MethodFinal <$ keyword_ "final")
+      <|> (MethodAbstract <$ keyword_ "abstract")
+
+data ClassModifierToken
+  = ClassFinal
+  | ClassAbstract
+  | ClassReadonly
+
+data ClassModifierHistory = ClassModifierHistory
+  ModifierPresence ModifierPresence ModifierPresence
+
+stepClassModifier
+  :: ClassModifierToken -> ClassModifierHistory
+  -> (ClassModifierHistory, [ModifierProblem])
+stepClassModifier token (ClassModifierHistory fin absMod ro) = case token of
+  ClassFinal ->
+    (ClassModifierHistory ModifierSeen absMod ro,
+     repeatedModifier "final" fin ++ modifierConflict "final" "abstract" absMod)
+  ClassAbstract ->
+    (ClassModifierHistory fin ModifierSeen ro,
+     repeatedModifier "abstract" absMod ++ modifierConflict "final" "abstract" fin)
+  ClassReadonly ->
+    (ClassModifierHistory fin absMod ModifierSeen,
+     repeatedModifier "readonly" ro)
 
 -- | Class modifiers.
 parseClassModifier :: Parser ClassModifier
-parseClassModifier = loop False False False
+parseClassModifier = do
+  ClassModifierHistory fin absMod ro <- collectModifiers token stepClassModifier
+    (ClassModifierHistory ModifierAbsent ModifierAbsent ModifierAbsent)
+  pure (ClassModifier (modifierSeen fin) (modifierSeen absMod) (modifierSeen ro))
   where
-    loop isFin isAbs isRo =
-      (do
-        keyword_ "final"
-        when isFin $ duplicateModifier "final"
-        when isAbs $ conflictingModifiers "final" "abstract"
-        loop True isAbs isRo)
-      <|> (do
-        keyword_ "abstract"
-        when isAbs $ duplicateModifier "abstract"
-        when isFin $ conflictingModifiers "final" "abstract"
-        loop isFin True isRo)
-      <|> (do
-        keyword_ "readonly"
-        when isRo $ duplicateModifier "readonly"
-        loop isFin isAbs True)
-      <|> pure (ClassModifier isFin isAbs isRo)
+    token =
+      (ClassFinal <$ keyword_ "final")
+      <|> (ClassAbstract <$ keyword_ "abstract")
+      <|> (ClassReadonly <$ keyword_ "readonly")
+
+data ConstModifierToken
+  = ConstReadVisibility Visibility
+  | ConstFinal
+
+data ConstModifierHistory = ConstModifierHistory
+  (Maybe Visibility) ModifierPresence
+
+stepConstModifier
+  :: ConstModifierToken -> ConstModifierHistory
+  -> (ConstModifierHistory, [ModifierProblem])
+stepConstModifier token (ConstModifierHistory vis fin) = case token of
+  ConstReadVisibility v ->
+    (ConstModifierHistory (Just v) fin,
+     repeatedVisibility vis)
+  ConstFinal ->
+    (ConstModifierHistory vis ModifierSeen,
+     repeatedModifier "final" fin)
 
 -- | Class constant modifiers (visibility and final in any order).
 parseConstModifier :: Parser (Maybe Visibility, Bool)
-parseConstModifier = loop Nothing False
+parseConstModifier = do
+  ConstModifierHistory vis fin <- collectModifiers token stepConstModifier
+    (ConstModifierHistory Nothing ModifierAbsent)
+  pure (vis, modifierSeen fin)
   where
-    loop vis isFin =
-      (do
-        v <- parseVisibility
-        when (isJust vis) $ duplicateModifier "access type"
-        loop (Just v) isFin)
-      <|> (do
-        keyword_ "final"
-        when isFin $ duplicateModifier "final"
-        loop vis True)
-      <|> pure (vis, isFin)
+    token =
+      (ConstReadVisibility <$> parseVisibility)
+      <|> (ConstFinal <$ keyword_ "final")
 
 -- | Constant item: name and initial value expression.
 parseConstItem :: Parser (Ident Span, Expr Span)
@@ -894,7 +967,7 @@ parseConstDecl = withSpan $ do
     (vis, isFinal) <- parseConstModifier
     keyword_ "const"
     pure (attrs, vis, isFinal)
-  mType <- optional (M.try (parseType <* M.lookAhead classConstantIdentifier))
+  mType <- optional (M.try (parseType <* lookAhead classConstantIdentifier))
   case mType of
     Just typ | Just bad <- disallowedConstantType typ ->
       modifierError ("Class constant cannot have type " <> T.unpack bad)
@@ -983,30 +1056,45 @@ parseParamInContext pCtx = withSpan $ do
   var <- variableName
   mDef <- optional (symbol "=" *> parseExpr)
   pure (\sp -> Param sp attrs vis wVis isRo isFin typ byRef isVariadic var mDef)
+
+data ParamModifierToken
+  = ParamWriteVisibility Visibility
+  | ParamReadVisibility Visibility
+  | ParamReadonly
+  | ParamFinal
+
+data ParamModifierHistory = ParamModifierHistory
+  (Maybe Visibility) (Maybe Visibility) ModifierPresence ModifierPresence
+
+stepParamModifier
+  :: ParamModifierToken -> ParamModifierHistory
+  -> (ParamModifierHistory, [ModifierProblem])
+stepParamModifier token (ParamModifierHistory vis wVis ro fin) = case token of
+  ParamWriteVisibility v ->
+    (ParamModifierHistory vis (Just v) ro fin,
+     repeatedVisibility wVis)
+  ParamReadVisibility v ->
+    (ParamModifierHistory (Just v) wVis ro fin,
+     repeatedVisibility vis)
+  ParamReadonly ->
+    (ParamModifierHistory vis wVis ModifierSeen fin,
+     repeatedModifier "readonly" ro)
+  ParamFinal ->
+    (ParamModifierHistory vis wVis ro ModifierSeen,
+     repeatedModifier "final" fin)
+
+parseParamModifiers :: Parser (Maybe Visibility, Maybe Visibility, Bool, Bool)
+parseParamModifiers = do
+  ParamModifierHistory vis wVis ro fin <- collectModifiers token stepParamModifier
+    (ParamModifierHistory Nothing Nothing ModifierAbsent ModifierAbsent)
+  checkVisibilityOrdering vis wVis
+  pure (vis, wVis, modifierSeen ro, modifierSeen fin)
   where
-    parseParamModifiers = do
-      res@(vis, wVis, _, _) <- loop Nothing Nothing False False
-      checkVisibilityOrdering vis wVis
-      pure res
-      where
-        loop vis wVis isRo isFin =
-          (do
-            wv <- parseAsymmetricWriteVis
-            when (isJust wVis) $ duplicateModifier "access type"
-            loop vis (Just wv) isRo isFin)
-          <|> (do
-            v <- parseVisibility
-            when (isJust vis) $ duplicateModifier "access type"
-            loop (Just v) wVis isRo isFin)
-          <|> (do
-            keyword_ "readonly"
-            when isRo $ duplicateModifier "readonly"
-            loop vis wVis True isFin)
-          <|> (do
-            keyword_ "final"
-            when isFin $ duplicateModifier "final"
-            loop vis wVis isRo True)
-          <|> pure (vis, wVis, isRo, isFin)
+    token =
+      (ParamWriteVisibility <$> parseAsymmetricWriteVis)
+      <|> (ParamReadVisibility <$> parseVisibility)
+      <|> (ParamReadonly <$ keyword_ "readonly")
+      <|> (ParamFinal <$ keyword_ "final")
 
 -- | The enclosing declaration kind in which class members are parsed.
 -- PHP applies different member rules to enums, classes, traits, and interfaces.
@@ -1113,7 +1201,7 @@ checkMember ctx member = do
 parseMethodOrProperty :: ClassContext -> Bool -> Parser (ClassMember Span)
 parseMethodOrProperty ctx enclosingReadonly = do
   attrs <- parseAttributes
-  isMethod <- (True <$ M.lookAhead (M.try parseMethodLookAhead)) <|> pure False
+  isMethod <- (True <$ lookAhead (M.try parseMethodLookAhead)) <|> pure False
   if isMethod
     then MemberMethod <$> parseMethod ctx attrs
     else MemberProperty <$> parseProperty isIface enclosingReadonly attrs
@@ -1161,14 +1249,14 @@ parseProperty implicitlyAbstract enclosingReadonly attrs = withSpan $ do
     _ -> pure ()
   firstVar <- variableName
   mFirstVal <- optional (symbol "=" *> parseExpr)
-  hasHooks <- (True <$ M.lookAhead (symbol "{")) <|> pure False
+  hasHooks <- (True <$ lookAhead (symbol "{")) <|> pure False
   if hasHooks
     then if enclosingReadonly || propReadonly modif
       then M.empty
       else do
         when (propStatic modif) $
           M.fancyFailure (S.singleton (M.ErrorFail "Cannot declare hooks for static property"))
-        hooks <- braces (parsePropertyHooks [])
+        hooks <- braces (parsePropertyHooks NoHooks)
         let hasAbstractHook = any (\h -> case hookBody h of HookAbstract -> True; _ -> False) hooks
         when (not (propAbstract modif || implicitlyAbstract) && hasAbstractHook) $
           modifierError "Non-abstract property hook must have a body"
@@ -1193,12 +1281,24 @@ parseProperty implicitlyAbstract enclosingReadonly attrs = withSpan $ do
       <|> do
         hook <- parsePropertyHook
         let hookT = hookType hook
-        when (hookT `elem` seen) $
-          M.fancyFailure (S.singleton (M.ErrorFail ("Cannot redeclare property hook \"" <> hookName hookT <> "\"")))
-        (hook :) <$> parsePropertyHooks (hookT : seen)
+        next <- case stepHook hookT seen of
+          Left duplicate ->
+            M.fancyFailure (S.singleton (M.ErrorFail ("Cannot redeclare property hook \"" <> hookName duplicate <> "\"")))
+          Right history -> pure history
+        (hook :) <$> parsePropertyHooks next
 
     hookName HookGet = "get"
     hookName HookSet = "set"
+
+data HookHistory = NoHooks | GetSeen | SetSeen | GetAndSetSeen
+
+stepHook :: HookType -> HookHistory -> Either HookType HookHistory
+stepHook HookGet NoHooks = Right GetSeen
+stepHook HookGet SetSeen = Right GetAndSetSeen
+stepHook HookGet _ = Left HookGet
+stepHook HookSet NoHooks = Right SetSeen
+stepHook HookSet GetSeen = Right GetAndSetSeen
+stepHook HookSet _ = Left HookSet
 
 -- | PHP 8.4 Property Hook: get => expr; or set(Type $v) { ... }
 --
@@ -1237,7 +1337,7 @@ parseTraitUse :: Parser (TraitUse Span)
 parseTraitUse = withSpan $ do
   keyword_ "use"
   names <- qualifiedName `M.sepBy1` comma
-  hasAdaptations <- (True <$ M.lookAhead (symbol "{")) <|> pure False
+  hasAdaptations <- (True <$ lookAhead (symbol "{")) <|> pure False
   if hasAdaptations
     then do
       adaptations <- braces (M.many parseTraitAdaptation)

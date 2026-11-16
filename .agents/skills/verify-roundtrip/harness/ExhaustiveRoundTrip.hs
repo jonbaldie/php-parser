@@ -36,6 +36,11 @@ data Failure = Failure
   , failureDetail :: String
   }
 
+data CaseOutcome
+  = SourceRejected String
+  | SourcePreserved
+  | SourceChanged Failure
+
 data Results = Results
   { counts :: !(Map.Map String Counts)
   , examples :: !(Map.Map String Failure)
@@ -98,16 +103,12 @@ main = do
     else exitFailure
 
 checkCase :: Bool -> Bool -> Results -> Case -> IO Results
-checkCase showAll showAllRejected results testCase =
-  case parseExpression "input.php" (caseSource testCase) of
+checkCase showAll showAllRejected results testCase = do
+  outcome <- case parseExpression "input.php" (caseSource testCase) of
     Left err -> do
       let problem = show (formatParseError err)
       when showAllRejected (printRejection testCase problem)
-      pure results
-        { counts = record (\c -> c { rejected = rejected c + 1 })
-        , rejectionExamples = Map.insertWith (\_ old -> old) group
-            (testCase, problem) (rejectionExamples results)
-        }
+      pure (SourceRejected problem)
     Right original -> do
       let ast = stripAnnotations original
           printed = prettyPrintExpr ast
@@ -118,14 +119,26 @@ checkCase showAll showAllRejected results testCase =
               | otherwise -> Just ("AST changed\n  expected: " ++ show ast
                                   ++ "\n  actual:   " ++ show (stripAnnotations reparsed))
       case problem of
-        Nothing -> pure results { counts = record (\c -> c { accepted = accepted c + 1 }) }
+        Nothing -> pure SourcePreserved
         Just detail -> do
           let failure = Failure testCase printed detail
           when showAll (printFailure failure)
-          pure results
-            { counts = record (\c -> c { accepted = accepted c + 1, failed = failed c + 1 })
-            , examples = Map.insertWith (\_ old -> old) group failure (examples results)
-            }
+          pure (SourceChanged failure)
+  pure (recordOutcome testCase outcome results)
+
+recordOutcome :: Case -> CaseOutcome -> Results -> Results
+recordOutcome testCase outcome results = case outcome of
+  SourceRejected problem -> results
+    { counts = record (\c -> c { rejected = rejected c + 1 })
+    , rejectionExamples = Map.insertWith (\_ old -> old) group
+        (testCase, problem) (rejectionExamples results)
+    }
+  SourcePreserved -> results
+    { counts = record (\c -> c { accepted = accepted c + 1 }) }
+  SourceChanged failure -> results
+    { counts = record (\c -> c { accepted = accepted c + 1, failed = failed c + 1 })
+    , examples = Map.insertWith (\_ old -> old) group failure (examples results)
+    }
   where
     group = caseGroup testCase
     record f = Map.alter (Just . f . maybe (Counts 0 0 0) id) group (counts results)

@@ -19,4 +19,4 @@ This is bounded testing, not a proof or a test of every random generator output.
 
 Covered code: `test/Test/Gen/PHPSource.hs` (`dedupeImports` and its binding-key convention), `php-parser.cabal` (test dependencies), and this skill. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-import-generator/SKILL.md`. Review the catalogue separately if its binding convention changes.
 
-After a covered change, inspect the diff and rerun. In a disposable worktree replace the `any` collision test in `dedupeImports` with `all`; overlapping grouped imports must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.
+After a covered change, inspect the diff and rerun. In a disposable worktree replace the `any` collision test in `reserveImport` with `all`; overlapping grouped imports must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.

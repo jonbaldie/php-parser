@@ -4,6 +4,7 @@ import Control.Monad (replicateM)
 import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Language.PHP (parseExpression, formatParseError)
 import SourceCheck
 
 data Argument = Positional | Unpacked | Named deriving (Eq, Show)
@@ -57,5 +58,25 @@ postfixCases =
   , let source = base <> suffix
   ]
 
+diagnostic :: String -> Text -> Text -> Check
+diagnostic name source expected = Check name $ pure $
+  case parseExpression "diagnostic.php" source of
+    Left err | expected `T.isInfixOf` formatParseError err -> Nothing
+             | otherwise -> Just ("unexpected diagnostic: " ++ T.unpack (formatParseError err))
+    Right _ -> Just "invalid expression accepted"
+
+diagnosticCases :: [Check]
+diagnosticCases =
+  [ diagnostic "unpack error wins over earlier named error" "f(name: 1, 2, ...$xs, 3)"
+      "Cannot use positional argument after argument unpacking"
+  , diagnostic "duplicate name wins over nonfinal variadic" "fn(...$a, $a) => 1"
+      "Redefinition of parameter $a"
+  , diagnostic "first duplicate wins" "fn($b, $b, $a, $a) => 1"
+      "Redefinition of parameter $b"
+  , diagnostic "named unpack records unpack history" "f(name: ...$xs, 1)"
+      "Cannot use positional argument after argument unpacking"
+  , expression "named unpack without positional suffix" True "f(name: ...$xs)"
+  ]
+
 main :: IO ()
-main = runChecks (argumentCases ++ parameterCases ++ postfixCases)
+main = runChecks (argumentCases ++ parameterCases ++ postfixCases ++ diagnosticCases)

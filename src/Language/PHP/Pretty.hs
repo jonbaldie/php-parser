@@ -712,8 +712,8 @@ prettyLiteral literal = prettyLeadingTrivia (AST.annotation literal) $ case lite
     -- Only the first part of a heredoc body starts a line: every later text
     -- part follows an expression. The body is indented along with its closing
     -- label, which PHP strips again, so heredoc text keeps using 'pretty'.
-    prettyHeredocParts tag = mconcat . zipWith (prettyHeredocPart tag) (True : repeat False)
-    prettyHeredocPart tag atBodyStart = prettyStringPart (pretty . escapeHeredocText tag atBodyStart)
+    prettyHeredocParts tag = mconcat . zipWith (prettyHeredocPart tag) (AtLineStart : repeat InsideLine)
+    prettyHeredocPart tag position = prettyStringPart (pretty . escapeHeredocText tag position)
     quoteString t = "'" <> T.concatMap escapeSingleChar t <> "'"
     escapeSingleChar '\\' = "\\\\"
     escapeSingleChar '\'' = "\\'"
@@ -753,16 +753,18 @@ escapeInterpText = escapeInterpolatingText (Just '"')
 escapeBacktickText :: Text -> Text
 escapeBacktickText = escapeInterpolatingText (Just '`')
 
+data TextPosition = AtLineStart | InsideLine
+
 -- | Re-emit the escapes the lexer decoded away in heredoc text parts. They are
 -- those of 'escapeInterpText', except that a double quote needs none. A line
 -- that would read as the closing label has the label's first character written
 -- as a hex escape, so the printed heredoc does not end early (Issue #234).
-escapeHeredocText :: Text -> Bool -> Text -> Text
-escapeHeredocText tag atBodyStart =
-  T.intercalate "\n" . zipWith escapeLine (atBodyStart : repeat True) . T.splitOn "\n"
+escapeHeredocText :: Text -> TextPosition -> Text -> Text
+escapeHeredocText tag position =
+  T.intercalate "\n" . zipWith escapeLine (position : repeat AtLineStart) . T.splitOn "\n"
   where
-    escapeLine atLineStart l
-      | atLineStart
+    escapeLine linePosition l
+      | AtLineStart <- linePosition
       , (lead, rest) <- T.span (\c -> c == ' ' || c == '\t') l
       , Just (c, afterFirst) <- T.uncons rest
       , closesHeredoc rest
