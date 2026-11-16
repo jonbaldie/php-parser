@@ -42,6 +42,7 @@ library
                     , Language.PHP.Pretty
     other-modules:    Language.PHP.Parser.State
                     , Language.PHP.Parser.Internal
+                    , Language.PHP.Parser.Megaparsec
                     , Language.PHP.Parser.Name
     build-depends:    base >= 4.18 && < 5
                     , text >= 2.0 && < 2.2
@@ -80,6 +81,7 @@ test-suite php-parser-test
                     , Test.QualifiedNameSpec
                     , Test.PrettySpec
                     , Test.RoundTripSpec
+                    , Test.FoldQueryCases
                     , Test.RecursionSchemesSpec
                     , Test.CompatibilitySpec
                     , Test.OracleSpec

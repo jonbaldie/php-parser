@@ -32,7 +32,7 @@ import Data.Maybe (isJust, isNothing)
 import Data.Traversable (mapAccumL)
 import qualified Data.Set as S
 import qualified Data.Text as T
-import qualified Text.Megaparsec as M
+import qualified Language.PHP.Parser.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 import Language.PHP.AST
 import Language.PHP.Span (Span, combineSpans)
@@ -921,8 +921,6 @@ parseArrayItemWith :: Parser (Expr Span) -> Parser (ArrayItem Span)
 parseArrayItemWith pExpr = parseOmittedSlot <|> parseItem
   where
     parseOmittedSlot = do
-      -- Inspect only the delimiter: the lexeme 'comma' consumes trailing
-      -- trivia, and lookAhead rewinds input but not the lexer state.
       _ <- M.lookAhead (C.char ',')
       withSpan (pure (\sp -> ArrayItemEmpty sp))
 

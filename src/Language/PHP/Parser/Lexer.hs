@@ -67,7 +67,8 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec as M hiding (lookAhead)
+import qualified Text.Megaparsec as Raw (lookAhead)
 import qualified Text.Megaparsec.Char as C
 import qualified Text.Megaparsec.Char.Lexer as L
 
@@ -146,7 +147,7 @@ inDeclarePrologue = Session.inDeclarePrologue <$> get
 lookAhead :: Parser a -> Parser a
 lookAhead p = do
   original <- get
-  result <- M.observing (M.lookAhead p)
+  result <- M.observing (Raw.lookAhead p)
   put original
   either M.parseError pure result
 
@@ -278,7 +279,7 @@ lineCommentText = go
   where
     go = do
       chunk <- M.takeWhileP (Just "comment text") (\c -> c /= '\n' && c /= '?')
-      atCloseTag <- (True <$ M.lookAhead (C.string "?>")) <|> pure False
+      atCloseTag <- (True <$ lookAhead (C.string "?>")) <|> pure False
       if atCloseTag
         then pure chunk
         else do
@@ -478,7 +479,7 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
       let rest = T.tail raw
       let clean = T.filter (/= '_') raw
       -- Check if float follows (decimal point or exponent)
-      isFloat <- (True <$ M.lookAhead (C.char '.' <|> C.char 'e' <|> C.char 'E')) <|> pure False
+      isFloat <- (True <$ lookAhead (C.char '.' <|> C.char 'e' <|> C.char 'E')) <|> pure False
       -- A leading zero makes an integer octal, so 8 and 9 are invalid there
       -- (PHP: "Invalid numeric literal"); as a float's integer part they are fine.
       if isFloat
@@ -515,7 +516,7 @@ underscoreDigits1 :: NumericBase -> Parser Text
 underscoreDigits1 base = do
   c <- M.satisfy (baseDigit base)
   let digit = M.satisfy (baseDigit base)
-      charP = digit <|> (C.char '_' <* M.lookAhead digit)
+      charP = digit <|> (C.char '_' <* lookAhead digit)
   rest <- many charP
   pure (T.pack (c : rest))
 
@@ -681,7 +682,7 @@ interpolatedParts parseInterpExpr context = mergeLiterals <$> many part
     -- must start with @$@, as in PHP. Once @{@$ matches, the expression is
     -- committed, so an unterminated one is a parse error, as in PHP.
     interpolatedExpr = do
-      _ <- M.try (C.char '{' *> M.lookAhead (C.char '$'))
+      _ <- M.try (C.char '{' *> lookAhead (C.char '$'))
       e <- parseInterpExpr
       _ <- C.char '}'
       pure e
@@ -692,7 +693,7 @@ interpolatedParts parseInterpExpr context = mergeLiterals <$> many part
     -- does not match here and falls through.
     dollarBraceInterp = do
       start <- sourcePosHere
-      _ <- M.try (C.string "${" *> M.lookAhead identStartChar)
+      _ <- M.try (C.string "${" *> lookAhead identStartChar)
       name <- rawIdentifier
       _ <- C.char '}'
       end <- sourcePosHere
@@ -736,7 +737,7 @@ interpolatedParts parseInterpExpr context = mergeLiterals <$> many part
           pure (ExprVar sp (SimpleVar sp (VarName sp name)))
         negativeKey = do
           (minusSp, _) <- spanned (C.char '-')
-          (sp, tok) <- spanned (M.lookAhead (M.satisfy isDigit) *> word)
+          (sp, tok) <- spanned (lookAhead (M.satisfy isDigit) *> word)
           let whole = combineSpans minusSp sp
           pure $
             if T.all isDigit tok && T.head tok /= '0'
@@ -855,7 +856,7 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
         HeredocHeader name -> name
         NowdocHeader name -> name
   -- A mixed closer fails at the first body line, before body consumption.
-  indent <- classifyIndent =<< M.lookAhead (closingIndent tag)
+  indent <- classifyIndent =<< lookAhead (closingIndent tag)
   case header of
     NowdocHeader _ -> do
       content <- T.intercalate "\n" <$> bodyLines tag indent (\lead -> (lead <>) <$> M.takeWhileP Nothing (/= '\n'))
@@ -888,7 +889,7 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
     lineIndent = T.pack <$> many (C.char ' ' <|> C.char '\t')
 
     atClosingLabel tag =
-      (True <$ M.lookAhead (M.try (C.string tag *> M.notFollowedBy (M.satisfy isIdentChar)))) <|> pure False
+      (True <$ lookAhead (M.try (C.string tag *> M.notFollowedBy (M.satisfy isIdentChar)))) <|> pure False
 
     isIdentChar c = isAlphaNum c || c == '_' || c >= '\x80'
 
@@ -953,7 +954,7 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
           shared = min (T.length ind) (T.length lead)
       when (T.take shared lead /= T.take shared ind) $
         M.setOffset lineStart *> mixedIndentation
-      blank <- M.option False (True <$ M.lookAhead (C.char '\n'))
+      blank <- M.option False (True <$ lookAhead (C.char '\n'))
       if blank || T.length lead >= T.length ind
         then pure (T.drop (T.length ind) lead)
         else do

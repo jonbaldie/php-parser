@@ -7,6 +7,7 @@ import Test.Tasty.HUnit
 import Data.Text (Text)
 import Data.Monoid (Sum (..))
 import Language.PHP
+import Test.FoldQueryCases (foldQueryCases)
 
 recursionSchemesTests :: TestTree
 recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
@@ -48,6 +49,22 @@ recursionSchemesTests = testGroup "Recursion Schemes & Traversal Specifications"
           assertEqual "closure variables" ["outer", "inner", "outer"] (allVariables expr)
           assertEqual "closure expression order" ["function () use ($outer) {\n    return ($$inner + $outer);\n}", "$outer", "($$inner + $outer)", "$$inner", "$inner", "$outer"]
             (map prettyPrintExpr (allExprs expr))
+
+  , testGroup "shared query child structure"
+      [ testCase label $ case parseExpression "test.php" source of
+          Left err -> assertFailure (show (formatParseError err))
+          Right expr -> do
+            let variable = \case
+                  ExprVar _ (SimpleVar _ (VarName _ name)) -> [name]
+                  _ -> []
+            assertEqual "allVariables preserves bindings and references" expected (allVariables expr)
+            assertEqual "exact expression fold visits each variable once" expected (foldExpr variable expr)
+            assertEqual "pruning expression query reaches each variable" expected (queryExpr variable expr)
+            assertEqual "exact statement fold preserves variable order" expected (foldStmtExprs variable (StmtExpr (getAnnotation expr) expr))
+            assertEqual "pruning statement query preserves variable order" expected (queryStmt variable (StmtExpr (getAnnotation expr) expr))
+            assertEqual "allExprs agrees with exact preorder" (allExprs expr) (foldExpr (:[]) expr)
+      | (label, source, expected) <- foldQueryCases
+      ]
 
   , testCase "transformExpr rewrites variable names" $ do
       let src = "($a + $b) * $a"

@@ -91,7 +91,16 @@ jobs:
         run: cabal update
 
       - name: Check state protocols
+        shell: bash
         run: bash scripts/check-state-machines.sh state-check-results | tee state-check-results-summary.log
+
+      - name: Check parser lookahead boundary
+        shell: bash
+        run: bash scripts/check-parser-lookahead.sh | tee parser-lookahead.log
+
+      - name: Check shared-query historical regressions
+        shell: bash
+        run: bash scripts/check-fold-query-history.sh fold-query-history-results | tee fold-query-history-summary.log
 
       - name: Compare parser behavior with the baseline
         if: ${{ !cancelled() }}
@@ -106,6 +115,10 @@ jobs:
             state-check-results/
             state-check-results-summary.log
             state-equivalence.log
+            parser-lookahead.log
+
+            fold-query-history-results/
+            fold-query-history-summary.log
 
   php-oracle:
     name: Differential oracle against PHP 8.2-8.5

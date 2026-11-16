@@ -23,7 +23,7 @@ import Data.Maybe (isJust, isNothing)
 import Data.Monoid (Any (..))
 import qualified Data.Set as S
 import qualified Data.Text as T
-import qualified Text.Megaparsec as M
+import qualified Language.PHP.Parser.Megaparsec as M
 import qualified Text.Megaparsec.Char as C
 
 import Language.PHP.AST
@@ -1276,7 +1276,6 @@ parseProperty implicitlyAbstract enclosingReadonly attrs = withSpan $ do
       pure (var, mVal)
 
     parsePropertyHooks seen =
-      -- Lookahead must not collect trailing trivia: braces consumes it once.
       (M.lookAhead (C.char '}') *> pure [])
       <|> do
         hook <- parsePropertyHook
