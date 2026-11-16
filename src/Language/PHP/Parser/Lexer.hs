@@ -2,7 +2,7 @@
 
 module Language.PHP.Parser.Lexer
   ( Parser
-  , LexerState (..)
+  , LexerState
   , NamespaceForm (..)
   , initialLexerState
   , runPHPParser
@@ -11,12 +11,10 @@ module Language.PHP.Parser.Lexer
   , atScriptStart
   , markNonDeclareContent
   , markNamespaceBlockingContent
-  , namespaceDeclarationTooLate
-  , noteNamespaceDeclaration
-  , namespaceFormsMixed
-  , noteNamespaceForm
+  , enterNamespace
   , noteCloseTagTerminator
-  , takeCloseTagTerminator
+  , consumeCloseTag
+  , lookAhead
   , inDeclarePrologue
   , spanned
   , withSpan
@@ -75,32 +73,9 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 import Language.PHP.AST
 import Language.PHP.Parser.Name (qualifiedNameBody)
+import Language.PHP.Parser.State (LexerState, NamespaceForm (..), initialLexerState)
+import qualified Language.PHP.Parser.State as Session
 import Language.PHP.Span (Span, SourcePos (..), combineSpans, mkSpan)
-
-data LexerState = LexerState
-  { lastTokenEnd :: !SourcePos
-  , lastTriviaEnd :: !SourcePos
-  , currentTrivia :: ![Trivia]
-  , triviaBySpan  :: !(Map.Map Span [Trivia])
-  , scriptStatementSeen :: !Bool
-  , statementDepth :: !Int
-  , currentStatementIsFirst :: !Bool
-  , nonDeclareContentSeen :: !Bool
-  , namespaceBlockingContentSeen :: !Bool
-  , namespaceDeclarationSeen :: !Bool
-  , namespaceForm :: !(Maybe NamespaceForm)
-  , closeTagIsTerminator :: !Bool
-  } deriving (Eq, Show)
-
--- | Which namespace-declaration form a file has already used. PHP allows many
--- declarations of one form and refuses a file that uses both.
-data NamespaceForm = BracketedNamespace | UnbracketedNamespace
-  deriving (Eq, Show)
-
-initialLexerState :: LexerState
-initialLexerState = LexerState unset unset [] Map.empty False 0 False False False False Nothing False
-  where
-    unset = SourcePos "" 0 0 (-1)
 
 type Parser = M.ParsecT Void Text (State LexerState)
 
@@ -110,7 +85,7 @@ runPHPParser p file input =
   let (res, st) = runState (M.runParserT (spanned p <* M.eof) file input) initialLexerState
   in case res of
     Left err -> Left err
-    Right (_, val) -> Right (val, triviaBySpan st)
+    Right (_, val) -> Right (val, Session.triviaBySpan st)
 
 -- | Run a statement parser with the script-position context it had when the
 -- statement began.  Nested statements never count as the script's first
@@ -118,107 +93,62 @@ runPHPParser p file input =
 withStatement :: Parser a -> Parser a
 withStatement p = do
   original <- get
-  let topLevel = statementDepth original == 0
-      firstStatement = topLevel && not (scriptStatementSeen original)
-  modify' $ \st -> st
-    { statementDepth = statementDepth st + 1
-    , currentStatementIsFirst = firstStatement
-    }
+  let (entry, entered) = Session.beginStatement original
+  put entered
   result <- M.observing p
   case result of
-    Left err -> do
-      put original
-      M.parseError err
+    Left err -> put original *> M.parseError err
     Right value -> do
-      after <- get
-      put after
-        { statementDepth = statementDepth original
-        , currentStatementIsFirst = currentStatementIsFirst original
-        , scriptStatementSeen = scriptStatementSeen original || topLevel
-        }
+      modify' (Session.leaveStatement entry)
       pure value
 
--- | Mark content that precedes a later declaration in the script.  Inline
--- HTML, short-echo tags, and close tags all make a following strict_types
--- declaration too late, even when they do not produce an AST statement.
+-- | Mark content that precedes a later declaration in the script.
 markScriptStatement :: Parser ()
-markScriptStatement = modify' (\st -> st { scriptStatementSeen = True })
+markScriptStatement = modify' Session.markScriptStatement
 
 -- | Whether the statement currently being parsed is the script's first one.
 atScriptStart :: Parser Bool
-atScriptStart = currentStatementIsFirst <$> get
+atScriptStart = Session.atScriptStart <$> get
 
--- | Mark top-level content other than a declare statement.  PHP lets an
--- encoding declaration follow earlier top-level declare statements, but not
--- any other statement, inline HTML, or an empty statement -- which is what a
--- close tag becomes when it does not itself end a statement.  Content nested
--- inside a statement is judged through that statement, so it is ignored here.
+-- | Mark non-declare content between top-level statements.
 markNonDeclareContent :: Parser ()
-markNonDeclareContent = modify' $ \st ->
-  if statementDepth st == 0 then st { nonDeclareContentSeen = True } else st
+markNonDeclareContent = modify' Session.markNonDeclareContent
 
--- | Mark top-level content that is neither a declare nor a nop. PHP lets the
--- first namespace follow declares and empty statements (@allow_nop@), but not
--- a real statement, inline HTML, or a short echo. A close tag that does not
--- end a statement is a nop, so it is not marked here.
+-- | Mark content that prevents a later first namespace declaration.
 markNamespaceBlockingContent :: Parser ()
-markNamespaceBlockingContent = modify' $ \st ->
-  if statementDepth st == 0 then st { namespaceBlockingContentSeen = True } else st
+markNamespaceBlockingContent = modify' Session.markNamespaceBlockingContent
 
--- | Whether this top-level namespace is the file's first and something other
--- than a declare or a nop already preceded it.
-namespaceDeclarationTooLate :: Parser Bool
-namespaceDeclarationTooLate = do
+-- | Validate and record a namespace before parsing its body.
+enterNamespace :: NamespaceForm -> Parser ()
+enterNamespace form = do
   st <- get
-  pure $ statementDepth st == 1
-    && not (namespaceDeclarationSeen st)
-    && namespaceBlockingContentSeen st
+  case Session.enterNamespace form st of
+    Left Session.NamespaceTooLate ->
+      fail "Namespace declaration statement has to be the very first statement or after any declare call in the script"
+    Left Session.NamespaceFormsMixed ->
+      fail "Cannot mix bracketed namespace declarations with unbracketed namespace declarations"
+    Right next -> put next
 
--- | Record a top-level namespace declaration so a later one is not judged as
--- the file's first. Later namespaces may follow ordinary statements.
-noteNamespaceDeclaration :: Parser ()
-noteNamespaceDeclaration = modify' $ \st ->
-  if statementDepth st == 1 then st { namespaceDeclarationSeen = True } else st
-
--- | Whether this declaration's form differs from one already seen in the file.
--- The first form is recorded before its body is parsed, so a declaration
--- nested in that body is checked too.
-namespaceFormsMixed :: Bool -> Parser Bool
-namespaceFormsMixed isBracketed = do
-  st <- get
-  pure $ case namespaceForm st of
-    Nothing -> False
-    Just BracketedNamespace -> not isBracketed
-    Just UnbracketedNamespace -> isBracketed
-
--- | Remember the form of the first namespace declaration. Later declarations
--- are checked against it and do not replace it.
-noteNamespaceForm :: Bool -> Parser ()
-noteNamespaceForm isBracketed = modify' $ \st ->
-  case namespaceForm st of
-    Just _ -> st
-    Nothing -> st { namespaceForm = Just form }
-  where
-    form = if isBracketed then BracketedNamespace else UnbracketedNamespace
-
--- | Record that the upcoming close tag ends the statement just parsed, so it
--- is not also an empty statement of its own.
+-- | Claim the upcoming close tag as this statement's terminator.
 noteCloseTagTerminator :: Parser ()
-noteCloseTagTerminator = modify' (\st -> st { closeTagIsTerminator = True })
+noteCloseTagTerminator = modify' Session.noteCloseTagTerminator
 
--- | Consume the record left by 'noteCloseTagTerminator'.
-takeCloseTagTerminator :: Parser Bool
-takeCloseTagTerminator = do
-  st <- get
-  put st { closeTagIsTerminator = False }
-  pure (closeTagIsTerminator st)
+-- | Consume a close tag's claim and record its script-position effects.
+consumeCloseTag :: Parser ()
+consumeCloseTag = modify' Session.consumeCloseTag
 
--- | Whether the statement being parsed is a top-level declaration preceded
--- only by top-level declare statements: the PHP declare prologue.
+-- | Whether this top-level declaration is still in the declare prologue.
 inDeclarePrologue :: Parser Bool
-inDeclarePrologue = do
-  st <- get
-  pure (statementDepth st == 1 && not (nonDeclareContentSeen st))
+inDeclarePrologue = Session.inDeclarePrologue <$> get
+
+-- | Inspect input without retaining session effects on success or failure.
+-- Megaparsec still owns input rollback and failure commitment.
+lookAhead :: Parser a -> Parser a
+lookAhead p = do
+  original <- get
+  result <- M.observing (M.lookAhead p)
+  put original
+  either M.parseError pure result
 
 toSourcePos :: M.SourcePos -> Int -> Language.PHP.Span.SourcePos
 toSourcePos sp offset = Language.PHP.Span.SourcePos
@@ -238,10 +168,7 @@ spanEndHere :: SourcePos -> Parser SourcePos
 spanEndHere start = do
   here <- sourcePosHere
   st <- get
-  let end = lastTokenEnd st
-  pure $ if lastTriviaEnd st == here && start <= end && end <= here
-    then end
-    else here
+  pure (Session.spanEndpoint start here st)
 
 -- | Run a parser and record its source span.
 spanned :: Parser a -> Parser (Span, a)
@@ -273,25 +200,21 @@ withSpan p = do
 -- | Take all accumulated trivia and reset the trivia buffer.
 takeTrivia :: Parser [Trivia]
 takeTrivia = do
-  triv <- currentTrivia <$> get
-  modify' (\s -> s { currentTrivia = [] })
-  pure triv
+  st <- get
+  let (pending, next) = Session.takeTrivia st
+  put next
+  pure pending
 
 -- | Attach trivia to the node with the given span.
 recordTrivia :: Span -> [Trivia] -> Parser ()
-recordTrivia sp triv = modify' (\st -> st { triviaBySpan = Map.insert sp triv (triviaBySpan st) })
+recordTrivia sp triv = modify' (Session.recordTrivia sp triv)
 
 -- | Re-key the trivia recorded for one span, for a node whose span widens.
 moveTrivia :: Span -> Span -> Parser ()
-moveTrivia from to = modify' $ \st ->
-  let bySpan = triviaBySpan st
-  in case Map.lookup from bySpan of
-       Nothing -> st
-       Just triv -> st { triviaBySpan = Map.insertWith (flip (++)) to triv (Map.delete from bySpan) }
+moveTrivia from to = modify' (Session.moveTrivia from to)
 
--- | Record trivia into state.
 addTrivia :: Trivia -> Parser ()
-addTrivia t = modify' (\s -> s { currentTrivia = currentTrivia s ++ [t] })
+addTrivia t = modify' (Session.addTrivia t)
 
 -- | Space and comment consumer.
 sc :: Parser ()
@@ -314,10 +237,10 @@ trailingTrivia :: Parser () -> Parser ()
 trailingTrivia p = do
   before <- sourcePosHere
   st <- get
-  let end = if lastTriviaEnd st == before then lastTokenEnd st else before
+  let end = Session.tokenEndBeforeTrivia before st
   p
   after <- sourcePosHere
-  modify' (\s -> s { lastTokenEnd = end, lastTriviaEnd = after })
+  modify' (Session.finishTrailingTrivia end after)
 
 -- | PHP's code whitespace is deliberately narrower than 'Data.Char.isSpace'.
 -- Keep vertical tab for the lexer behaviour already supported by this parser,
@@ -530,27 +453,27 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
 
     parseHex = do
       pfx <- M.try (C.char '0' *> (C.char 'x' <|> C.char 'X'))
-      digits <- underscoreDigits1 isHexDigit
+      digits <- underscoreDigits1 HexBase
       let raw = T.pack ['0', pfx] <> digits
       let val = readHexStr (T.filter (/= '_') digits)
       pure (val, raw)
 
     parseBin = do
       pfx <- M.try (C.char '0' *> (C.char 'b' <|> C.char 'B'))
-      digits <- underscoreDigits1 (\c -> c == '0' || c == '1')
+      digits <- underscoreDigits1 BinaryBase
       let raw = T.pack ['0', pfx] <> digits
       let val = readBinStr (T.filter (/= '_') digits)
       pure (val, raw)
 
     parseExplicitOctal = do
       pfx <- M.try (C.char '0' *> (C.char 'o' <|> C.char 'O'))
-      digits <- underscoreDigits1 (\c -> c >= '0' && c <= '7')
+      digits <- underscoreDigits1 OctalBase
       let raw = T.pack ['0', pfx] <> digits
       let val = readOctStr (T.filter (/= '_') digits)
       pure (val, raw)
 
     parseDecOrLegacyOctal = do
-      raw <- underscoreDigits1 isDigit
+      raw <- underscoreDigits1 DecimalBase
       let d0 = T.head raw
       let rest = T.tail raw
       let clean = T.filter (/= '_') raw
@@ -561,7 +484,7 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
       if isFloat
         then M.empty
         else if d0 == '0' && not (T.null rest)
-          then if T.all (\c -> c >= '0' && c <= '7') clean
+          then if T.all (baseDigit OctalBase) clean
             then pure (readOctStr clean, raw)
             else fail ("Invalid numeric literal " ++ T.unpack raw)
           else pure (read (T.unpack clean), raw)
@@ -576,13 +499,23 @@ literalInt = M.label "integer" $ lexeme $ withSpan $ M.try $ do
 
     readBinStr s = T.foldl' (\acc c -> acc * 2 + if c == '1' then 1 else 0) 0 s
 
-underscoreDigits :: (Char -> Bool) -> Parser Text
-underscoreDigits pred' = maybe "" id <$> optional (underscoreDigits1 pred')
+data NumericBase = DecimalBase | HexBase | OctalBase | BinaryBase
 
-underscoreDigits1 :: (Char -> Bool) -> Parser Text
-underscoreDigits1 pred' = do
-  c <- M.satisfy pred'
-  let charP = M.satisfy pred' <|> (C.char '_' <* M.lookAhead (M.satisfy pred'))
+baseDigit :: NumericBase -> Char -> Bool
+baseDigit = \case
+  DecimalBase -> isDigit
+  HexBase -> isHexDigit
+  OctalBase -> \c -> c >= '0' && c <= '7'
+  BinaryBase -> \c -> c == '0' || c == '1'
+
+underscoreDigits :: NumericBase -> Parser Text
+underscoreDigits base = maybe "" id <$> optional (underscoreDigits1 base)
+
+underscoreDigits1 :: NumericBase -> Parser Text
+underscoreDigits1 base = do
+  c <- M.satisfy (baseDigit base)
+  let digit = M.satisfy (baseDigit base)
+      charP = digit <|> (C.char '_' <* M.lookAhead digit)
   rest <- many charP
   pure (T.pack (c : rest))
 
@@ -603,11 +536,11 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
   pure (\sp -> LitFloat sp val raw)
   where
     parseRawFloat = do
-      d1 <- underscoreDigits isDigit
+      d1 <- underscoreDigits DecimalBase
       hasDot <- (True <$ C.char '.') <|> pure False
       if hasDot
         then do
-          d2 <- underscoreDigits isDigit
+          d2 <- underscoreDigits DecimalBase
           when (T.null d1 && T.null d2) M.empty
           mExp <- optional parseExp
           pure (d1 <> "." <> d2 <> maybe "" id mExp)
@@ -619,21 +552,10 @@ literalFloat = M.label "float" $ lexeme $ withSpan $ M.try $ do
     parseExp = do
       e <- C.char 'e' <|> C.char 'E'
       sgn <- optional (C.char '+' <|> C.char '-')
-      digits <- underscoreDigits1 isDigit
+      digits <- underscoreDigits1 DecimalBase
       pure (T.cons e (maybe T.empty T.singleton sgn) <> digits)
 
-decodeDoubleQuotedEscapes :: Text -> Text
-decodeDoubleQuotedEscapes = decodeEscapes (Just '"')
-
--- | Heredoc bodies decode the escapes of a double-quoted string, except @\\"@:
--- a heredoc has no quote to escape, so PHP keeps the backslash.
-decodeHeredocEscapes :: Text -> Text
-decodeHeredocEscapes = decodeEscapes Nothing
-
--- | Backtick commands decode the escapes of a double-quoted string with the
--- backtick as the quote: @\\`@ is a backtick, and @\\"@ keeps its backslash.
-decodeBacktickEscapes :: Text -> Text
-decodeBacktickEscapes = decodeEscapes (Just '`')
+data InterpolationContext = DoubleQuotedText | BacktickText | HeredocLine
 
 -- | Decode the escapes of an interpolating string whose own quote, if any, is
 -- @quote@: an escaped quote is the quote itself.
@@ -720,7 +642,7 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
     doubleQuoted = do
       (raw, parts) <- M.match $
         openQuote '"'
-          *> interpolatedParts parseInterpExpr (== '"') decodeDoubleQuotedEscapes
+          *> interpolatedParts parseInterpExpr DoubleQuotedText
           <* C.char '"'
       pure $ \sp -> case [e | StrExpr e <- parts] of
         [] -> LitString sp (T.concat [t | StrLit t <- parts]) raw
@@ -732,16 +654,20 @@ literalString parseInterpExpr = M.label "string" $ lexeme $ withSpan $ singleQuo
 shellExecParts :: Parser (Expr Span) -> Parser [StringPart Span]
 shellExecParts parseInterpExpr = M.label "backtick command" $ lexeme $
   C.char '`'
-    *> interpolatedParts parseInterpExpr (== '`') decodeBacktickEscapes
+    *> interpolatedParts parseInterpExpr BacktickText
     <* C.char '`'
 
--- | The content of a double-quoted string or of one heredoc line: literal text
--- and interpolated expressions, up to the first character satisfying @stop@
--- outside an escape. Literal text is decoded with @decode@.
 interpolatedParts
-  :: Parser (Expr Span) -> (Char -> Bool) -> (Text -> Text) -> Parser [StringPart Span]
-interpolatedParts parseInterpExpr stop decode = mergeLiterals <$> many part
+  :: Parser (Expr Span) -> InterpolationContext -> Parser [StringPart Span]
+interpolatedParts parseInterpExpr context = mergeLiterals <$> many part
   where
+    (delimiter, quote) = case context of
+      DoubleQuotedText -> ('"', Just '"')
+      BacktickText -> ('`', Just '`')
+      HeredocLine -> ('\n', Nothing)
+    stop = (== delimiter)
+    decode = decodeEscapes quote
+
     -- One chunk of content: an interpolated expression, or literal text. A
     -- failed interpolation attempt backtracks into literal text, so unmatched
     -- @{@ and stray @$@ stay ordinary characters.
@@ -891,6 +817,16 @@ mergeLiterals = \case
     collect chunks (StrLit t : rest) = collect (t : chunks) rest
     collect chunks rest = StrLit (T.concat (reverse chunks)) : mergeLiterals rest
 
+data HeredocHeader = HeredocHeader !Text | NowdocHeader !Text
+
+data ClosingIndent = NoClosingIndent | SpaceIndent !Int | TabIndent !Int
+
+closingIndentText :: ClosingIndent -> Text
+closingIndentText = \case
+  NoClosingIndent -> T.empty
+  SpaceIndent width -> T.replicate width " "
+  TabIndent width -> T.replicate width "\t"
+
 -- | Heredoc and Nowdoc (including flexible indented syntax).
 --
 -- A heredoc body interpolates like a double-quoted string, so one that embeds
@@ -904,7 +840,7 @@ mergeLiterals = \case
 -- alternatives.
 literalHeredocOrNowdoc :: Parser (Expr Span) -> Parser (Literal Span)
 literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ withSpan $ do
-  (isNowdoc, tag) <- M.try $ do
+  header <- M.try $ do
     -- An optional binary prefix @b@ / @B@ (Issue #186) immediately precedes
     -- the @<<<@ delimiter, mirroring PHP's lexer. Like string literals
     -- (Issue #143), it must abut @<<<@; @M.try@ keeps an identifier starting
@@ -915,20 +851,18 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
     _ <- C.char '\n' <|> (C.char '\r' *> optional (C.char '\n') *> pure '\n')
     pure t
 
-  -- Every body line loses the closing label's indentation, so find it first.
-  indent <- M.lookAhead (closingIndent tag)
-  -- PHP indents with one whitespace character repeated, and holds every body
-  -- line to whichever one the closer chose (Issue #262). A closer that mixes
-  -- the two answers to nothing, so it fails before any body line is read --
-  -- at the first body line, which is where PHP reports it.
-  when (T.any (== ' ') indent && T.any (== '\t') indent) mixedIndentation
-  if isNowdoc
-    then do
+  let tag = case header of
+        HeredocHeader name -> name
+        NowdocHeader name -> name
+  -- A mixed closer fails at the first body line, before body consumption.
+  indent <- classifyIndent =<< M.lookAhead (closingIndent tag)
+  case header of
+    NowdocHeader _ -> do
       content <- T.intercalate "\n" <$> bodyLines tag indent (\lead -> (lead <>) <$> M.takeWhileP Nothing (/= '\n'))
       pure (\sp -> LitHeredoc sp tag content True content)
-    else do
+    HeredocHeader _ -> do
       bodyParts <- bodyLines tag indent $ \lead -> do
-        (raw, parts) <- M.match (interpolatedParts parseInterpExpr (== '\n') decodeHeredocEscapes)
+        (raw, parts) <- M.match (interpolatedParts parseInterpExpr HeredocLine)
         pure (lead <> raw, [StrLit lead | not (T.null lead)] ++ parts)
       let raw = T.intercalate "\n" (map fst bodyParts)
           parts = mergeLiterals (intercalate [StrLit "\n"] (map snd bodyParts))
@@ -941,15 +875,15 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
         _ <- C.char '\''
         t <- rawIdentifier
         _ <- C.char '\''
-        pure (True, t))
+        pure (NowdocHeader t))
       <|> (do
         _ <- C.char '"'
         t <- rawIdentifier
         _ <- C.char '"'
-        pure (False, t))
+        pure (HeredocHeader t))
       <|> (do
         t <- rawIdentifier
-        pure (False, t))
+        pure (HeredocHeader t))
 
     lineIndent = T.pack <$> many (C.char ' ' <|> C.char '\t')
 
@@ -979,7 +913,7 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
 
     -- The body lines up to and including the closing label. Each line's
     -- leading whitespace, less the closing indentation, is handed to @line@.
-    bodyLines :: Text -> Text -> (Text -> Parser l) -> Parser [l]
+    bodyLines :: Text -> ClosingIndent -> (Text -> Parser l) -> Parser [l]
     bodyLines tag ind line = do
       lineStart <- M.getOffset
       lead <- lineIndent
@@ -991,6 +925,13 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
           l <- line =<< stripIndent lineStart ind lead
           _ <- optional (C.char '\n')
           (l :) <$> bodyLines tag ind line
+
+    classifyIndent :: Text -> Parser ClosingIndent
+    classifyIndent raw
+      | T.null raw = pure NoClosingIndent
+      | T.all (== ' ') raw = pure (SpaceIndent (T.length raw))
+      | T.all (== '\t') raw = pure (TabIndent (T.length raw))
+      | otherwise = mixedIndentation
 
     -- PHP's wording for indentation that disagrees with the closer's. The
     -- offset must already be at the line PHP would name.
@@ -1006,9 +947,10 @@ literalHeredocOrNowdoc parseInterpExpr = M.label "heredoc or nowdoc" $ lexeme $ 
     -- overlap they must agree character for character (Issue #262), which an
     -- exempt line is held to as well: PHP rejects a tab under a space-indented
     -- closer even on a line that is otherwise blank.
-    stripIndent :: Int -> Text -> Text -> Parser Text
-    stripIndent lineStart ind lead = do
-      let shared = min (T.length ind) (T.length lead)
+    stripIndent :: Int -> ClosingIndent -> Text -> Parser Text
+    stripIndent lineStart indent lead = do
+      let ind = closingIndentText indent
+          shared = min (T.length ind) (T.length lead)
       when (T.take shared lead /= T.take shared ind) $
         M.setOffset lineStart *> mixedIndentation
       blank <- M.option False (True <$ M.lookAhead (C.char '\n'))

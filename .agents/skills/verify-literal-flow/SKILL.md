@@ -19,4 +19,4 @@ This is bounded testing, not a proof. It does not enumerate all escape sequences
 
 Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`. Cases focus on `Parser/Lexer.hs`, `Parser/Internal.hs`, and `Pretty.hs`, relative to `src/Language/PHP/`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-literal-flow/SKILL.md`.
 
-After a covered change, inspect the diff and rerun. In a disposable worktree replace `True : repeat False` with `False : repeat False` in `prettyHeredocParts`. The decoded label-at-line-start cases must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.
+After a covered change, inspect the diff and rerun. In a disposable worktree replace `AtLineStart : repeat InsideLine` with `InsideLine : repeat InsideLine` in `prettyHeredocParts`. The decoded label-at-line-start cases must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` if stale.

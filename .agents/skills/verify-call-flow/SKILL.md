@@ -13,10 +13,10 @@ From the repository root run:
 bash .agents/skills/state-check-support/run-haskell.sh .agents/skills/verify-call-flow/CallFlow.hs
 ```
 
-The real parser is compared with finite rules for every argument and parameter sequence of up to three items. Twelve postfix examples compare ordinary and nullsafe receivers across calls, writes, and increments. Baseline: 137 cases, zero failures. Mismatches include the source; exit 1 signals failure and build failures are nonzero.
+The real parser is compared with finite rules for every argument and parameter sequence of up to three items. Twelve postfix examples compare ordinary and nullsafe receivers across calls, writes, and increments. Five additional cases preserve diagnostic priority, the first duplicate name, and simultaneous named/unpacked argument syntax. Baseline: 142 cases, zero failures. Mismatches include the source; exit 1 signals failure and build failures are nonzero.
 
 These are bounded tests, not a proof or a PHP runtime check. Argument names and unpacked values are syntax only; no call executes. The check does not enumerate every postfix constructor, expression, parameter context, or attribute.
 
 Review changes under `src/Language/PHP/`, `php-parser.cabal`, this skill, and `.agents/skills/state-check-support/`. Cases focus on `src/Language/PHP/Parser/Internal.hs` (argument and parameter checks, postfix chain and receiver predicates), `Parser/Statement.hs`, and `Parser/Expression.hs`; the last two paths are relative to `src/Language/PHP/`. The sync commit is `git log -1 --format=%H -- .agents/skills/verify-call-flow/SKILL.md`.
 
-After a covered change, inspect the diff and rerun the check. In a disposable worktree change the result of the `isPositional arg && seenNamed` guard in `hasPositionalAfterNamed` from `True` to `False`. The named-then-positional examples must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` when stale.
+After a covered change, inspect the diff and rerun the check. In a disposable worktree replace the `NamedPrefix` positional-argument violation in `stepArgument` with `S.empty`. The named-then-positional examples must fail. Discard the worktree, rerun the original, and update this file's sync commit only after review. Use `/maintain-formal-verification-skill` when stale.

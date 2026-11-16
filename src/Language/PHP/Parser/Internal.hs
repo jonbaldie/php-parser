@@ -27,6 +27,7 @@ module Language.PHP.Parser.Internal
 
 import Control.Applicative ((<|>), optional)
 import Control.Monad (guard, join, void, when)
+import qualified Data.List as List
 import Data.Maybe (isJust, isNothing)
 import Data.Traversable (mapAccumL)
 import qualified Data.Set as S
@@ -56,7 +57,12 @@ data TernaryMode
 -- | Replace an expression's root annotation. Every constructor holds it as
 -- its first field, so it is the first element the derived traversal visits.
 setAnnotation :: a -> Expr a -> Expr a
-setAnnotation root = snd . mapAccumL (\atRoot a -> (False, if atRoot then root else a)) True
+setAnnotation root = snd . mapAccumL visit AwaitingRoot
+  where
+    visit AwaitingRoot _ = (RootVisited, root)
+    visit RootVisited a = (RootVisited, a)
+
+data RootVisit = AwaitingRoot | RootVisited
 
 -- | Check whether an expression is an empty destructuring pattern or contains
 -- an empty destructuring pattern at any nested level.
@@ -972,61 +978,98 @@ parseAttributeWith pExpr = withSpan $ do
     then fail "Cannot use unpacking in attribute argument list"
     else pure (\sp -> Attribute sp qn args)
 
+data ArgumentPrefix
+  = PositionalPrefix
+  | NamedPrefix
+  | UnpackedPrefix
+  | NamedAndUnpackedPrefix
+
+data ArgumentProblem = PositionalAfterUnpack | PositionalAfterNamed
+  deriving (Eq, Ord)
+
+data ArgumentHistory = ArgumentHistory !ArgumentPrefix !(S.Set ArgumentProblem)
+
+stepArgument :: ArgumentHistory -> Arg a -> ArgumentHistory
+stepArgument (ArgumentHistory prefix problems) arg =
+  ArgumentHistory nextPrefix (S.union problems newProblems)
+  where
+    nextPrefix = case (isJust (argName arg), argUnpack arg) of
+      (True, True) -> NamedAndUnpackedPrefix
+      (True, False) -> case prefix of
+        UnpackedPrefix -> NamedAndUnpackedPrefix
+        NamedAndUnpackedPrefix -> NamedAndUnpackedPrefix
+        _ -> NamedPrefix
+      (False, True) -> case prefix of
+        NamedPrefix -> NamedAndUnpackedPrefix
+        NamedAndUnpackedPrefix -> NamedAndUnpackedPrefix
+        _ -> UnpackedPrefix
+      (False, False) -> prefix
+    newProblems
+      | isNothing (argName arg) && not (argUnpack arg) = case prefix of
+          PositionalPrefix -> S.empty
+          NamedPrefix -> S.singleton PositionalAfterNamed
+          UnpackedPrefix -> S.singleton PositionalAfterUnpack
+          NamedAndUnpackedPrefix -> S.fromList [PositionalAfterUnpack, PositionalAfterNamed]
+      | otherwise = S.empty
+
+finishArguments :: ArgumentHistory -> Maybe ArgumentProblem
+finishArguments (ArgumentHistory _ problems)
+  | S.member PositionalAfterUnpack problems = Just PositionalAfterUnpack
+  | S.member PositionalAfterNamed problems = Just PositionalAfterNamed
+  | otherwise = Nothing
+
 -- | Parse an argument list and reject positional arguments following argument
 -- unpacking or following named arguments.
 parseArgList :: Parser (Arg Span) -> Parser [Arg Span]
 parseArgList p = do
   args <- p `M.sepEndBy` comma
-  case () of
-    _ | hasPositionalAfterUnpack args ->
-          M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after argument unpacking")) *> pure args
-      | hasPositionalAfterNamed args ->
-          M.registerFancyFailure (S.singleton (M.ErrorFail "Cannot use positional argument after named argument")) *> pure args
-      | otherwise -> pure args
+  let history = List.foldl' stepArgument (ArgumentHistory PositionalPrefix S.empty) args
+  case finishArguments history of
+    Just problem -> M.registerFancyFailure (S.singleton (M.ErrorFail (message problem)))
+    Nothing -> pure ()
+  pure args
   where
-    hasPositionalAfterUnpack = go False
-      where
-        go _ [] = False
-        go seenUnpack (arg : rest)
-          | argUnpack arg = go True rest
-          | isPositional arg && seenUnpack = True
-          | otherwise = go seenUnpack rest
+    message PositionalAfterUnpack = "Cannot use positional argument after argument unpacking"
+    message PositionalAfterNamed = "Cannot use positional argument after named argument"
 
-    hasPositionalAfterNamed = go False
-      where
-        go _ [] = False
-        go seenNamed (arg : rest)
-          | isPositional arg && seenNamed = True
-          | isJust (argName arg) = go True rest
-          | otherwise = go seenNamed rest
+data VariadicHistory = NoVariadic | LastWasVariadic | VariadicBeforeEnd
 
-    isPositional a = isNothing (argName a) && not (argUnpack a)
+data ParameterHistory = ParameterHistory !(S.Set T.Text) !VariadicHistory !(Maybe T.Text)
+
+data ParameterProblem = DuplicateParameter !T.Text | NonFinalVariadic
+
+stepParameter :: ParameterHistory -> Param a -> ParameterHistory
+stepParameter (ParameterHistory names variadic duplicate) param =
+  ParameterHistory (S.insert name names) nextVariadic nextDuplicate
+  where
+    VarName _ name = paramName param
+    nextDuplicate = duplicate <|> if S.member name names then Just name else Nothing
+    nextVariadic = case variadic of
+      NoVariadic | paramVariadic param -> LastWasVariadic
+                 | otherwise -> NoVariadic
+      LastWasVariadic -> VariadicBeforeEnd
+      VariadicBeforeEnd -> VariadicBeforeEnd
+
+finishParameters :: ParameterHistory -> Maybe ParameterProblem
+finishParameters (ParameterHistory _ variadic duplicate) = case duplicate of
+  Just name -> Just (DuplicateParameter name)
+  Nothing -> case variadic of
+    VariadicBeforeEnd -> Just NonFinalVariadic
+    _ -> Nothing
 
 -- | Parse a parameter list, rejecting duplicate parameter names and
 -- variadic parameters before its end.
 parseParamList :: Parser (Param Span) -> Parser [Param Span]
 parseParamList p = do
   params <- p `M.sepEndBy` comma
-  case firstDuplicateName params of
-    Just name ->
-      M.registerFancyFailure (S.singleton (M.ErrorFail ("Redefinition of parameter $" <> T.unpack name))) *> pure params
-    Nothing ->
-      if hasNonFinalVariadic params
-        then M.registerFancyFailure (S.singleton (M.ErrorFail "Only the last parameter can be variadic")) *> pure params
-        else pure params
+  let history = List.foldl' stepParameter (ParameterHistory S.empty NoVariadic Nothing) params
+  case finishParameters history of
+    Just problem -> M.registerFancyFailure (S.singleton (M.ErrorFail (message problem)))
+    Nothing -> pure ()
+  pure params
   where
-    hasNonFinalVariadic [] = False
-    hasNonFinalVariadic [_] = False
-    hasNonFinalVariadic (param : rest) = paramVariadic param || hasNonFinalVariadic rest
-
-    firstDuplicateName = go S.empty
-      where
-        go _ [] = Nothing
-        go seen (param : rest) =
-          let VarName _ name = paramName param
-          in if S.member name seen
-               then Just name
-               else go (S.insert name seen) rest
+    message (DuplicateParameter name) = "Redefinition of parameter $" <> T.unpack name
+    message NonFinalVariadic = "Only the last parameter can be variadic"
 
 -- | Convert an expression to a class target (e.g. constant fetch -> ClassTargetName).
 toClassTarget :: Expr a -> ClassTarget a

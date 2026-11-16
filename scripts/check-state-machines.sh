@@ -18,6 +18,7 @@ run() {
     cat "$logs/$name.log"
   fi
 }
+run session-transitions bash scripts/check-state-transitions.sh
 for flow in script declaration call type literal trivia; do
   case "$flow" in
     script) source_file=ScriptFlow ;;

@@ -58,15 +58,15 @@ frameCases :: [Check]
 frameCases =
   [ case runPHPParser frame "frame" "" of
       Left err -> check "statement frame" False (show err)
-      Right ((before, first, nested, afterNested, second, depth, seen, current), _) ->
-        check "statement frame" (not before && first && not nested && afterNested && not second && depth == 0 && seen && not current)
-          (show (before, first, nested, afterNested, second, depth, seen, current))
+      Right ((before, first, nested, afterNested, second, current, third), _) ->
+        check "statement frame" (not before && first && not nested && afterNested && not second && not current && not third)
+          (show (before, first, nested, afterNested, second, current, third))
   , case runPHPParser failedFrame "frame" "" of
       Left err -> check "failed statement restores lexer state" False (show err)
       Right ((before, after), _) -> check "failed statement restores lexer state" (before == after) (show (before, after))
   , case runPHPParser closeHandshake "frame" "" of
-      Left err -> check "close-tag flag clears after take" False (show err)
-      Right ((first, second), _) -> check "close-tag flag clears after take" (first && not second) (show (first, second))
+      Left err -> check "claimed close tag preserves prologue; next tag is standalone" False (show err)
+      Right ((first, second), _) -> check "claimed close tag preserves prologue; next tag is standalone" (first && not second) (show (first, second))
   ]
   where
     frame = do
@@ -77,8 +77,9 @@ frameCases =
         afterNested <- atScriptStart
         pure (first, nested, afterNested)
       second <- withStatement atScriptStart
-      st <- get
-      pure (before, first, nested, afterNested, second, statementDepth st, scriptStatementSeen st, currentStatementIsFirst st)
+      current <- atScriptStart
+      third <- withStatement atScriptStart
+      pure (before, first, nested, afterNested, second, current, third)
     failedFrame = do
       before <- get
       _ <- M.observing (withStatement (markScriptStatement *> fail "expected failure"))
@@ -86,13 +87,44 @@ frameCases =
       pure (before, after)
     closeHandshake = do
       noteCloseTagTerminator
-      first <- takeCloseTagTerminator
-      second <- takeCloseTagTerminator
+      consumeCloseTag
+      first <- withStatement inDeclarePrologue
+      consumeCloseTag
+      second <- withStatement inDeclarePrologue
       pure (first, second)
+
+transactionCases :: [Check]
+transactionCases =
+  [ restored "successful lookahead restores session" "/* c */x"
+      (lookAhead (sc *> symbol "x")) (sc *> symbol "x")
+  , restored "failed lookahead restores session" "/* c */"
+      (lookAhead (sc *> fail "expected failure")) (pure "")
+  , restored "failed span restores session" "/* c */"
+      (withSpan (sc *> markScriptStatement *> fail "expected failure")) (pure "")
+  , case runPHPParser nestedNamespace "namespace" "" of
+      Right (mixed, _) -> check "nested namespace locks form" mixed (show mixed)
+      Left err -> check "nested namespace locks form" False (show err)
+  ]
+  where
+    restored :: String -> Text -> Parser Text -> Parser Text -> Check
+    restored name source speculative consume = case runPHPParser parser name source of
+      Right (equal, _) -> check name equal "session changed across speculative parser"
+      Left err -> check name False (show err)
+      where
+        parser = do
+          before <- get
+          _ <- M.observing speculative
+          after <- get
+          _ <- consume
+          pure (before == after)
+    nestedNamespace = do
+      withStatement (withStatement (enterNamespace BracketedNamespace))
+      result <- M.observing (withStatement (enterNamespace UnbracketedNamespace))
+      pure (case result of Left _ -> True; Right _ -> False)
 
 main :: IO ()
 main = runChecks $
   [ program (show events) (case foldl' advance (Just initial) events of Just _ -> True; Nothing -> False)
       ("<?php " <> T.concat (map render events))
   | events <- sequences
-  ] ++ modeCases ++ frameCases
+  ] ++ modeCases ++ frameCases ++ transactionCases

@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, replicateM)
 import qualified Data.Text as T
 import Language.PHP
 import Test.Gen.PHPSource
@@ -31,7 +31,25 @@ programs =
   , "<?php __halt_compiler();\n?>ignored"
   , "<?php switch ($x) {default: break; default: break;}"
   , "<?php try {}"
+  ] ++
+  [ "<?php " <> T.concat events
+  | events <- sequences 3 ["declare(strict_types=1); ", "echo 1; ", "; ", "namespace A {} ", "namespace A; "]
+  ] ++
+  [ "<?php " <> T.unwords modifiers <> " class C {}"
+  | modifiers <- sequences 3 ["abstract", "final", "readonly"]
+  ] ++
+  [ "<?php class C { " <> T.unwords modifiers <> " function f() {} }"
+  | modifiers <- sequences 3 ["public", "private", "static", "abstract", "final"]
+  ] ++
+  [ "<?php class C { " <> T.unwords modifiers <> " int $x; }"
+  | modifiers <- sequences 3 ["public", "private", "static", "readonly"]
+  ] ++
+  [ "<?php class C { public string $x { " <> T.concat hooks <> " } }"
+  | hooks <- sequences 3 ["get => $this->x; ", "set => $value; "]
   ]
+
+sequences :: Int -> [a] -> [[a]]
+sequences count choices = concatMap (`replicateM` choices) [0 .. count]
 
 expressions :: [T.Text]
 expressions =
@@ -45,3 +63,7 @@ expressions =
   , "<<<'END'\n$x\nEND", "<<<\"END\"\n$x\nEND", "<<<END\n  x\n  END"
   , "match ($x) {default => 1, default => 2}", "[1, 2]", "[$a, ...$b]"
   ]
+  ++ [ "f(" <> T.intercalate ", " args <> ")"
+     | args <- sequences 4 ["1", "name: 1", "...$xs", "name: ...$xs"] ]
+  ++ [ "fn(" <> T.intercalate ", " params <> ") => 1"
+     | params <- sequences 3 ["$a", "$b", "...$a", "...$b"] ]

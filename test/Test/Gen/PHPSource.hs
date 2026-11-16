@@ -149,15 +149,21 @@ importCandidates =
   , (["const:MAX_DEPTH"], "use const App\\Support\\MAX_DEPTH;")
   ]
 
+data ImportReservation = ImportCollision | ImportReserved !(Set Text)
+
+reserveImport :: Set Text -> [Text] -> ImportReservation
+reserveImport seen names
+  | any (`Set.member` seen) names = ImportCollision
+  | otherwise = ImportReserved (foldr Set.insert seen names)
+
 -- | Keep the first statement binding any given name and drop later collisions.
 dedupeImports :: [([Text], Text)] -> [Text]
 dedupeImports = go Set.empty
   where
-    go :: Set Text -> [([Text], Text)] -> [Text]
     go _ [] = []
-    go seen ((names, stmt) : rest)
-      | any (`Set.member` seen) names = go seen rest
-      | otherwise = stmt : go (foldr Set.insert seen names) rest
+    go seen ((names, stmt) : rest) = case reserveImport seen names of
+      ImportCollision -> go seen rest
+      ImportReserved reserved -> stmt : go reserved rest
 
 genProgram :: PHPVersion -> Gen PHPProgram
 genProgram v = do
