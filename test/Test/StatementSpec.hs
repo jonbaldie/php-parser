@@ -172,7 +172,6 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php class C { static public function f() {} }"
         , "<?php class C { public static function f() {} }"
         , "<?php class C { final public function f() {} }"
-        , "<?php class C { abstract public function f(); }"
         , "<?php class C { public final const X = 1; }"
         , "<?php class C { final public const X = 1; }"
         , "<?php class C { private const Y = 2; }"
@@ -1983,6 +1982,36 @@ statementTests = testGroup "Statement & Declaration Specifications"
         , "<?php trait T { abstract private function f(); }"
         , "<?php trait T { private abstract function f(); }"
         , "<?php trait T { static abstract private function f(); }"
+        ]
+    , testCase "Reject abstract members in non-abstract classes" $ do
+      mapM_ assertParsesFail
+        [ "<?php class C { abstract public function f(); }"
+        , "<?php final class C { abstract public function f(); }"
+        , "<?php class C { abstract public int $x { get; } }"
+        , "<?php enum E { case X; abstract public function f(); }"
+        , "<?php $x = new class { abstract public function f(); };"
+        , "<?php $x = new class { abstract public int $y { get; } };"
+        ]
+      case parseProgram "test.php" "<?php class C { abstract public function f(); }" of
+        Left err -> assertBool
+          "error should name the offending method"
+          (maybe False (T.isInfixOf "Abstract method f()") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php enum E { case X; abstract public function f(); }" of
+        Left err -> assertBool
+          "error should name the enum and method"
+          (maybe False (T.isInfixOf "Enum method E::f()") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      case parseProgram "test.php" "<?php $x = new class { abstract public function f(); };" of
+        Left err -> assertBool
+          "error should name the anonymous-class method"
+          (maybe False (T.isInfixOf "Anonymous class method f()") (errorCustom err))
+        Right _ -> assertFailure "Expected parse failure but parse succeeded"
+      mapM_ assertParsesOk
+        [ "<?php abstract class C { abstract public function f(); }"
+        , "<?php final class C { public function f() {} }"
+        , "<?php trait T { abstract public function f(); }"
+        , "<?php abstract class C { abstract public int $x { get; } }"
         ]
   ]
 

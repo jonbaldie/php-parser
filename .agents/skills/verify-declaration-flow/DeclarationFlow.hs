@@ -20,6 +20,7 @@ classValid xs = unique xs && not ("abstract" `elem` xs && "final" `elem` xs)
 
 methodValid :: [Text] -> Bool
 methodValid xs = unique xs && hasAtMostOne ["public", "private"] xs
+  && not ("abstract" `elem` xs)
   && not ("abstract" `elem` xs && ("final" `elem` xs || "private" `elem` xs))
 
 propertyValid :: [Text] -> Bool

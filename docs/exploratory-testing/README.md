@@ -17,6 +17,7 @@ and the limitations of that pass. Reports are named `YYYY-MM-DD-<scope>.md`.
 | [2026-10-10-real-world-corpus.md](2026-10-10-real-world-corpus.md) | Real-world corpus round trip (Laravel and vendors), printer fidelity, spans | `0.1.13.0` | [#367](https://github.com/jonbaldie/php-parser/issues/367)–[#373](https://github.com/jonbaldie/php-parser/issues/373) |
 | [2026-10-24-modern-corpus-and-spans.md](2026-10-24-modern-corpus-and-spans.md) | Modern corpus (Tempest, Symfony 8), Laravel re-run, printer fixpoints, node-span slices | `0.1.13.0` | [#389](https://github.com/jonbaldie/php-parser/issues/389)–[#395](https://github.com/jonbaldie/php-parser/issues/395) |
 | [2026-11-07-setup-blocker.md](2026-11-07-setup-blocker.md) | API journeys blocked by toolchain and lockfile requirements | `0.1.15.0` | None, no library execution |
+| [2026-11-20-public-api-journeys.md](2026-11-20-public-api-journeys.md) | Public-API journeys and declaration validation (abstract-member false accept, README snippets) | `0.1.15.0` | see report |
 
 Evidence (drivers, case corpora, replay transcripts) is kept locally under
 `exploratory-evidence/<date>-<scope>/` and is not committed.

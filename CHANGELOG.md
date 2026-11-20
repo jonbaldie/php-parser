@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Reject abstract methods and properties in non-abstract classes, abstract methods and properties in anonymous classes, and abstract methods in enums, matching PHP's compile-time fatals. Traits remain accepted (#422).
+
+* Fix the README quick-start examples to compile as written (`OverloadedStrings` and `Data.Text.IO.putStrLn`).
+
 * Restore lexer session state during lookahead so speculative token parsers do not duplicate comments.
 
 * Make parser session history, local validators, interpolation contexts and printer line positions explicit. The normal parse and print APIs are unchanged. The exposed low-level `LexerState` is now opaque; its constructor and record fields are removed. Namespace entry and close-tag consumption use atomic semantic operations. See [parser state machines](docs/design/parser-state-machines.md).
