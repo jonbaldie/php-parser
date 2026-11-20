@@ -305,6 +305,46 @@ allMutations =
             "    abstract private function describe(): string;"
       }
   , Mutation
+      { mutationName = "abstract-method-in-non-abstract-class"
+      , mutationFeature = "classes"
+      , mutationPHPRule = "Class must be declared abstract to declare abstract methods"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "abstract class Base"
+            "class Base"
+      }
+  , Mutation
+      { mutationName = "abstract-property-in-non-abstract-class"
+      , mutationFeature = "84-property-hooks"
+      , mutationPHPRule = "Class must be declared abstract to declare abstract properties"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "abstract class Named"
+            "class Named"
+      }
+  , Mutation
+      { mutationName = "abstract-method-in-enum"
+      , mutationFeature = "enums"
+      , mutationPHPRule = "Enum method must not be abstract"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "    case Draft;"
+            "    case Draft;\n\n    abstract public function extra(): string;"
+      }
+  , Mutation
+      { mutationName = "abstract-method-in-anonymous-class"
+      , mutationFeature = "83-anonymous-readonly-classes"
+      , mutationPHPRule = "Anonymous class method must not be abstract"
+      , mutationStance = Caught
+      , mutationRewrite =
+          replaceFirst
+            "= new readonly class {"
+            "= new readonly class {\n    abstract public function extra(): string;"
+      }
+  , Mutation
       { mutationName = "property-in-interface"
       , mutationFeature = "interfaces-and-traits"
       , mutationPHPRule = "Interfaces may only include hooked properties"

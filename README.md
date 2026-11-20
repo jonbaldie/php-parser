@@ -18,8 +18,10 @@ A purely functional, idiomatic Haskell library for parsing modern PHP source cod
 ## Quick Start
 
 ```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
 import Language.PHP
-import Data.Text (Text)
+import qualified Data.Text.IO as TIO
 
 main :: IO ()
 main = do
@@ -30,7 +32,7 @@ main = do
       putStrLn "Successfully parsed AST:"
       print (stripAnnotations ast)
       putStrLn "\nPretty printed output:"
-      putStrLn (prettyPrint ast)
+      TIO.putStrLn (prettyPrint ast)
 ```
 
 ## Node annotations and source spans
@@ -45,6 +47,10 @@ For results from the public parser, use
 `nodeSpan :: HasAnnotation f => f (Annotated Span) -> Span`:
 
 ```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+import Language.PHP
+
 case parseStatement "example.php" "echo 1;" of
   Left err -> print err
   Right stmt -> print (nodeSpan stmt)

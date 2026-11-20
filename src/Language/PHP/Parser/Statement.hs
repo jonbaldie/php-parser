@@ -1099,7 +1099,7 @@ parseParamModifiers = do
 -- | The enclosing declaration kind in which class members are parsed.
 -- PHP applies different member rules to enums, classes, traits, and interfaces.
 data ClassContext
-  = ClassContext !T.Text !Bool     -- ^ class name, readonly flag
+  = ClassContext !T.Text !Bool !Bool  -- ^ class name, readonly flag, abstract flag
   | AnonClassContext !Bool         -- ^ anonymous class; readonly flag
   | TraitContext                   -- ^ trait
   | EnumContext !T.Text !Bool      -- ^ enum name, backed flag
@@ -1108,12 +1108,12 @@ data ClassContext
 
 -- | Class member declaration.
 parseClassMember :: Parser (ClassMember Span)
-parseClassMember = parseClassMemberInContext (ClassContext "" False)
+parseClassMember = parseClassMemberInContext (ClassContext "" False False)
 
 parseClassMemberInContext :: ClassContext -> Parser (ClassMember Span)
 parseClassMemberInContext ctx = do
   enclosingReadonly <- pure $ case ctx of
-    ClassContext _ ro -> ro
+    ClassContext _ ro _ -> ro
     AnonClassContext ro -> ro
     _ -> False
   member <-
@@ -1141,6 +1141,10 @@ checkMember ctx member = do
     (EnumContext _ _, MemberProperty _) -> forbidden "Enums may not include properties"
     (EnumContext _ _, MemberMethod md)
       | any isPromotedParam (methodParams md) -> forbidden "Enums may not include properties"
+    (EnumContext enumName _, MemberMethod md) -> do
+      let Ident _ mName = methodName md
+      when (methodAbstract (methodModifier md)) $
+        forbidden ("Enum method " <> enumName <> "::" <> mName <> "() must not be abstract")
     (InterfaceContext ifaceName, MemberConst cd) ->
       case constVis cd of
         Just Private ->
@@ -1170,17 +1174,28 @@ checkMember ctx member = do
       | any hookFinal (propHooks pd) ->
           forbidden "Property hook cannot be both abstract and final"
     (InterfaceContext _, MemberTraitUse _) -> forbidden "Cannot use traits inside of interfaces"
-    (ClassContext className ro, MemberMethod md) -> do
+    (ClassContext className ro isAbstract, MemberMethod md) -> do
       let Ident _ mName = methodName md
           modif = methodModifier md
           target = if T.null className then mName else className <> "::" <> mName
       when (methodAbstract modif && methodVis modif == Just Private) $
         forbidden ("Abstract function " <> target <> "() cannot be declared private")
+      when (methodAbstract modif && not isAbstract) $
+        forbidden ("Abstract method " <> mName <> "() must be declared in an abstract class")
       when (ro && any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
         forbidden "Readonly classes cannot declare untyped properties"
-    (AnonClassContext True, MemberMethod md) -> do
-      when (any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
+    (AnonClassContext ro, MemberMethod md) -> do
+      let Ident _ mName = methodName md
+      when (methodAbstract (methodModifier md)) $
+        forbidden ("Anonymous class method " <> mName <> "() must not be abstract")
+      when (ro && any (\p -> isPromotedParam p && isNothing (paramType p)) (methodParams md)) $
         forbidden "Readonly classes cannot declare untyped properties"
+    (ClassContext _ _ isAbstract, MemberProperty pd)
+      | propAbstract (propModifier pd) && not isAbstract ->
+          forbidden "Abstract property must be declared in an abstract class"
+    (AnonClassContext _, MemberProperty pd)
+      | propAbstract (propModifier pd) ->
+          forbidden "Anonymous class property must not be abstract"
     (_, MemberProperty pd)
       | propReadonly (propModifier pd) && isNothing (propType pd) ->
           forbidden "Readonly property must have type"
@@ -1194,7 +1209,7 @@ checkMember ctx member = do
     _ -> pure ()
   where
     forbidden msg = M.fancyFailure (S.singleton (M.ErrorFail (T.unpack msg)))
-    isReadonlyCtx (ClassContext _ ro) = ro
+    isReadonlyCtx (ClassContext _ ro _) = ro
     isReadonlyCtx (AnonClassContext ro) = ro
     isReadonlyCtx _ = False
 
@@ -1388,7 +1403,7 @@ parseClass = withSpan $ do
   name@(Ident _ className) <- declarationIdentifier
   mExtends <- optional (keyword "extends" *> qualifiedName)
   impls <- (keyword "implements" *> (qualifiedName `M.sepBy1` comma)) <|> pure []
-  members <- braces (M.many (parseClassMemberInContext (ClassContext className (classReadonly modif))))
+  members <- braces (M.many (parseClassMemberInContext (ClassContext className (classReadonly modif) (classAbstract modif))))
   pure (\sp -> StmtClass sp (ClassDecl sp attrs modif name mExtends impls members))
 
 -- | Interface declaration.
