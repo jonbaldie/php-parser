@@ -98,6 +98,10 @@ jobs:
         shell: bash
         run: bash scripts/check-parser-lookahead.sh | tee parser-lookahead.log
 
+      - name: Check HasLeadingTrivia contract
+        shell: bash
+        run: bash scripts/check-has-leading-trivia.sh | tee has-leading-trivia.log
+
       - name: Check shared-query historical regressions
         shell: bash
         run: bash scripts/check-fold-query-history.sh fold-query-history-results | tee fold-query-history-summary.log

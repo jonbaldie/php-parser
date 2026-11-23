@@ -1,6 +1,4 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Language.PHP.Pretty
   ( -- * High-level printing functions
@@ -27,19 +25,45 @@ import Prettyprinter.Render.Text (renderStrict)
 
 import Language.PHP.AST hiding (annotation)
 import qualified Language.PHP.AST as AST (annotation)
+import Language.PHP.Span (Span)
 
 -- | An annotation may carry comments that precede the annotated node.
 --
--- The fallback instance keeps the pretty-printer source-compatible with the
--- existing API, whose AST annotations are intentionally polymorphic.
+-- Only annotation types with an explicit 'HasLeadingTrivia' instance can be
+-- printed. The library provides instances for:
+--
+-- * @Annotated a@, which carries the node's leading comments;
+-- * @()@ and 'Span', which carry no comments;
+-- * pairs @(a, b)@ where @a@ has an instance, which delegate to the first
+--   component, so decorating an annotation with extra metadata (for example
+--   via @mapAnnotation (\\a -> (a, info))@) retains its comments.
+--
+-- There is deliberately no catch-all instance. A custom annotation type
+-- without an instance fails to compile at a printing call site instead of
+-- silently printing without comments. To migrate such a type, either write
+-- an explicit instance delegating to the trivia of the annotation it wraps
+-- (or returning @[]@ if it carries none), or project the annotation to a
+-- supported type with 'mapAnnotation' before printing.
+--
+-- Retaining an annotation inside a wrapper (such as the first component of
+-- a pair) preserves its comments, whereas deliberately discarding it (for
+-- example with @stripAnnotations@, which replaces every annotation by @()@)
+-- discards its comments. The class cannot distinguish those two intentions;
+-- it only makes the second one visible at the call site.
 class HasLeadingTrivia a where
   leadingTrivia :: a -> [Trivia]
 
 instance HasLeadingTrivia (Annotated a) where
   leadingTrivia = annTrivia
 
-instance {-# OVERLAPPABLE #-} HasLeadingTrivia a where
+instance HasLeadingTrivia () where
   leadingTrivia _ = []
+
+instance HasLeadingTrivia Span where
+  leadingTrivia _ = []
+
+instance HasLeadingTrivia a => HasLeadingTrivia (a, b) where
+  leadingTrivia = leadingTrivia . fst
 
 prettyLeadingTrivia :: HasLeadingTrivia a => a -> Doc ann -> Doc ann
 prettyLeadingTrivia annotation doc = case leadingTrivia annotation of

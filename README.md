@@ -60,6 +60,32 @@ case parseStatement "example.php" "echo 1;" of
 `Expr`, `Stmt`, `ClassMember`, `Type` and `Param` nodes. For all other annotated
 node families, use `nodeSpan` directly.
 
+## Printing and leading trivia
+
+Comments live only in the annotation, and the printer finds them through
+`HasLeadingTrivia`. Only annotation types with an explicit instance can be
+printed:
+
+- `Annotated a` carries the node's leading comments (the parser's output);
+- `()` and `Span` carry no comments;
+- a pair `(a, b)` delegates to its first component, so decorating an
+  annotation with extra metadata retains its comments:
+
+```haskell
+prettyPrint (mapAnnotation (\a -> (a, info)) ast)  -- prints comments
+```
+
+There is deliberately no catch-all instance. Printing a custom annotation
+type without an instance fails to compile with "No instance for
+`HasLeadingTrivia`" instead of silently printing without comments. To
+migrate such a type, either write an explicit instance delegating to the
+trivia of the annotation it wraps (or returning `[]` if it carries none),
+or project the annotation to a supported type with `mapAnnotation` before
+printing. Note the distinction this makes visible: retaining an annotation
+inside a wrapper preserves its comments, whereas `stripAnnotations`
+deliberately discards every annotation (replacing it with `()`), and so
+deliberately discards comments too.
+
 ## Running Tests
 
 The test suite uses [Tasty](https://hackage.haskell.org/package/tasty) with HUnit and QuickCheck:
