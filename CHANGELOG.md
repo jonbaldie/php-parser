@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* **Breaking:** Remove `HasLeadingTrivia`'s `OVERLAPPABLE` catch-all instance. Only `Annotated a`, `()`, `Span`, pairs delegating to their first component, and custom annotation types with an explicit `HasLeadingTrivia` instance can now be printed; printing any other annotation type fails to compile with "No instance for `HasLeadingTrivia`" instead of silently printing without comments. Decorating an annotation with `mapAnnotation (\a -> (a, info))` now preserves its comments via the pair instance, while `stripAnnotations` still deliberately discards them. Migrate custom annotation types by writing an explicit instance delegating to the trivia of the annotation they wrap, or by projecting to a supported type with `mapAnnotation` before printing (#406).
+
 * Reject abstract methods and properties in non-abstract classes, abstract methods and properties in anonymous classes, and abstract methods in enums, matching PHP's compile-time fatals. Traits remain accepted (#422).
 
 * Fix the README quick-start examples to compile as written (`OverloadedStrings` and `Data.Text.IO.putStrLn`).

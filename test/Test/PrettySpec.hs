@@ -665,4 +665,90 @@ prettyTests = testGroup "Pretty Printer Specifications"
       assertEqual "separator protects the stored newline"
         "?>\n\nHTML<?php"
         (prettyPrintStmt (StmtInlineHtml () "\nHTML"))
+
+  , testGroup "HasLeadingTrivia explicit instances (Issue #406)"
+      [ testCase "original program prints its leading comment" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertBool "original prints // keep me"
+                ("// keep me" `T.isInfixOf` prettyPrint ast)
+      , testCase "pair-wrapped annotations print exactly as the original" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertEqual "pair decoration preserves printed output"
+                (prettyPrint ast)
+                (prettyPrint (mapAnnotation (\ann -> (ann, ())) ast))
+      , testCase "nested pair decoration delegates to the first component" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertEqual "nested pair decoration preserves printed output"
+                (prettyPrint ast)
+                (prettyPrint (mapAnnotation (\ann -> ((ann, ()), ())) ast))
+      , testCase "pair with an arbitrary second component delegates to the first" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertEqual "second component does not affect trivia"
+                (prettyPrint ast)
+                (prettyPrint (mapAnnotation (\ann -> (ann, 42 :: Int)) ast))
+      , testCase "stripAnnotations deliberately discards comments" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertBool "stripped program does not print // keep me"
+                (not ("// keep me" `T.isInfixOf` prettyPrint (stripAnnotations ast)))
+      , testCase "Program Span remains printable without comments" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> do
+              let printed = prettyPrint (mapAnnotation annValue ast)
+              assertBool "Span program prints the function" ("function f" `T.isInfixOf` printed)
+              assertBool "Span program does not print // keep me"
+                (not ("// keep me" `T.isInfixOf` printed))
+      , testCase "Program (Span, ()) remains printable without comments" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast -> do
+              let printed = prettyPrint (mapAnnotation (\sp -> (sp, ())) (mapAnnotation annValue ast))
+              assertBool "(Span, ()) program prints the function" ("function f" `T.isInfixOf` printed)
+              assertBool "(Span, ()) program does not print // keep me"
+                (not ("// keep me" `T.isInfixOf` printed))
+      , testCase "pair-wrapped statement prints exactly as the original" $ do
+          case parseStatement "issue-406.php" "// keep me\necho 1;" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right stmt ->
+              assertEqual "pair decoration preserves statement output"
+                (prettyPrintStmt stmt)
+                (prettyPrintStmt (mapAnnotation (\ann -> (ann, ())) stmt))
+      , testCase "pair-wrapped type prints exactly as the original" $ do
+          let ann = Annotated emptySpan [CommentLine " keep me"]
+          let plain = Annotated emptySpan [] :: Annotated Span
+          let typ = SimpleType ann (QualifiedName plain NameUnqualified ["Foo"])
+          let wrapped = mapAnnotation (\a -> (a, ())) typ :: Type (Annotated Span, ())
+          assertEqual "pair decoration preserves type output"
+            (prettyPrintType typ)
+            (prettyPrintType wrapped)
+          assertBool "type output contains // keep me" ("// keep me" `T.isInfixOf` prettyPrintType wrapped)
+      , testCase "custom annotation with an explicit instance prints its comments" $ do
+          case parseProgram "issue-406.php" "<?php\n// keep me\nfunction f() {}\n" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right ast ->
+              assertEqual "custom instance preserves printed output"
+                (prettyPrint ast)
+                (prettyPrint (mapAnnotation MyAnnotation ast))
+      ]
   ]
+
+-- | A custom annotation type that explicitly opts into trivia support by
+-- delegating to the 'Annotated' annotation it wraps (Issue #406). The
+-- negative counterpart (a custom type with no such instance) cannot be
+-- written here because it must not compile at a printing call site; it is
+-- recorded in @test/fixtures/HasLeadingTriviaNegative.hs@ and checked by
+-- @scripts/check-has-leading-trivia.sh@.
+newtype MyAnnotation = MyAnnotation (Annotated Span)
+
+instance HasLeadingTrivia MyAnnotation where
+  leadingTrivia (MyAnnotation ann) = leadingTrivia ann
