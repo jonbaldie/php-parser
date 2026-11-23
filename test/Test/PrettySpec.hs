@@ -723,6 +723,13 @@ prettyTests = testGroup "Pretty Printer Specifications"
               assertEqual "pair decoration preserves statement output"
                 (prettyPrintStmt stmt)
                 (prettyPrintStmt (mapAnnotation (\ann -> (ann, ())) stmt))
+      , testCase "pair-wrapped expression prints exactly as the original" $ do
+          case parseExpression "issue-406.php" "// keep me\n$x" of
+            Left err -> assertFailure (show (formatParseError err))
+            Right expr ->
+              assertEqual "pair decoration preserves expression output"
+                (prettyPrintExpr expr)
+                (prettyPrintExpr (mapAnnotation (\ann -> (ann, ())) expr))
       , testCase "pair-wrapped type prints exactly as the original" $ do
           let ann = Annotated emptySpan [CommentLine " keep me"]
           let plain = Annotated emptySpan [] :: Annotated Span
